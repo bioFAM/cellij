@@ -13,7 +13,7 @@ Implementation of a Modular Multi-Omics Factor Model Framework
 
 Please refer to the [documentation][link-docs]. In particular, the
 
--   [API documentation][link-api].
+- [API documentation][link-api].
 
 ## Installation
 
@@ -33,7 +33,7 @@ pip install cellij
 1. Install the latest development version:
 
 ```bash
-pip install git+https://github.com/timtreis/cellij.git@main
+pip install git+https://github.com/bioFAM/cellij.git@main
 ```
 
 ## Release notes

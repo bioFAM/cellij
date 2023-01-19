@@ -12,9 +12,13 @@ requires-python = ">=3.8"
 license = {file = "LICENSE"}
 authors = [
     {name = "Tim Treis"},
+    {name = "Martin Rohbeck"},
+    {name = "Arber Qoku"},
 ]
 maintainers = [
     {name = "Tim Treis", email = "tim.treis@helmholtz-muenchen.de"},
+    {name = "Martin Rohbeck", email = "martin.rohbeck@dkfz-heidelberg.de"},
+    {name = "Arber Qoku", email = "arber.qoku@dkfz-heidelberg.de"},
 ]
 urls.Documentation = "https://cellij.readthedocs.io/"
 urls.Source = "https://github.com/bioFAM/cellij"
