@@ -1,4 +1,6 @@
 import torch
+from cellij.core._datacontainer import DataContainer
+from cellij.core._group import Group
 
 class FactorModel:
     """
@@ -61,7 +63,15 @@ class FactorModel:
         device = "cpu",
     ):
         
-        pass
+        self._model = model
+        self._guide = guide
+        self._trainer = trainer
+        self._dtype = dtype
+        self._device = device
+        self._data = DataContainer()
+        self._is_trained = False
+        self._feature_groups = {}
+        self._obs_groups = {}
     
     @property
     def model(self):
@@ -105,14 +115,52 @@ class FactorModel:
     
     @property
     def data(self):
-        pass
+        
+        return self._data
     
     @data.setter
     def data(self, *args):
 
         raise AttributeError("Use `add_data()`, `set_data` or `remove_data()` to modify this property.")
     
+    @property
+    def is_trained(self):
+    
+        return self._is_trained
+    
+    @is_trained.setter
+    def is_trained(self, *args):
+            
+            raise AttributeError("This property is read-only.")
+    
+    @property
+    def feature_groups(self):
+        
+        return self._feature_groups
+    
+    @feature_groups.setter
+    def feature_groups(self, *args):
+
+        raise AttributeError("Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` to modify this property.")
+    
+    
+    @property
+    def obs_groups(self):
+        
+        return self._obs_groups
+    
+    @obs_groups.setter
+    def obs_groups(self, *args):
+
+        raise AttributeError("Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property.")
+    
     def add_data(self, name, data, **kwargs):
+        
+        # take in any form of tabular data
+        # if it is anything but anndata or mudata, convert it to anndata
+        # if it is anndata, add it to self.data
+        # if it is mudata, add the individual anndata to self.data
+        
         pass
     
     def set_data(self, name, data, **kwargs):
@@ -140,16 +188,40 @@ class FactorModel:
         self._remove_group(name=name,  level='obs', **kwargs)
     
     def _add_group(self, name, group, level, **kwargs):
-        pass
+        
+        if name in self._feature_groups.keys() or name in self._obs_groups.keys():
+            raise ValueError(f"A group with the name {name} already exists.")
+        
+        if level == 'feature':
+            self._feature_groups[name] = group
+        elif level == 'obs':
+            self._obs_groups[name] = group
+        else:
+            raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
     
     def _set_group(self, name, group, level, **kwargs):
-        pass
+        
+        if level == 'feature':
+            self._feature_groups[name] = group
+        elif level == 'obs':
+            self._obs_groups[name] = group
+        else:
+            raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
     
     def _remove_group(self, name, level, **kwargs):
-        pass
+    
+        if name not in self._feature_groups.keys() and name not in self._obs_groups.keys():
+            
+            raise ValueError(f"No group with the name {name} exists.")
+    
+        if level == 'feature':
+            del self._feature_groups[name]
+        elif level == 'obs':
+            del self._obs_groups[name]
+        else:
+            raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
     
     def fit(self, dry_run=False, **kwargs):
         pass
-    
-    
+
     
