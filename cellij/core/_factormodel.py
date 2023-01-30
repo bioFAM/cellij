@@ -1,6 +1,6 @@
 import torch
 
-class BaseFactorModel:
+class FactorModel:
     """
     The baseclass from with all cellij models should inherit.
 
@@ -67,7 +67,7 @@ class BaseFactorModel:
     def model(self):
         pass
     
-    @property.setter
+    @model.setter
     def model(self, model):
         pass
     
@@ -75,7 +75,7 @@ class BaseFactorModel:
     def guide(self):
         pass
     
-    @property.setter
+    @guide.setter
     def guide(self, guide):
         pass
     
@@ -83,7 +83,7 @@ class BaseFactorModel:
     def trainer(self):
         pass
     
-    @property.setter
+    @trainer.setter
     def trainer(self, trainer):
         pass
     
@@ -91,7 +91,7 @@ class BaseFactorModel:
     def dtype(self):
         pass
     
-    @property.setter
+    @dtype.setter
     def dtype(self, dtype):
         pass
     
@@ -99,9 +99,18 @@ class BaseFactorModel:
     def device(self):
         pass
     
-    @property.setter
+    @device.setter
     def device(self, device):
         pass
+    
+    @property
+    def data(self):
+        pass
+    
+    @data.setter
+    def data(self, *args):
+
+        raise AttributeError("Use `add_data()`, `set_data` or `remove_data()` to modify this property.")
     
     def add_data(self, name, data, **kwargs):
         pass
