@@ -1,10 +1,9 @@
 import torch
-from cellij.core._datacontainer import DataContainer
+from cellij.core._data import DataContainer
 from cellij.core._group import Group
 
 class FactorModel:
-    """
-    The baseclass from with all cellij models should inherit.
+    """Base class for all estimators in cellij.
 
     Attributes
     ----------
@@ -14,9 +13,9 @@ class FactorModel:
         the variational distribution
     trainer : cellij.trainer
         defines the training procedure, i.e. the loss function and the optimizer
-    dtype : torch.dtype
+    dtype : torch.dtype, default = torch.float32
         the data type of the model 
-    device : str, default = str
+    device : str, default = "cpu"
         the device on which the model is run
         
 
