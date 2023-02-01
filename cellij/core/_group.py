@@ -1,9 +1,7 @@
-
-
 class Group:
-    """ Top-level object to collect features or observations.
-    
-    
+    """Top-level object to collect features or observations.
+
+
     Attributes
     ----------
     name : str
@@ -12,7 +10,7 @@ class Group:
         list of features or observations belonging to the group
     level : str
         level of the group, either 'feature' or 'obs'
-    
+
     """
 
     def __init__(self, name, members, level):
