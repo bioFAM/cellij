@@ -9,46 +9,46 @@ class FactorModel:
     Attributes
     ----------
     model : cellij.model
-        the generative model
+        The generative model
     guide : cellij.guide
-        the variational distribution
+        The variational distribution
     trainer : cellij.trainer
-        defines the training procedure, i.e. the loss function and the optimizer
+        Defines the training procedure, i.e. the loss function and the optimizer
     dtype : torch.dtype, default = torch.float32
-        the data type of the model
+        The data type of the model
     device : str, default = "cpu"
-        the device on which the model is run
+        The device on which the model is run
 
 
     Methods
     -------
     add_data(name, data, **kwargs)
-        adds data to the model
+        Adds data to the model
     set_data(name, data, **kwargs)
-        overwrites data with the same name
+        Overwrites data with the same name
     remove_data(name, **kwargs)
-        removes a data from the model by its name
+        Removes a data from the model by its name
 
     add_feature_group(name, features, **kwargs)
-        delegates to _add_group(..., level = 'feature')
+        Delegates to _add_group(..., level = 'feature')
     set_feature_group(name, features, **kwargs)
-        delegates to _set_group(..., level = 'feature')
+        Delegates to _set_group(..., level = 'feature')
     remove_feature_group(name, **kwargs)
-        delegates to _remove_group(..., level = 'feature')
+        Delegates to _remove_group(..., level = 'feature')
 
     add_obs_group(name, features, **kwargs)
-        delegates to _add_group(..., level = 'obs')
+        Delegates to _add_group(..., level = 'obs')
     set_obs_group(name, features, **kwargs)
-        delegates to _set_group(..., level = 'obs')
+        Delegates to _set_group(..., level = 'obs')
     remove_obs_group(name, **kwargs)
-        delegates to _remove_group(..., level = 'obs')
+        Delegates to _remove_group(..., level = 'obs')
 
     _add_group(name, group, level, **kwargs)
-        adds a group to the model
+        Adds a group to the model
     _set_group(name, group, level, **kwargs)
-        overwrites a group with the same name
+        Overwrites a group with the same name
     _remove_group(name, level, **kwargs)
-        removes a group from the model by its name
+        Removes a group from the model by its name
 
     fit(dry_run=False, **kwargs)
 

@@ -5,11 +5,11 @@ class Group:
     Attributes
     ----------
     name : str
-        name of the group
+        Name of the group
     members : list
-        list of features or observations belonging to the group
+        List of features or observations belonging to the group
     level : str
-        level of the group, either 'feature' or 'obs'
+        Level of the group, either 'feature' or 'obs'
 
     """
 
