@@ -10,8 +10,10 @@ class FactorModel:
     ----------
     model : cellij.model
         The generative model
-    guide : cellij.guide
+    guide : Union[str, pyro.infer.autoguide.initialization, cellij.guide]
         The variational distribution
+    n_factors : int
+        The number of factors
     trainer : cellij.trainer
         Defines the training procedure, i.e. the loss function and the optimizer
     dtype : torch.dtype, default = torch.float32
@@ -58,6 +60,7 @@ class FactorModel:
         self,
         model,
         guide,
+        n_factors,
         trainer,
         dtype=torch.float32,
         device="cpu",
@@ -65,6 +68,7 @@ class FactorModel:
 
         self._model = model
         self._guide = guide
+        self._n_factors = n_factors
         self._trainer = trainer
         self._dtype = dtype
         self._device = device
@@ -87,6 +91,14 @@ class FactorModel:
 
     @guide.setter
     def guide(self, guide):
+        pass
+
+    @property
+    def n_factors(self):
+        pass
+
+    @n_factors.setter
+    def n_factors(self, n_factors):
         pass
 
     @property
