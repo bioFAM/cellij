@@ -506,23 +506,43 @@ class DataGenerator:
     def generate_missingness(
         self,
         random_fraction: float = 0.0,
-        n_partial_samples: int = 0,
-        n_partial_features: int = 0,
-        missing_fraction_partial_features: float = 0.0,
-        seed=None,
+        n_incomplete_samples: int = 0,
+        n_incomplete_features: int = 0,
+        missing_fraction_incomplete_features: float = 0.0,
+        seed: int = None,
     ):
+        """Generate missingness pattern.
+
+        Parameters
+        ----------
+        random_fraction : float, optional
+            Fraction of missing data at random, by default 0.0
+        n_incomplete_samples : int, optional
+            Number of incomplete samples, by default 0
+        n_incomplete_features : int, optional
+            Number of incomplete features, by default 0
+        missing_fraction_incomplete_features : float, optional
+            Missingness fraction of incomplete features, by default 0.0
+        seed : int, optional
+            Random seed, by default None
+
+        Returns
+        -------
+        RandomGenerator
+            The numpy random generator that generated this data.
+        """
 
         rng = np.random.default_rng()
 
         if seed is not None:
             rng = np.random.default_rng(seed)
 
-        n_partial_samples = int(n_partial_samples)
-        n_partial_features = int(n_partial_features)
+        n_incomplete_samples = int(n_incomplete_samples)
+        n_incomplete_features = int(n_incomplete_features)
 
         sample_view_mask = np.ones((self.n_samples, self.n_feature_groups))
         missing_sample_indices = rng.choice(
-            self.n_samples, n_partial_samples, replace=False
+            self.n_samples, n_incomplete_samples, replace=False
         )
 
         # partially missing samples
@@ -540,13 +560,13 @@ class DataGenerator:
 
         # partially missing features
         missing_feature_indices = rng.choice(
-            sum(self.n_features), n_partial_features, replace=False
+            sum(self.n_features), n_incomplete_features, replace=False
         )
 
         for mf_idx in missing_feature_indices:
             random_sample_indices = rng.choice(
                 self.n_samples,
-                int(self.n_samples * missing_fraction_partial_features),
+                int(self.n_samples * missing_fraction_incomplete_features),
                 replace=False,
             )
             mask[random_sample_indices, mf_idx] = 0
