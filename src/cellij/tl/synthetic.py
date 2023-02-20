@@ -6,7 +6,7 @@ from typing import List, Tuple, Optional
 
 import numpy as np
 from numpy.typing import ArrayLike
-from numpy.random import n_feature_groups as RandomGenerator
+from numpy.random import Generator
 
 logger = logging.getLogger(__name__)
 
@@ -212,14 +212,14 @@ class DataGenerator:
 
     def _generate_factor_mask(
         self,
-        rng: Optional[RandomGenerator] = None,
+        rng: Optional[Generator] = None,
         level: str = "features",
     ) -> ArrayLike:
         """Generate factor activity mask across groups.
 
         Parameters
         ----------
-        rng : Optional[RandomGenerator], optional
+        rng : Optional[Generator], optional
             Random number generator, by default None
         level : str, optional
             'obs' or 'features', by default 'features'
@@ -289,7 +289,7 @@ class DataGenerator:
         """Sigmoid transformation."""
         return 1.0 / (1 + np.exp(-x))
 
-    def generate(self, seed: int = None, overwrite: bool = False) -> RandomGenerator:
+    def generate(self, seed: int = None, overwrite: bool = False) -> Generator:
         """Generate synthetic data.
 
         Parameters
@@ -301,7 +301,7 @@ class DataGenerator:
 
         Returns
         -------
-        RandomGenerator
+        Generator
             The numpy random generator that generated this data.
         """
         rng = np.random.default_rng()
@@ -414,7 +414,7 @@ class DataGenerator:
 
     def get_noisy_mask(
         self,
-        rng: Optional[RandomGenerator] = None,
+        rng: Optional[Generator] = None,
         noise_fraction: float = 0.1,
         feature_group_indices: Optional[List[int]] = None,
     ) -> List[ArrayLike]:
@@ -422,7 +422,7 @@ class DataGenerator:
 
         Parameters
         ----------
-        rng : Optional[RandomGenerator], optional
+        rng : Optional[Generator], optional
             Random number generator, by default None
         noise_fraction : float, optional
             Fraction of noise, by default 0.1
@@ -528,7 +528,7 @@ class DataGenerator:
 
         Returns
         -------
-        RandomGenerator
+        Generator
             The numpy random generator that generated this data.
         """
 
