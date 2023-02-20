@@ -1,3 +1,5 @@
+[![Cellij Logo](https://github.com/bioFAM/cellij/blob/feature/issue-x/logo/docs/_static/logo2.png)](https://github.com/bioFAM/cellij)
+
 # cellij
 
 [![Tests][badge-tests]][link-tests]
