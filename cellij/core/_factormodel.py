@@ -1,9 +1,12 @@
+import pyro
 import torch
+from pyro.infer import SVI
+from pyro.nn import PyroModule
+
 from cellij.core._data import DataContainer
-from cellij.core._group import Group
 
 
-class FactorModel:
+class FactorModel(PyroModule):
     """Base class for all estimators in cellij.
 
     Attributes
@@ -65,9 +68,9 @@ class FactorModel:
         dtype=torch.float32,
         device="cpu",
     ):
+        super().__init__(name="FactorModel")
 
         self._model = model
-        self._guide = guide
         self._n_factors = n_factors
         self._trainer = trainer
         self._dtype = dtype
@@ -76,6 +79,13 @@ class FactorModel:
         self._is_trained = False
         self._feature_groups = {}
         self._obs_groups = {}
+
+        # Setup
+        if isinstance(guide, str):
+            if guide == "AutoNormal":
+                self._guide = pyro.infer.autoguide.AutoNormal(self._model)
+            else:
+                raise ValueError(f"Unknown guide: {guide}")
 
     @property
     def model(self):
@@ -91,15 +101,15 @@ class FactorModel:
 
     @guide.setter
     def guide(self, guide):
-        pass
+        self._guide = guide
 
     @property
     def n_factors(self):
-        pass
+        return self._n_factors
 
     @n_factors.setter
     def n_factors(self, n_factors):
-        pass
+        self._n_factors = n_factors
 
     @property
     def trainer(self):
@@ -127,54 +137,45 @@ class FactorModel:
 
     @property
     def data(self):
-
         return self._data
 
     @data.setter
     def data(self, *args):
-
         raise AttributeError("Use `add_data()`, `set_data` or `remove_data()` to modify this property.")
 
     @property
     def is_trained(self):
-
         return self._is_trained
 
     @is_trained.setter
     def is_trained(self, *args):
-
         raise AttributeError("This property is read-only.")
 
     @property
     def feature_groups(self):
-
         return self._feature_groups
 
     @feature_groups.setter
     def feature_groups(self, *args):
-
         raise AttributeError(
             "Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` to modify this property."
         )
 
     @property
     def obs_groups(self):
-
         return self._obs_groups
 
     @obs_groups.setter
     def obs_groups(self, *args):
-
         raise AttributeError("Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property.")
 
     def add_data(self, name, data, **kwargs):
-
         # take in any form of tabular data
         # if it is anything but anndata or mudata, convert it to anndata
         # if it is anndata, add it to self.data
         # if it is mudata, add the individual anndata to self.data
 
-        pass
+        self._data = data
 
     def set_data(self, name, data, **kwargs):
         pass
@@ -201,7 +202,6 @@ class FactorModel:
         self._remove_group(name=name, level="obs", **kwargs)
 
     def _add_group(self, name, group, level, **kwargs):
-
         if name in self._feature_groups.keys() or name in self._obs_groups.keys():
             raise ValueError(f"A group with the name {name} already exists.")
 
@@ -213,7 +213,6 @@ class FactorModel:
             raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
 
     def _set_group(self, name, group, level, **kwargs):
-
         if level == "feature":
             self._feature_groups[name] = group
         elif level == "obs":
@@ -222,9 +221,7 @@ class FactorModel:
             raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
 
     def _remove_group(self, name, level, **kwargs):
-
         if name not in self._feature_groups.keys() and name not in self._obs_groups.keys():
-
             raise ValueError(f"No group with the name {name} exists.")
 
         if level == "feature":
@@ -234,5 +231,24 @@ class FactorModel:
         else:
             raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
 
-    def fit(self, dry_run=False, **kwargs):
-        pass
+    def fit(self, likelihood, dry_run=False, epochs=1000, **kwargs):
+        # Check if data is set
+        if self._data is None:
+            raise ValueError("No data set.")
+        if likelihood != "Normal":
+            raise ValueError("Only Normal likelihood is implemented so far.")
+
+        svi = SVI(
+            model=self._model,
+            guide=self._guide,
+            optim=pyro.optim.Adam({"lr": 0.05, "betas": (0.90, 0.999)}),
+            loss=pyro.infer.Trace_ELBO(),
+        )
+
+        for i in range(epochs + 1):
+            loss = svi.step(X=torch.tensor(self._data["mrna"].X))
+
+            if i % 100 == 0:
+                print(f"Epoch {i:>6}: {loss:>14.2f}")
+
+        self._is_trained = True
