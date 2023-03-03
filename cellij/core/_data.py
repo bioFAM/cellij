@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import os
@@ -9,6 +8,7 @@ import pandas as pd
 
 from importlib import resources
 from collections import UserDict
+
 
 class DataContainer(UserDict):
     """Container to hold all data for a FactorModel.
@@ -62,6 +62,17 @@ class Importer:
           - IGHV_status
           - trisomy12
 
+
+        Parameters
+        ----------
+        use_drug_compound_names : bool, optional
+            If True, the drug names are replaced by the compound names, by default True
+
+        Returns
+        -------
+        mu.MuData
+            A muon.MuData object with 4 modalities and associated metadata for 200 patients each
+
         """
 
         with resources.path("mfmf.data", "cll_metadata.csv") as res_path:
@@ -90,9 +101,7 @@ class Importer:
 
                 if use_drug_compound_names and ome == "drugs":
 
-                    with resources.path(
-                        "mfmf.data", "id_to_drug_names.csv"
-                    ) as compound_path:
+                    with resources.path("mfmf.data", "id_to_drug_names.csv") as compound_path:
 
                         compound_names = pd.read_csv(
                             filepath_or_buffer=os.fspath(compound_path),
@@ -107,13 +116,9 @@ class Importer:
 
                     for i, colname in enumerate(ome_colnames):
                         base_id = colname[0 : len(colname) - 2]
-                        drug_name_for_base_id = compound_names.query("id == @base_id")[
-                            "name"
-                        ].values[0]
+                        drug_name_for_base_id = compound_names.query("id == @base_id")["name"].values[0]
                         # print(drug_name_for_base_id)
-                        ome_colnames[i] = colname.replace(
-                            f"{base_id}", drug_name_for_base_id
-                        )
+                        ome_colnames[i] = colname.replace(f"{base_id}", drug_name_for_base_id)
 
                     modalities[ome].var_names = ome_colnames
 
