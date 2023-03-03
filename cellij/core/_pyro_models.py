@@ -2,6 +2,7 @@ import pyro
 import pyro.distributions as dist
 import torch
 from pyro.nn import PyroModule
+from cellij.core.priors import Horseshoe
 
 
 class MOFA_Model(PyroModule):
@@ -13,38 +14,49 @@ class MOFA_Model(PyroModule):
         self.n_obs = None
         self.feature_offsets = None
 
-    def _setup(self, n_obs, feature_offsets):
+    def _setup(self, n_obs, feature_offsets, sparsity_prior):
         # TODO: at some point replace n_obs with obs_offsets
         self.n_obs = n_obs
         self.n_features = feature_offsets[-1]
         self.n_feature_groups = len(feature_offsets) - 1
         self.feature_offsets = feature_offsets
+        self.sparsity_prior = sparsity_prior
+
+        # if sampling_dist == "horseshoe":
+        #     self.sampling_dist = Horseshoe
+        # elif sampling_dist == "normal":
+        #     self.sampling_dist = dist.Normal
+        # elif sampling_dist == "spikeandslab":
+        #     self.sampling_dist =
 
     def forward(self, X):
         """Generative model for MOFA."""
         plates = self.get_plates()
 
-        with plates["feature_groups"]:
-            feature_group_scale = pyro.sample("feature_group_scale", dist.HalfCauchy(torch.ones(1))).view(
-                -1, self.n_feature_groups
-            )
-
         with plates["obs"], plates["factors"]:
             z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(-1, self.n_obs, self.n_factors, 1)
 
+        # Sample from a Horseshoe prior for each feature group
         with plates["features"], plates["factors"]:
-            # implement the horseshoe prior
-            w_shape = (-1, 1, self.n_factors, self.n_features)
-            w_scale = pyro.sample("w_scale", dist.HalfCauchy(torch.ones(1))).view(w_shape)
-            w_scale = torch.cat(
-                [
-                    w_scale[..., self.feature_offsets[m] : self.feature_offsets[m + 1]]
-                    * feature_group_scale[..., m : m + 1]
-                    for m in range(self.n_feature_groups)
-                ],
-                dim=-1,
-            )
-            w = pyro.sample("w", dist.Normal(torch.zeros(1), w_scale)).view(w_shape)
+            # w = pyro.sample("w", self.sampling_dist(self.feature_offsets, self.n_factors)).view(-1, 1, self.n_factors, self.n_features)
+            if self.sparsity_prior == "horseshoe":
+                w_scale = pyro.sample("w", self.sampling_dist(torch.tensor(1.0))).view(
+                    -1, 1, self.n_factors, self.n_features
+                )
+            elif self.sparsity_prior == "spikeandslab":
+                a_beta = torch.tensor(1e-3)
+                b_beta = torch.tensor(1e-3)
+                # a_gamma = pyro.param(torch.tensor(1e-3))
+                # b_gamma = pyro.param(torch.tensor(1e-3))
+                # tau = pyro.sample("tau", dist.Gamma(a_gamma, b_gamma)).view(-1, 1, self.n_factors, self.n_features)
+                w_scale = pyro.sample("w_scale", dist.Beta(a_beta, b_beta)).view(-1, 1, self.n_factors, self.n_features)
+                # slab = pyro.sample("slab", dist.Normal(torch.zeros(1), torch.tensor(1.0))).view(
+                #     -1, 1, self.n_factors, self.n_features
+                # )
+                # w = pi * slab
+            else:
+                w_scale = torch.tensor(1.0)
+            w = pyro.sample("w", dist.Normal(torch.zeros(1), w_scale)).view(-1, 1, self.n_factors, self.n_features)
 
         with plates["features"]:
             sigma = pyro.sample("sigma", dist.InverseGamma(torch.tensor(3.0), torch.tensor(1.0))).view(

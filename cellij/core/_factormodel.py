@@ -61,15 +61,7 @@ class FactorModel(PyroModule):
 
     """
 
-    def __init__(
-        self,
-        model,
-        guide,
-        n_factors,
-        trainer,
-        dtype=torch.float32,
-        device="cpu",
-    ):
+    def __init__(self, model, guide, n_factors, trainer, dtype=torch.float32, device="cpu", sparsity_prior=None):
         super().__init__(name="FactorModel")
 
         self._model = model
@@ -81,6 +73,7 @@ class FactorModel(PyroModule):
         self._is_trained = False
         self._feature_groups = {}
         self._obs_groups = {}
+        self.sparsity_prior = sparsity_prior
 
         # Setup
         if isinstance(guide, str):
@@ -244,15 +237,15 @@ class FactorModel(PyroModule):
         # Provide data information to generative model
         n_obs = self._data.n_obs
         feature_offsets = [0] + list(np.cumsum([v.shape[1] for v in self._data.mod.values()]))
-        self._model._setup(n_obs=n_obs, feature_offsets=feature_offsets)
-
+        self._model._setup(n_obs=n_obs, feature_offsets=feature_offsets, sparsity_prior=self.sparsity_prior)
+        
         if likelihood != "Normal":
             raise ValueError("Only Normal likelihood is implemented so far.")
 
         svi = SVI(
             model=self._model,
             guide=self._guide,
-            optim=pyro.optim.Adam({"lr": 0.01, "betas": (0.90, 0.999)}),
+            optim=pyro.optim.Adam({"lr": 0.005, "betas": (0.95, 0.999)}),
             loss=pyro.infer.Trace_ELBO(),
         )
 

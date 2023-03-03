@@ -11,18 +11,24 @@ class MOFA(FactorModel):
             "model": MOFA_Model(n_factors=n_factors),
             "guide": "AutoNormal",
             "trainer": "Adam",
+            "sparsity_prior": "spikeandslab"
         }
-        # We do not type check kwargs, because we rely on type checking
-        # in the FactorModel class
-        if "guide" in kwargs:
-            mofa_defaults["guide"] = kwargs["guide"]
-            kwargs.pop("guide")
-        if "trainer" in kwargs:
-            mofa_defaults["trainer"] = kwargs["trainer"]
-            kwargs.pop("trainer")
+
+        kwargs = {**mofa_defaults, **kwargs}
+
+        # # We do not type check kwargs, because we rely on type checking
+        # # in the FactorModel class
+        # if "guide" in kwargs:
+        #     mofa_defaults["guide"] = kwargs["guide"]
+        #     kwargs.pop("guide")
+        # if "trainer" in kwargs:
+        #     mofa_defaults["trainer"] = kwargs["trainer"]
+        #     kwargs.pop("trainer")
+        # if "sparsity_prior" in kwargs:
+        #     mofa_defaults["sparsity_prior"] = kwargs["sparsity_prior"]
+        #     kwargs.pop("sparsity_prior")
 
         super(MOFA, self).__init__(
             n_factors=n_factors,
-            **mofa_defaults,
-            **kwargs,
+            **kwargs
         )
