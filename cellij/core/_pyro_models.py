@@ -2,7 +2,8 @@ import pyro
 import pyro.distributions as dist
 import torch
 from pyro.nn import PyroModule
-from cellij.core.priors import Horseshoe
+
+# from cellij.core.priors import Horseshoe
 
 
 class MOFA_Model(PyroModule):
@@ -22,13 +23,6 @@ class MOFA_Model(PyroModule):
         self.feature_offsets = feature_offsets
         self.sparsity_prior = sparsity_prior
 
-        # if sampling_dist == "horseshoe":
-        #     self.sampling_dist = Horseshoe
-        # elif sampling_dist == "normal":
-        #     self.sampling_dist = dist.Normal
-        # elif sampling_dist == "spikeandslab":
-        #     self.sampling_dist =
-
     def forward(self, X):
         """Generative model for MOFA."""
         plates = self.get_plates()
@@ -36,14 +30,8 @@ class MOFA_Model(PyroModule):
         with plates["obs"], plates["factors"]:
             z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(-1, self.n_obs, self.n_factors, 1)
 
-        # Sample from a Horseshoe prior for each feature group
         with plates["features"], plates["factors"]:
-            # w = pyro.sample("w", self.sampling_dist(self.feature_offsets, self.n_factors)).view(-1, 1, self.n_factors, self.n_features)
-            if self.sparsity_prior == "horseshoe":
-                w_scale = pyro.sample("w", self.sampling_dist(torch.tensor(1.0))).view(
-                    -1, 1, self.n_factors, self.n_features
-                )
-            elif self.sparsity_prior == "spikeandslab":
+            if self.sparsity_prior == "Spikeandslab-Beta":
                 a_beta = torch.tensor(1e-3)
                 b_beta = torch.tensor(1e-3)
                 # a_gamma = pyro.param(torch.tensor(1e-3))
@@ -54,8 +42,25 @@ class MOFA_Model(PyroModule):
                 #     -1, 1, self.n_factors, self.n_features
                 # )
                 # w = pi * slab
+            elif self.sparsity_prior == "Spikeandslab-ContinuousBernoulli":
+                raise NotImplementedError()
+            elif self.sparsity_prior == "Spikeandslab-RelaxedBernoulli":
+                raise NotImplementedError()
+            elif self.sparsity_prior == "Spikeandslab-Enumeration":
+                raise NotImplementedError()
+            elif self.sparsity_prior == "Spikeandslab-Lasso":
+                raise NotImplementedError()
+            elif self.sparsity_prior == "Horseshoe":
+                w_scale = pyro.sample("w", self.sampling_dist(torch.tensor(1.0))).view(
+                    -1, 1, self.n_factors, self.n_features
+                )
+            elif self.sparsity_prior == "Lasso":
+                raise NotImplementedError()
+            elif self.sparsity_prior == "Nonnegative":
+                raise NotImplementedError()
             else:
                 w_scale = torch.tensor(1.0)
+
             w = pyro.sample("w", dist.Normal(torch.zeros(1), w_scale)).view(-1, 1, self.n_factors, self.n_features)
 
         with plates["features"]:
