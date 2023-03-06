@@ -3,7 +3,7 @@ from typing import Optional, Union, List
 import pyro
 import muon
 import torch
-import numpy
+import numpy as np
 import torch
 import pandas
 import anndata
@@ -309,9 +309,7 @@ class FactorModel(PyroModule):
             raise ValueError("No data set.")
 
         # Provide data information to generative model
-        n_obs = self._data.n_obs
-        feature_offsets = [0] + list(np.cumsum([v.shape[1] for v in self._data.mod.values()]))
-        self._model._setup(n_obs=n_obs, feature_offsets=feature_offsets)
+        self._model._setup(data=self._data)
 
         if likelihood != "Normal":
             raise ValueError("Only Normal likelihood is implemented so far.")
@@ -323,15 +321,13 @@ class FactorModel(PyroModule):
             loss=pyro.infer.Trace_ELBO(),
         )
 
-        # Concatenate all values in self._data.mod.values()
-        cat_data = torch.tensor(pd.concat([v.to_df() for v in self._data.mod.values()], axis=1).to_numpy())
         # Center data
-        cat_data = cat_data - cat_data.mean(dim=0)
+        data = self._data.values - self._data.values.mean(dim=0)
         # Impute missing values
-        cat_data = cat_data.fill_(0)
+        # cat_data = cat_data.fill_(0)
 
         for i in range(epochs + 1):
-            loss = svi.step(X=cat_data)
+            loss = svi.step(X=data)
 
             if i % verbose_epochs == 0:
                 print(f"Epoch {i:>6}: {loss:>14.2f}")

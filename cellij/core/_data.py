@@ -24,7 +24,7 @@ class DataContainer:
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._data = torch.Tensor()
+        self._values = torch.Tensor()
         self._views = {}
         self._names = []
         self._obs_names = {}
@@ -34,8 +34,8 @@ class DataContainer:
         self._metadata = {}
 
     @property
-    def data(self):
-        return self._data
+    def values(self):
+        return self._values
     
     @property
     def views(self):
@@ -48,6 +48,14 @@ class DataContainer:
     @property
     def obs_names(self):
         return self._obs_names
+    
+    @property
+    def n_obs(self):
+        return len(self._obs_names)
+    
+    @property
+    def n_features(self):
+        return len(self._feature_names)
 
     @property
     def feature_names(self):
@@ -139,7 +147,7 @@ class DataContainer:
         """Returns a pandas dataframe holding the data with the given name."""
 
         res = pd.DataFrame(
-            self._data.data.numpy(), index=self._obs_names, columns=self._feature_names
+            self._values.numpy(), index=self._obs_names, columns=self._feature_names
         )
 
         return res
@@ -149,7 +157,7 @@ class DataContainer:
         """Returns an anndata object holding the data with the given name."""
 
         res = pd.DataFrame(
-            self._data.data.numpy(), index=self._obs_names, columns=self._feature_names
+            self._values.numpy(), index=self._obs_names, columns=self._feature_names
         )
 
         return anndata.AnnData(res)

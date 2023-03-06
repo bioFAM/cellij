@@ -4,5 +4,3 @@ from .core import _group
 from .core import _pyro_models
 from .core import synthetic
 from .core import models
-
-from . import utils

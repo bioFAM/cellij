@@ -8,17 +8,19 @@ class MOFA_Model(PyroModule):
     def __init__(self, n_factors: int):
         super().__init__(name="MOFA_Model")
         self.n_factors = n_factors
-        self.n_features = None
-        self.n_feature_groups = None
-        self.n_obs = None
-        self.feature_offsets = None
+        # self.n_features = None
+        # self.n_feature_groups = None
+        # self.n_obs = None
+        # self.feature_offsets = None
 
-    def _setup(self, n_obs, feature_offsets):
+    def _setup(self, data):
         # TODO: at some point replace n_obs with obs_offsets
-        self.n_obs = n_obs
-        self.n_features = feature_offsets[-1]
-        self.n_feature_groups = len(feature_offsets) - 1
-        self.feature_offsets = feature_offsets
+        self.n_obs = data.n_obs
+        self.n_features = data.n_features
+        self.n_views = len(data.names)
+        self.views = data.names
+        self.obs_idx = data._obs_idx
+        self.feature_idx = data._feature_idx
 
     def forward(self, X):
         """Generative model for MOFA."""
@@ -26,7 +28,7 @@ class MOFA_Model(PyroModule):
 
         with plates["feature_groups"]:
             feature_group_scale = pyro.sample("feature_group_scale", dist.HalfCauchy(torch.ones(1))).view(
-                -1, self.n_feature_groups
+                -1, self.n_views
             )
 
         with plates["obs"], plates["factors"]:
@@ -38,9 +40,9 @@ class MOFA_Model(PyroModule):
             w_scale = pyro.sample("w_scale", dist.HalfCauchy(torch.ones(1))).view(w_shape)
             w_scale = torch.cat(
                 [
-                    w_scale[..., self.feature_offsets[m] : self.feature_offsets[m + 1]]
+                    w_scale[..., self.feature_idx[self.views[m]]]
                     * feature_group_scale[..., m : m + 1]
-                    for m in range(self.n_feature_groups)
+                    for m in range(self.n_views)
                 ],
                 dim=-1,
             )
@@ -53,7 +55,7 @@ class MOFA_Model(PyroModule):
 
         with plates["obs"]:
             prod = torch.einsum("...ikj,...ikj->...ij", z, w).view(-1, self.n_obs, 1, self.n_features)
-            y = pyro.sample("data", dist.Normal(prod, torch.sqrt(sigma)), obs=X.view(1, self.n_obs, 1, self.n_features))
+            y = pyro.sample("data", dist.Normal(prod, torch.sqrt(sigma)), obs=X.view(-1, self.n_obs, 1, self.n_features))
 
         return {"z": z, "w": w, "sigma": sigma, "y": y}
 
@@ -62,5 +64,5 @@ class MOFA_Model(PyroModule):
             "obs": pyro.plate("obs", self.n_obs, dim=-3),
             "factors": pyro.plate("factors", self.n_factors, dim=-2),
             "features": pyro.plate("features", self.n_features, dim=-1),
-            "feature_groups": pyro.plate("feature_groups", self.n_feature_groups, dim=-1),
+            "feature_groups": pyro.plate("feature_groups", self.n_views, dim=-1),
         }
