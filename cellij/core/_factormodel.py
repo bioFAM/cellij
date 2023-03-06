@@ -1,7 +1,9 @@
 import pyro
+import numpy as np
 import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
+import pandas as pd
 
 from cellij.core._data import DataContainer
 
@@ -169,7 +171,7 @@ class FactorModel(PyroModule):
     def obs_groups(self, *args):
         raise AttributeError("Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property.")
 
-    def add_data(self, name, data, **kwargs):
+    def add_data(self, data, **kwargs):
         # take in any form of tabular data
         # if it is anything but anndata or mudata, convert it to anndata
         # if it is anndata, add it to self.data
@@ -231,24 +233,40 @@ class FactorModel(PyroModule):
         else:
             raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
 
-    def fit(self, likelihood, dry_run=False, epochs=1000, **kwargs):
+    def fit(self, likelihood, epochs=1000, verbose_epochs=100):
+        # Clear pyro param
+        pyro.clear_param_store()
+
         # Check if data is set
         if self._data is None:
             raise ValueError("No data set.")
+
+        # Provide data information to generative model
+        n_obs = self._data.n_obs
+        feature_offsets = [0] + list(np.cumsum([v.shape[1] for v in self._data.mod.values()]))
+        self._model._setup(n_obs=n_obs, feature_offsets=feature_offsets)
+
         if likelihood != "Normal":
             raise ValueError("Only Normal likelihood is implemented so far.")
 
         svi = SVI(
             model=self._model,
             guide=self._guide,
-            optim=pyro.optim.Adam({"lr": 0.05, "betas": (0.90, 0.999)}),
+            optim=pyro.optim.Adam({"lr": 0.01, "betas": (0.90, 0.999)}),
             loss=pyro.infer.Trace_ELBO(),
         )
 
-        for i in range(epochs + 1):
-            loss = svi.step(X=torch.tensor(self._data["mrna"].X))
+        # Concatenate all values in self._data.mod.values()
+        cat_data = torch.tensor(pd.concat([v.to_df() for v in self._data.mod.values()], axis=1).to_numpy())
+        # Center data
+        cat_data = cat_data - cat_data.mean(dim=0)
+        # Impute missing values
+        cat_data = cat_data.fill_(0)
 
-            if i % 100 == 0:
+        for i in range(epochs + 1):
+            loss = svi.step(X=cat_data)
+
+            if i % verbose_epochs == 0:
                 print(f"Epoch {i:>6}: {loss:>14.2f}")
 
         self._is_trained = True
