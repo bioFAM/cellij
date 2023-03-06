@@ -323,8 +323,6 @@ class FactorModel(PyroModule):
 
         # Center data
         data = self._data.values - self._data.values.mean(dim=0)
-        # Impute missing values
-        # cat_data = cat_data.fill_(0)
 
         for i in range(epochs + 1):
             loss = svi.step(X=data)

@@ -119,11 +119,11 @@ class DataContainer:
             merged_df_imputed = pd.DataFrame(
                 imputer.fit_transform(merged_view.values), index=merged_obs_names, columns=merged_feature_names
             )
-            self._data = torch.Tensor(merged_df_imputed.values)
+            self._values = torch.Tensor(merged_df_imputed.values)
 
         elif na_strategy is None:
 
-            self._data = torch.Tensor(merged_view.values)
+            self._values = torch.Tensor(merged_view.values)
             
         self._obs_names = merged_obs_names
         self._feature_names = merged_feature_names

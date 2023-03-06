@@ -40,9 +40,9 @@ class MOFA_Model(PyroModule):
             w_scale = pyro.sample("w_scale", dist.HalfCauchy(torch.ones(1))).view(w_shape)
             w_scale = torch.cat(
                 [
-                    w_scale[..., self.feature_idx[self.views[m]]]
-                    * feature_group_scale[..., m : m + 1]
-                    for m in range(self.n_views)
+                    w_scale[..., self.feature_idx[view]]
+                    * feature_group_scale[..., idx : idx + 1]
+                    for idx, view in enumerate(self.views)
                 ],
                 dim=-1,
             )
