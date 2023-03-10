@@ -1,6 +1,12 @@
+from typing import Optional, Union, List
+
 import pyro
+import muon
+import torch
 import numpy as np
 import torch
+import pandas
+import anndata
 from pyro.infer import SVI
 from pyro.nn import PyroModule
 import pandas as pd
@@ -61,7 +67,15 @@ class FactorModel(PyroModule):
 
     """
 
-    def __init__(self, model, guide, n_factors, trainer, dtype=torch.float32, device="cpu", sparsity_prior=None):
+    def __init__(
+        self,
+        model,
+        guide,
+        n_factors,
+        trainer,
+        dtype: torch.dtype = torch.float32,
+        device="cpu",
+    ):
         super().__init__(name="FactorModel")
 
         self._model = model
@@ -73,7 +87,6 @@ class FactorModel(PyroModule):
         self._is_trained = False
         self._feature_groups = {}
         self._obs_groups = {}
-        self.sparsity_prior = sparsity_prior
 
         # Setup
         if isinstance(guide, str):
@@ -136,7 +149,9 @@ class FactorModel(PyroModule):
 
     @data.setter
     def data(self, *args):
-        raise AttributeError("Use `add_data()`, `set_data` or `remove_data()` to modify this property.")
+        raise AttributeError(
+            "Use `add_data()`, `set_data` or `remove_data()` to modify this property."
+        )
 
     @property
     def is_trained(self):
@@ -162,18 +177,74 @@ class FactorModel(PyroModule):
 
     @obs_groups.setter
     def obs_groups(self, *args):
-        raise AttributeError("Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property.")
+        raise AttributeError(
+            "Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property."
+        )
 
-    def add_data(self, data, **kwargs):
-        # take in any form of tabular data
-        # if it is anything but anndata or mudata, convert it to anndata
-        # if it is anndata, add it to self.data
-        # if it is mudata, add the individual anndata to self.data
+    def add_data(
+        self,
+        data: Union[pandas.DataFrame, anndata.AnnData, muon.MuData],
+        name: Optional[str] = None,
+        merge: bool = True,
+        **kwargs,
+    ):
 
-        self._data = data
+        valid_types = (pandas.DataFrame, anndata.AnnData, muon.MuData)
+        metadata = None
 
-    def set_data(self, name, data, **kwargs):
-        pass
+        if not isinstance(data, valid_types):
+
+            raise TypeError(
+                f"Expected data to be one of {valid_types}, got {type(data)}."
+            )
+
+        if not isinstance(data, muon.MuData) and not isinstance(
+            name, (type(None), str)
+        ):
+
+            raise ValueError(
+                "When adding data that is not a MuData object, a name must be provided."
+            )
+
+        if isinstance(data, pandas.DataFrame):
+
+            data = anndata.AnnData(
+                X=data.values,
+                obs=pandas.DataFrame(data.index),
+                var=pandas.DataFrame(data.columns),
+                dtype=self._dtype,  # type: ignore
+            )
+
+        elif isinstance(data, anndata.AnnData):
+
+            self._add_data(data=data, name=name)  # type: ignore
+
+        elif isinstance(data, muon.MuData):
+
+            mudata_has_metadata = len(data.obs.columns) > 0
+            if mudata_has_metadata:
+                metadata = data.obs
+
+            # call again for each anndata contained, but non-merging
+            for modality_name, anndata_object in data.mod.items():
+
+                anndata_object.obs = anndata_object.obs.merge(
+                    metadata, how="left", left_index=True, right_index=True
+                )
+
+                self.add_data(name=modality_name, data=anndata_object, merge=False)
+
+        if merge:
+
+            self._data.merge_views(**kwargs)
+
+    def _add_data(
+        self,
+        data: anndata.AnnData,
+        name: str,
+    ):
+
+        self._data.add_data(data=data, name=name)
 
     def remove_data(self, name, **kwargs):
         pass
@@ -216,7 +287,10 @@ class FactorModel(PyroModule):
             raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
 
     def _remove_group(self, name, level, **kwargs):
-        if name not in self._feature_groups.keys() and name not in self._obs_groups.keys():
+        if (
+            name not in self._feature_groups.keys()
+            and name not in self._obs_groups.keys()
+        ):
             raise ValueError(f"No group with the name {name} exists.")
 
         if level == "feature":
@@ -235,29 +309,23 @@ class FactorModel(PyroModule):
             raise ValueError("No data set.")
 
         # Provide data information to generative model
-        n_obs = self._data.n_obs
-        feature_offsets = [0] + list(np.cumsum([v.shape[1] for v in self._data.mod.values()]))
-        self._model._setup(n_obs=n_obs, feature_offsets=feature_offsets, sparsity_prior=self.sparsity_prior)
-        
+        self._model._setup(data=self._data)
+
         if likelihood != "Normal":
             raise ValueError("Only Normal likelihood is implemented so far.")
 
         svi = SVI(
             model=self._model,
             guide=self._guide,
-            optim=pyro.optim.Adam({"lr": 0.005, "betas": (0.95, 0.999)}),
+            optim=pyro.optim.Adam({"lr": 0.01, "betas": (0.90, 0.999)}),
             loss=pyro.infer.Trace_ELBO(),
         )
 
-        # Concatenate all values in self._data.mod.values()
-        cat_data = torch.tensor(pd.concat([v.to_df() for v in self._data.mod.values()], axis=1).to_numpy())
         # Center data
-        cat_data = cat_data - cat_data.mean(dim=0)
-        # Impute missing values
-        cat_data = cat_data.fill_(0)
+        data = self._data.values - self._data.values.mean(dim=0)
 
         for i in range(epochs + 1):
-            loss = svi.step(X=cat_data)
+            loss = svi.step(X=data)
 
             if i % verbose_epochs == 0:
                 print(f"Epoch {i:>6}: {loss:>14.2f}")

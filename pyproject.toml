@@ -72,7 +72,7 @@ profile = "black"
 skip_glob = ["docs/*"]
 
 [tool.black]
-line-length = 120
+line-length = 88
 target-version = ['py38']
 include = '\.pyi?$'
 exclude = '''
