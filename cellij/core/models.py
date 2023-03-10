@@ -1,3 +1,11 @@
+from typing import Optional, Union
+
+import numpy
+import pandas
+import torch
+import anndata
+import muon
+
 from cellij.core._factormodel import FactorModel
 from cellij.core._pyro_models import MOFA_Model
 
@@ -26,3 +34,21 @@ class MOFA(FactorModel):
             **mofa_defaults,
             **kwargs,
         )
+
+    def add_data(
+        self,
+        data: Union[numpy.ndarray, pandas.DataFrame, torch.Tensor, anndata.AnnData, muon.MuData],
+        name: Optional[Union[str, None]] = None,
+        **kwargs,
+    ):
+        """Adds data to the model.
+
+        Parameters
+        ----------
+        data : torch.Tensor
+            The data to be added
+        name : str
+            The name of the data
+        """
+        
+        super().add_data(data=data, name=name, **kwargs)
