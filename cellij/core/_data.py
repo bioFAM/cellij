@@ -1,16 +1,16 @@
 from __future__ import annotations
-from typing import Optional, List
+
 import os
-import torch
+from functools import reduce
+from importlib import resources
+from typing import List, Optional
+
 import anndata
 import muon as mu
 import numpy as np
-from functools import reduce
 import pandas as pd
-
+import torch
 from sklearn.impute import KNNImputer
-
-from importlib import resources
 
 
 class DataContainer:
@@ -36,7 +36,7 @@ class DataContainer:
     @property
     def values(self):
         return self._values
-    
+
     @property
     def views(self):
         return self._views
@@ -48,11 +48,11 @@ class DataContainer:
     @property
     def obs_names(self):
         return self._obs_names
-    
+
     @property
     def n_obs(self):
         return len(self._obs_names)
-    
+
     @property
     def n_features(self):
         return len(self._feature_names)
@@ -67,7 +67,6 @@ class DataContainer:
         name: str,
         **kwargs,
     ):
-
         if not isinstance(data, anndata.AnnData):
             raise TypeError("Data must be a anndata.AnnData.")
 
@@ -91,7 +90,6 @@ class DataContainer:
         self._feature_names[name] = data.var_names.to_list()
 
     def merge_views(self, **kwargs):
-
         """Merges all views into a single tensor."""
 
         views = {}
@@ -110,26 +108,25 @@ class DataContainer:
         na_strategy = kwargs.get("na_strategy", None)
 
         if na_strategy == "knn_by_obs":
-
             if "k" not in kwargs:
                 k = int(np.round(np.sqrt(merged_view.shape[0])))
             else:
                 k = kwargs["k"]
             imputer = KNNImputer(n_neighbors=k)
             merged_df_imputed = pd.DataFrame(
-                imputer.fit_transform(merged_view.values), index=merged_obs_names, columns=merged_feature_names
+                imputer.fit_transform(merged_view.values),
+                index=merged_obs_names,
+                columns=merged_feature_names,
             )
             self._values = torch.Tensor(merged_df_imputed.values)
 
         elif na_strategy is None:
-
             self._values = torch.Tensor(merged_view.values)
-            
+
         self._obs_names = merged_obs_names
         self._feature_names = merged_feature_names
 
         for name in self._names:
-
             view_obs_names = self._views[name].obs_names.to_list()
             view_feature_names = self._views[name].var_names.to_list()
 
@@ -138,10 +135,10 @@ class DataContainer:
             ]
 
             self._feature_idx[name] = [
-                i for i, val in enumerate(merged_feature_names) if val in view_feature_names
+                i
+                for i, val in enumerate(merged_feature_names)
+                if val in view_feature_names
             ]
-
-        
 
     def to_df(self) -> pd.DataFrame:
         """Returns a pandas dataframe holding the data with the given name."""
@@ -153,7 +150,6 @@ class DataContainer:
         return res
 
     def to_anndata(self) -> anndata.AnnData:
-
         """Returns an anndata object holding the data with the given name."""
 
         res = pd.DataFrame(
@@ -167,7 +163,6 @@ class Importer:
     """Class to facilitate easy import of different data."""
 
     def __init__(self, encoding="utf_8"):
-
         self.encoding = encoding
 
     def load_CLL(self, use_drug_compound_names=True) -> mu.MuData:
@@ -207,7 +202,6 @@ class Importer:
         """
 
         with resources.path("cellij.data", "cll_metadata.csv") as res_path:
-
             obs = pd.read_csv(
                 filepath_or_buffer=os.fspath(res_path),
                 sep=",",
@@ -218,9 +212,7 @@ class Importer:
         modalities = {}
 
         for ome in ["drugs", "methylation", "mrna", "mutations"]:
-
             with resources.path("cellij.data", f"cll_{ome}.csv") as res_path:
-
                 modality = pd.read_csv(
                     filepath_or_buffer=os.fspath(res_path),
                     sep=",",
@@ -231,11 +223,9 @@ class Importer:
                 modalities[ome] = anndata.AnnData(X=modality, dtype="float32")
 
                 if use_drug_compound_names and ome == "drugs":
-
                     with resources.path(
                         "cellij.data", "id_to_drug_names.csv"
                     ) as compound_path:
-
                         compound_names = pd.read_csv(
                             filepath_or_buffer=os.fspath(compound_path),
                             sep=";",
