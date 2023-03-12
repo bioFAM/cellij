@@ -36,22 +36,29 @@ class MOFA_Model(PyroModule):
 
         with plates["features"], plates["factors"]:
             if self.sparsity_prior == "Spikeandslab-Beta":
-                a_beta = torch.tensor(1e-3)
-                b_beta = torch.tensor(1e-3)
-                # a_gamma = pyro.param(torch.tensor(1e-3))
-                # b_gamma = pyro.param(torch.tensor(1e-3))
-                # tau = pyro.sample("tau", dist.Gamma(a_gamma, b_gamma)).view(-1, 1, self.n_factors, self.n_features)
-                w_scale = pyro.sample("w_scale", dist.Beta(a_beta, b_beta)).view(
-                    -1, 1, self.n_factors, self.n_features
-                )
-                # slab = pyro.sample("slab", dist.Normal(torch.zeros(1), torch.tensor(1.0))).view(
-                #     -1, 1, self.n_factors, self.n_features
-                # )
-                # w = pi * slab
+                w_scale = pyro.sample(
+                    "w_scale", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
+                ).view(-1, 1, self.n_factors, self.n_features)
+
             elif self.sparsity_prior == "Spikeandslab-ContinuousBernoulli":
-                raise NotImplementedError()
+                pi = pyro.sample(
+                    "pi", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
+                ).view(-1, 1, self.n_factors, self.n_features)
+
+                w_scale = pyro.sample(
+                    "w_scale", dist.ContinuousBernoulli(probs=pi)
+                ).view(-1, 1, self.n_factors, self.n_features)
             elif self.sparsity_prior == "Spikeandslab-RelaxedBernoulli":
-                raise NotImplementedError()
+                pi = pyro.sample(
+                    "pi", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
+                ).view(-1, 1, self.n_factors, self.n_features)
+
+                w_scale = pyro.sample(
+                    "w_scale",
+                    dist.RelaxedBernoulliStraightThrough(
+                        temperature=torch.tensor(0.1), probs=pi
+                    ),
+                ).view(-1, 1, self.n_factors, self.n_features)
             elif self.sparsity_prior == "Spikeandslab-Enumeration":
                 raise NotImplementedError()
             elif self.sparsity_prior == "Spikeandslab-Lasso":
@@ -75,11 +82,13 @@ class MOFA_Model(PyroModule):
             elif self.sparsity_prior == "Nonnegative":
                 raise NotImplementedError()
             else:
-                w_scale = torch.tensor(1.0)
+                w_scale = torch.ones(1)
 
-            w = pyro.sample("w", dist.Normal(torch.zeros(1), w_scale)).view(
+            w = pyro.sample("w", dist.Normal(torch.zeros(1), torch.ones(1))).view(
                 -1, 1, self.n_factors, self.n_features
             )
+
+            w = w_scale * w
 
         with plates["features"]:
             sigma = pyro.sample(
