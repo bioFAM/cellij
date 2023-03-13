@@ -78,7 +78,15 @@ class MOFA_Model(PyroModule):
                     dim=-1,
                 )
             elif self.sparsity_prior == "Lasso":
-                raise NotImplementedError()
+                # TODO: Add source paper
+                # TODO: Parametrize scale
+                # Approximation to the Laplace density with a SoftLaplace,
+                # see https://docs.pyro.ai/en/stable/_modules/pyro/distributions/softlaplace.html#SoftLaplace
+                #
+                # Unlike the Laplace distribution, this distribution is infinitely differentiable everywhere
+                w_scale = pyro.sample("w_scale", dist.SoftLaplace(torch.tensor(0.0), torch.tensor(1.0))).view(
+                    -1, 1, self.n_factors, self.n_features
+                )
             elif self.sparsity_prior == "Nonnegative":
                 raise NotImplementedError()
             else:
