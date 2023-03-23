@@ -1,16 +1,16 @@
 from __future__ import annotations
-from typing import Optional, List
+
 import os
-import torch
+from functools import reduce
+from importlib import resources
+from typing import List, Optional
+
 import anndata
 import muon as mu
 import numpy as np
-from functools import reduce
 import pandas as pd
-
+import torch
 from sklearn.impute import KNNImputer
-
-from importlib import resources
 
 
 class DataContainer:
@@ -67,6 +67,7 @@ class DataContainer:
     def n_obs(self):
         return len(self._merged_obs_names)
 
+
     @property
     def n_features(self):
         return len(self._merged_feature_names)
@@ -93,7 +94,6 @@ class DataContainer:
         name: str,
         **kwargs,
     ):
-
         if not isinstance(data, anndata.AnnData):
             raise TypeError("Data must be a anndata.AnnData.")
 
@@ -120,6 +120,7 @@ class DataContainer:
 
         """Merges all feature_groups into a single tensor."""
 
+
         feature_groups = {}
         for name in self._names:
             feature_groups[name] = self._feature_groups[name].to_df().sort_index()
@@ -136,7 +137,6 @@ class DataContainer:
         na_strategy = kwargs.get("na_strategy", None)
 
         if na_strategy == "knn_by_obs":
-
             if "k" not in kwargs:
                 k = int(np.round(np.sqrt(merged_feature_group.shape[0])))
             else:
@@ -144,6 +144,7 @@ class DataContainer:
             imputer = KNNImputer(n_neighbors=k)
             merged_feature_group_imputed = imputer.fit_transform(
                 merged_feature_group.values
+
             )
 
             self._values = merged_feature_group_imputed
@@ -160,6 +161,7 @@ class DataContainer:
             feature_group_obs_names = self._feature_groups[name].obs_names.to_list()
             feature_group_feature_names = self._feature_groups[name].var_names.to_list()
 
+
             self._obs_idx[name] = [
                 i
                 for i, val in enumerate(merged_obs_names)
@@ -170,6 +172,7 @@ class DataContainer:
                 i
                 for i, val in enumerate(merged_feature_names)
                 if val in feature_group_feature_names
+
             ]
 
     def to_df(self) -> pd.DataFrame:
@@ -188,6 +191,7 @@ class DataContainer:
 
         return anndata.AnnData(self.to_df())
 
+
     def to_tensor(self) -> torch.Tensor:
         """Returns a 'torch.Tensor' representation of the contained data."""
 
@@ -198,7 +202,6 @@ class Importer:
     """Class to facilitate easy import of different data."""
 
     def __init__(self, encoding="utf_8"):
-
         self.encoding = encoding
 
     def load_CLL(self, use_drug_compound_names=True) -> mu.MuData:
@@ -238,7 +241,6 @@ class Importer:
         """
 
         with resources.path("cellij.data", "cll_metadata.csv") as res_path:
-
             obs = pd.read_csv(
                 filepath_or_buffer=os.fspath(res_path),
                 sep=",",
@@ -249,9 +251,7 @@ class Importer:
         modalities = {}
 
         for ome in ["drugs", "methylation", "mrna", "mutations"]:
-
             with resources.path("cellij.data", f"cll_{ome}.csv") as res_path:
-
                 modality = pd.read_csv(
                     filepath_or_buffer=os.fspath(res_path),
                     sep=",",
@@ -262,11 +262,9 @@ class Importer:
                 modalities[ome] = anndata.AnnData(X=modality, dtype="float32")
 
                 if use_drug_compound_names and ome == "drugs":
-
                     with resources.path(
                         "cellij.data", "id_to_drug_names.csv"
                     ) as compound_path:
-
                         compound_names = pd.read_csv(
                             filepath_or_buffer=os.fspath(compound_path),
                             sep=";",

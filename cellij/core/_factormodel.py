@@ -1,15 +1,14 @@
-from typing import Optional, Union, List
+from typing import List, Optional, Union
 
-import pyro
-import muon
-import torch
-import numpy as np
-import torch
-import pandas
 import anndata
+import muon
+import numpy as np
+import pandas
+import pandas as pd
+import pyro
+import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
-import pandas as pd
 
 from cellij.core._data import DataContainer
 
@@ -188,12 +187,10 @@ class FactorModel(PyroModule):
         merge: bool = True,
         **kwargs,
     ):
-
         valid_types = (pandas.DataFrame, anndata.AnnData, muon.MuData)
         metadata = None
 
         if not isinstance(data, valid_types):
-
             raise TypeError(
                 f"Expected data to be one of {valid_types}, got {type(data)}."
             )
@@ -201,13 +198,11 @@ class FactorModel(PyroModule):
         if not isinstance(data, muon.MuData) and not isinstance(
             name, (type(None), str)
         ):
-
             raise ValueError(
                 "When adding data that is not a MuData object, a name must be provided."
             )
 
         if isinstance(data, pandas.DataFrame):
-
             data = anndata.AnnData(
                 X=data.values,
                 obs=pandas.DataFrame(data.index),
@@ -216,21 +211,18 @@ class FactorModel(PyroModule):
             )
 
         elif isinstance(data, anndata.AnnData):
-
             self._add_data(data=data, name=name)  # type: ignore
 
         elif isinstance(data, muon.MuData):
-
-            mudata_has_metadata = len(data.obs.columns) > 0
-            if mudata_has_metadata:
+            if not data.obs.empty:
                 metadata = data.obs
 
             # call again for each anndata contained, but non-merging
             for modality_name, anndata_object in data.mod.items():
-
-                anndata_object.obs = anndata_object.obs.merge(
-                    metadata, how="left", left_index=True, right_index=True
-                )
+                if metadata is not None:
+                    anndata_object.obs = anndata_object.obs.merge(
+                        metadata, how="left", left_index=True, right_index=True
+                    )
 
                 self.add_data(name=modality_name, data=anndata_object, merge=False)
 
@@ -238,12 +230,12 @@ class FactorModel(PyroModule):
 
             self._data.merge_data(**kwargs)
 
+
     def _add_data(
         self,
         data: anndata.AnnData,
         name: str,
     ):
-
         self._data.add_data(data=data, name=name)
 
     def remove_data(self, name, **kwargs):
@@ -300,7 +292,7 @@ class FactorModel(PyroModule):
         else:
             raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
 
-    def fit(self, likelihood, epochs=1000, verbose_epochs=100):
+    def fit(self, likelihood, epochs=1000, learning_rate=0.003, verbose_epochs=100):
         # Clear pyro param
         pyro.clear_param_store()
 
@@ -317,7 +309,7 @@ class FactorModel(PyroModule):
         svi = SVI(
             model=self._model,
             guide=self._guide,
-            optim=pyro.optim.Adam({"lr": 0.01, "betas": (0.90, 0.999)}),
+            optim=pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)}),
             loss=pyro.infer.Trace_ELBO(),
         )
 
