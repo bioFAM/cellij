@@ -24,11 +24,13 @@ class DataContainer:
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._values = torch.Tensor()
-        self._views = {}
+        self._values = np.ndarray
+        self._feature_groups = {}
         self._names = []
         self._obs_names = {}
         self._feature_names = {}
+        self._merged_obs_names = []
+        self._merged_feature_names = []
         self._obs_idx = {}
         self._feature_idx = {}
         self._metadata = {}
@@ -38,8 +40,8 @@ class DataContainer:
         return self._values
 
     @property
-    def views(self):
-        return self._views
+    def feature_groups(self):
+        return self._feature_groups
 
     @property
     def names(self):
@@ -50,16 +52,41 @@ class DataContainer:
         return self._obs_names
 
     @property
+    def merged_obs_names(self):
+        return self._merged_obs_names
+
+    @merged_obs_names.setter
+    def merged_obs_names(self, names):
+
+        if len(set(names)) != len(names):
+            raise ValueError("Duplicate names found in observations.")
+
+        self._merged_obs_names = names
+
+    @property
     def n_obs(self):
-        return len(self._obs_names)
+        return len(self._merged_obs_names)
+
 
     @property
     def n_features(self):
-        return len(self._feature_names)
+        return len(self._merged_feature_names)
 
     @property
     def feature_names(self):
         return self._feature_names
+
+    @property
+    def merged_feature_names(self):
+        return self._merged_feature_names
+
+    @merged_feature_names.setter
+    def merged_feature_names(self, names):
+
+        if len(set(names)) != len(names):
+            raise ValueError("Duplicate names found in features.")
+
+        self._merged_feature_names = names
 
     def add_data(
         self,
@@ -85,78 +112,90 @@ class DataContainer:
         # metadata. Then, the metadata is attached to every resulting
         # anndata object
 
-        self._views[name] = data
+        self._feature_groups[name] = data
         self._obs_names[name] = data.obs_names.to_list()
         self._feature_names[name] = data.var_names.to_list()
 
-    def merge_views(self, **kwargs):
-        """Merges all views into a single tensor."""
+    def merge_data(self, **kwargs):
 
-        views = {}
+        """Merges all feature_groups into a single tensor."""
+
+
+        feature_groups = {}
         for name in self._names:
-            views[name] = self._views[name].to_df().sort_index()
+            feature_groups[name] = self._feature_groups[name].to_df().sort_index()
 
-        merged_view = reduce(
+        merged_feature_group = reduce(
             lambda left, right: pd.merge(
                 left, right, left_index=True, right_index=True, how="outer"
             ),
-            views.values(),
+            feature_groups.values(),
         )
-        merged_obs_names = merged_view.index.to_list()
-        merged_feature_names = merged_view.columns
+        merged_obs_names = merged_feature_group.index.to_list()
+        merged_feature_names = merged_feature_group.columns
 
         na_strategy = kwargs.get("na_strategy", None)
 
         if na_strategy == "knn_by_obs":
             if "k" not in kwargs:
-                k = int(np.round(np.sqrt(merged_view.shape[0])))
+                k = int(np.round(np.sqrt(merged_feature_group.shape[0])))
             else:
                 k = kwargs["k"]
             imputer = KNNImputer(n_neighbors=k)
-            merged_df_imputed = pd.DataFrame(
-                imputer.fit_transform(merged_view.values),
-                index=merged_obs_names,
-                columns=merged_feature_names,
+            merged_feature_group_imputed = imputer.fit_transform(
+                merged_feature_group.values
+
             )
-            self._values = torch.Tensor(merged_df_imputed.values)
+
+            self._values = merged_feature_group_imputed
 
         elif na_strategy is None:
-            self._values = torch.Tensor(merged_view.values)
 
-        self._obs_names = merged_obs_names
-        self._feature_names = merged_feature_names
+            self._values = merged_feature_group.values
+
+        self._merged_obs_names = merged_obs_names
+        self._merged_feature_names = merged_feature_names
 
         for name in self._names:
-            view_obs_names = self._views[name].obs_names.to_list()
-            view_feature_names = self._views[name].var_names.to_list()
+
+            feature_group_obs_names = self._feature_groups[name].obs_names.to_list()
+            feature_group_feature_names = self._feature_groups[name].var_names.to_list()
+
 
             self._obs_idx[name] = [
-                i for i, val in enumerate(merged_obs_names) if val in view_obs_names
+                i
+                for i, val in enumerate(merged_obs_names)
+                if val in feature_group_obs_names
             ]
 
             self._feature_idx[name] = [
                 i
                 for i, val in enumerate(merged_feature_names)
-                if val in view_feature_names
+                if val in feature_group_feature_names
+
             ]
 
     def to_df(self) -> pd.DataFrame:
-        """Returns a pandas dataframe holding the data with the given name."""
+        """Returns a 'pandas.DataFrame' representation of the contained data with feature and observation names."""
 
         res = pd.DataFrame(
-            self._values.numpy(), index=self._obs_names, columns=self._feature_names
+            self._values,
+            index=self._merged_obs_names,
+            columns=self._merged_feature_names,
         )
 
         return res
 
     def to_anndata(self) -> anndata.AnnData:
-        """Returns an anndata object holding the data with the given name."""
+        """Returns a 'anndata.AnnData' representation of the contained data with feature and observation names."""
 
-        res = pd.DataFrame(
-            self._values.numpy(), index=self._obs_names, columns=self._feature_names
-        )
+        return anndata.AnnData(self.to_df())
 
-        return anndata.AnnData(res)
+
+    def to_tensor(self) -> torch.Tensor:
+        """Returns a 'torch.Tensor' representation of the contained data."""
+
+        return torch.Tensor(self._values)
 
 
 class Importer:

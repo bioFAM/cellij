@@ -227,7 +227,9 @@ class FactorModel(PyroModule):
                 self.add_data(name=modality_name, data=anndata_object, merge=False)
 
         if merge:
-            self._data.merge_views(**kwargs)
+
+            self._data.merge_data(**kwargs)
+
 
     def _add_data(
         self,
@@ -311,8 +313,8 @@ class FactorModel(PyroModule):
             loss=pyro.infer.Trace_ELBO(),
         )
 
-        # Center data
-        data = self._data.values - self._data.values.mean(dim=0)
+        # # Center data
+        data = self._model.values - self._model.values.mean(dim=0)
 
         for i in range(epochs + 1):
             loss = svi.step(X=data)

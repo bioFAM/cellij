@@ -12,20 +12,22 @@ class MOFA_Model(PyroModule):
 
     def _setup(self, data):
         # TODO: at some point replace n_obs with obs_offsets
+        self.values = torch.Tensor(data.values)
         self.n_obs = data.n_obs
         self.n_features = data.n_features
-        self.n_views = len(data.names)
-        self.views = data.names
+        self.n_feature_groups = len(data.names)
+        self.feature_group_names = data.names
         self.obs_idx = data._obs_idx
         self.feature_idx = data._feature_idx
 
     def forward(self, X):
         """Generative model for MOFA."""
         plates = self.get_plates()
+        
+        with plates["feature_groups"]:
+            feature_group_scale = pyro.sample("feature_group_scale", dist.HalfCauchy(torch.ones(1))).view(
+                -1, self.n_feature_groups
 
-        with plates["obs"], plates["factors"]:
-            z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(
-                -1, self.n_obs, self.n_factors, 1
             )
 
         if self.sparsity_prior == "Horseshoe":
@@ -35,6 +37,7 @@ class MOFA_Model(PyroModule):
                 ).view(-1, self.n_views)
 
         with plates["features"], plates["factors"]:
+
             if self.sparsity_prior == "Spikeandslab-Beta":
                 w_scale = pyro.sample(
                     "w_scale", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
@@ -96,6 +99,7 @@ class MOFA_Model(PyroModule):
 
             w = pyro.sample("w", dist.Normal(torch.zeros(1), torch.ones(1))).view(
                 -1, 1, self.n_factors, self.n_features
+
             )
 
             w = w_scale * w
@@ -125,5 +129,5 @@ class MOFA_Model(PyroModule):
             "obs": pyro.plate("obs", self.n_obs, dim=-3),
             "factors": pyro.plate("factors", self.n_factors, dim=-2),
             "features": pyro.plate("features", self.n_features, dim=-1),
-            "feature_groups": pyro.plate("feature_groups", self.n_views, dim=-1),
+            "feature_groups": pyro.plate("feature_groups", self.n_feature_groups, dim=-1),
         }
