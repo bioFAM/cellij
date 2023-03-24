@@ -178,8 +178,9 @@ class DataContainer:
     def to_df(self) -> pd.DataFrame:
         """Returns a 'pandas.DataFrame' representation of the contained data with feature and observation names."""
 
+        print(self._values)
         res = pd.DataFrame(
-            self._values,
+            data=self._values,
             index=self._merged_obs_names,
             columns=self._merged_feature_names,
         )
