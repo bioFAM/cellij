@@ -2,12 +2,10 @@
 
 # cellij
 
-[![Tests][badge-tests]][link-tests]
-[![Documentation][badge-docs]][link-docs]
+![tests](https://github.com/bioFAM/cellij/actions/workflows/package.yml/badge.svg)](https://github.com/bioFAM/cellij/actions/workflows/package.yml)
+[![codecov](https://codecov.io/gh/timtreis/T2022B_MSc_thesis/branch/main/graph/badge.svg?token=VO0A3UCIH7)](https://codecov.io/gh/timtreis/T2022B_MSc_thesis)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg?style=flat-square)](https://github.com/psf/black)
 
-[badge-tests]: https://img.shields.io/github/actions/workflow/status/timtreis/cellij/test.yaml?branch=main
-[link-tests]: https://github.com/bioFAM/cellij/actions/workflows/test.yml
-[badge-docs]: https://img.shields.io/readthedocs/cellij
 
 Implementation of a Modular Multi-Omics Factor Model Framework
 

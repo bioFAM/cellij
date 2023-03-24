@@ -90,7 +90,7 @@ class FactorModel(PyroModule):
         # Setup
         if isinstance(guide, str):
             if guide == "AutoNormal":
-                self._guide = pyro.infer.autoguide.AutoNormal(self._model)
+                self._guide = pyro.infer.autoguide.AutoNormal(self._model)  # type: ignore
             else:
                 raise ValueError(f"Unknown guide: {guide}")
 
@@ -309,8 +309,8 @@ class FactorModel(PyroModule):
         svi = SVI(
             model=self._model,
             guide=self._guide,
-            optim=pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)}),
-            loss=pyro.infer.Trace_ELBO(),
+            optim=pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)}),  # type: ignore
+            loss=pyro.infer.Trace_ELBO(),  # type: ignore
         )
 
         # # Center data
