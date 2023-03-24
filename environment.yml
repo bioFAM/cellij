@@ -19,4 +19,4 @@ dependencies:
   - pytest-flake8
   - numpy
   - pip:
-    - muon
+      - muon
