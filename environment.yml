@@ -6,6 +6,7 @@ channels:
   - menpo
   - defaults
 dependencies:
+  - anndata
   - coverage
   - python-graphviz
   - flake8
