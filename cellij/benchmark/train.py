@@ -1,19 +1,24 @@
-import os
-import numpy as np
-import muon as mu
 import json
+import os
 import pathlib
-import click
 
-from cellij.core.synthetic import DataGenerator
+import click
+import muon as mu
 from cellij.core.models import MOFA
 
 
 @click.command()
-@click.option("--data-dir", "-dd", default="synthetic", help="Directory from where to load the data.")
+@click.option(
+    "--data-dir",
+    "-dd",
+    default="synthetic",
+    help="Directory from where to load the data.",
+)
 @click.option("--model", "-m", default="mofa", help="Model to train.")
 @click.option(
-    "--n-factors", "-k", help="Number of latent factors, inferred if not provided.",
+    "--n-factors",
+    "-k",
+    help="Number of latent factors, inferred if not provided.",
 )
 @click.option(
     "--sparsity-prior",
@@ -55,9 +60,19 @@ from cellij.core.models import MOFA
     default="training_output",
     help="Name of directory to store the training output.",
 )
-def train(data_dir, model, n_factors, sparsity_prior, likelihoods, epochs, learning_rate, verbose_epochs, seed, out_dir):
+def train(
+    data_dir,
+    model,
+    n_factors,
+    sparsity_prior,
+    likelihoods,
+    epochs,
+    learning_rate,
+    verbose_epochs,
+    seed,
+    out_dir,
+):
     """Train on synthetic data."""
-    
 
     # create output directory recursively
     # does not raise an exception if the directory already exists
@@ -67,19 +82,19 @@ def train(data_dir, model, n_factors, sparsity_prior, likelihoods, epochs, learn
     config = locals()
     with open(os.path.join(out_dir, "config.json"), "w") as f:
         json.dump(config, f)
-        
+
     data_config = json.load(open(os.path.join(data_dir, "config.json")))
     click.echo(data_config)
     mdata = mu.read_h5mu(os.path.join(data_dir, "data.h5mu"))
-    
+
     n_feature_groups = len(data_config["n_features"])
     if len(likelihoods) == 0:
         likelihoods = mdata.uns["likelihoods"]
-    
+
     assert n_feature_groups == len(
         likelihoods
     ), "Number of features and likelihoods must match."
-    
+
     if n_factors is None:
         n_factors = mdata.obsm["z"].shape[1]
 
@@ -88,10 +103,17 @@ def train(data_dir, model, n_factors, sparsity_prior, likelihoods, epochs, learn
     click.echo("Adding data to model...")
     model.add_data(data=mdata, name="synthetic")
     click.echo("Training model...")
-    # TODO!: update likelihoods to be a list of likelihoods in the fit method
-    model.fit(likelihood=likelihoods[0].title(), epochs=epochs, learning_rate=learning_rate, verbose_epochs=verbose_epochs)
+    # TODO: update likelihoods to be a list of likelihoods in the fit method
+    # TODO: use random seed to reproduce training
+    model.fit(
+        likelihood=likelihoods[0].title(),
+        epochs=epochs,
+        learning_rate=learning_rate,
+        verbose_epochs=verbose_epochs,
+    )
     click.echo("Saving model...")
-    # TODO! save model
+    # TODO: save model
+
 
 if __name__ == "__main__":
     train()
