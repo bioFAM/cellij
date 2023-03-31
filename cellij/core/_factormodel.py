@@ -10,6 +10,7 @@ import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
 
+import cellij
 from cellij.core._data import DataContainer
 
 
@@ -230,7 +231,6 @@ class FactorModel(PyroModule):
 
             self._data.merge_data(**kwargs)
 
-
     def _add_data(
         self,
         data: anndata.AnnData,
@@ -323,3 +323,16 @@ class FactorModel(PyroModule):
                 print(f"Epoch {i:>6}: {loss:>14.2f}")
 
         self._is_trained = True
+        self.params = self._model.params
+
+    def get_w(self, views: Union[str, List[str]] = "all", format="numpy") -> np.ndarray:
+
+        if views == "all":
+
+            data = cellij.tools.inspect.get_w(model=self, format=format)
+
+            return data
+
+    def get_z(self, format="numpy") -> np.ndarray:
+
+        return cellij.tools.inspect.get_z(model=self, format=format)

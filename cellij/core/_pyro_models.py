@@ -19,19 +19,22 @@ class MOFA_Model(PyroModule):
         self.feature_group_names = data.names
         self.obs_idx = data._obs_idx
         self.feature_idx = data._feature_idx
+        self.params: dict[str, torch.Tensor] = {}
 
     def forward(self, X):
         """Generative model for MOFA."""
         plates = self.get_plates()
 
         with plates["obs"], plates["factors"]:
-            z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(
+            self.params["z"] = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(
                 -1, self.n_obs, self.n_factors, 1
             )
 
         if self.sparsity_prior == "Horseshoe":
+
             with plates["feature_groups"]:
-                feature_group_scale = pyro.sample(
+
+                self.params["feature_group_scale"] = pyro.sample(
                     "feature_group_scale", dist.HalfCauchy(torch.ones(1))  # type: ignore
                 ).view(-1, self.n_feature_groups)
 
@@ -39,30 +42,30 @@ class MOFA_Model(PyroModule):
 
             if self.sparsity_prior == "Spikeandslab-Beta":
 
-                w_scale = pyro.sample(
+                self.params["w_scale"] = pyro.sample(
                     "w_scale", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
                 ).view(-1, 1, self.n_factors, self.n_features)
 
             elif self.sparsity_prior == "Spikeandslab-ContinuousBernoulli":
 
-                pi = pyro.sample(
+                self.params["pi"] = pyro.sample(
                     "pi", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
                 ).view(-1, 1, self.n_factors, self.n_features)
 
-                w_scale = pyro.sample(
-                    "w_scale", dist.ContinuousBernoulli(probs=pi)  # type: ignore
+                self.params["w_scale"] = pyro.sample(
+                    "w_scale", dist.ContinuousBernoulli(probs=self.params["pi"])  # type: ignore
                 ).view(-1, 1, self.n_factors, self.n_features)
 
             elif self.sparsity_prior == "Spikeandslab-RelaxedBernoulli":
 
-                pi = pyro.sample(
+                self.params["pi"] = pyro.sample(
                     "pi", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
                 ).view(-1, 1, self.n_factors, self.n_features)
 
-                w_scale = pyro.sample(
+                self.params["w_scale"] = pyro.sample(
                     "w_scale",
                     dist.RelaxedBernoulliStraightThrough(
-                        temperature=torch.tensor(0.1), probs=pi
+                        temperature=torch.tensor(0.1), probs=self.params["pi"]
                     ),
                 ).view(-1, 1, self.n_factors, self.n_features)
 
@@ -78,13 +81,13 @@ class MOFA_Model(PyroModule):
 
                 # implement the horseshoe prior
                 w_shape = (-1, 1, self.n_factors, self.n_features)
-                w_scale = pyro.sample("w_scale", dist.HalfCauchy(torch.ones(1))).view(  # type: ignore
+                self.params["w_scale"] = pyro.sample("w_scale", dist.HalfCauchy(torch.ones(1))).view(  # type: ignore
                     w_shape
                 )
-                w_scale = torch.cat(
+                self.params["w_scale"] = torch.cat(
                     [
-                        w_scale[..., self.feature_idx[view]]
-                        * feature_group_scale[..., idx: idx + 1]
+                        self.params["w_scale"][..., self.feature_idx[view]]
+                        * self.params["feature_group_scale"][..., idx: idx + 1]
                         for idx, view in enumerate(self.feature_group_names)
                     ],
                     dim=-1,
@@ -97,46 +100,46 @@ class MOFA_Model(PyroModule):
                 # see https://docs.pyro.ai/en/stable/_modules/pyro/distributions/softlaplace.html#SoftLaplace
                 #
                 # Unlike the Laplace distribution, this distribution is infinitely differentiable everywhere
-                w_scale = pyro.sample(
+                self.params["w_scale"] = pyro.sample(
                     "w_scale", dist.SoftLaplace(torch.tensor(0.0), torch.tensor(1.0))
                 ).view(-1, 1, self.n_factors, self.n_features)
 
             elif self.sparsity_prior == "Nonnegative":
 
-                w_scale = pyro.sample(
+                self.params["w_scale"] = pyro.sample(
                     "w_scale", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))
                 ).view(-1, 1, self.n_factors, self.n_features)
 
             else:
-                w_scale = torch.ones(1)
+                self.params["w_scale"] = torch.ones(1)
 
-            w = pyro.sample("w", dist.Normal(torch.zeros(1), torch.ones(1))).view(
+            self.params["w"] = pyro.sample("w", dist.Normal(torch.zeros(1), torch.ones(1))).view(
                 -1, 1, self.n_factors, self.n_features
 
             )
 
-            w = w_scale * w
+            self.params["w"] = self.params["w_scale"] * self.params["w"]
 
             if self.sparsity_prior == "Nonnegative":
-                w = torch.nn.Softplus()(w)
+                self.params["w"] = torch.nn.Softplus()(self.params["w"])
 
         with plates["features"]:
 
-            sigma = pyro.sample(
+            self.params["sigma"] = pyro.sample(
                 "sigma", dist.InverseGamma(torch.tensor(3.0), torch.tensor(1.0))
             ).view(-1, 1, 1, self.n_features)
 
         with plates["obs"]:
-            prod = torch.einsum("...ikj,...ikj->...ij", z, w).view(
+            prod = torch.einsum("...ikj,...ikj->...ij", self.params["z"], self.params["w"]).view(
                 -1, self.n_obs, 1, self.n_features
             )
-            y = pyro.sample(
+            self.params["y"] = pyro.sample(
                 "data",
-                dist.Normal(prod, torch.sqrt(sigma)),
+                dist.Normal(prod, torch.sqrt(self.params["sigma"])),
                 obs=X.view(-1, self.n_obs, 1, self.n_features),
             )
 
-        return {"z": z, "w": w, "sigma": sigma, "y": y}
+        return {"z": self.params["z"], "w": self.params["w"], "sigma": self.params["sigma"], "y": self.params["y"]}
 
     def get_plates(self):
         return {

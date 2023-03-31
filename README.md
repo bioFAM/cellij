@@ -2,7 +2,7 @@
 
 # cellij
 
-![tests](https://github.com/bioFAM/cellij/actions/workflows/package.yml/badge.svg)](https://github.com/bioFAM/cellij/actions/workflows/package.yml)
+![tests](https://github.com/bioFAM/cellij/actions/workflows/package.yml/badge.svg)]
 [![codecov](https://codecov.io/gh/timtreis/T2022B_MSc_thesis/branch/main/graph/badge.svg?token=VO0A3UCIH7)](https://codecov.io/gh/timtreis/T2022B_MSc_thesis)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg?style=flat-square)](https://github.com/psf/black)
 
