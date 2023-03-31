@@ -1,9 +1,8 @@
-import os
-import numpy as np
 import json
+import os
 import pathlib
-import click
 
+import click
 from cellij.core.synthetic import DataGenerator
 
 
@@ -60,10 +59,6 @@ def generate(
     out_dir,
 ):
     """Generate synthetic data."""
-    assert len(n_features) == len(
-        likelihoods
-    ), "Number of features and likelihoods must match."
-
     # create output directory recursively
     # does not raise an exception if the directory already exists
     click.echo("Creating output directory...")
@@ -72,6 +67,10 @@ def generate(
     config = locals()
     with open(os.path.join(out_dir, "config.json"), "w") as f:
         json.dump(config, f)
+
+    assert len(n_features) == len(
+        likelihoods
+    ), "Number of features and likelihoods must match."
 
     click.echo("Generating synthetic data...")
     dg = DataGenerator(
@@ -85,7 +84,7 @@ def generate(
         factor_sparsity_dist_params=factor_sparsity_dist_params,
         seed=seed,
     )
-    
+
     dg.generate(seed=seed, all_feature_group_combs=all([k == 0 for k in n_factors]))
     click.echo("Storing synthetic data...")
     dg.to_mdata().write_h5mu(os.path.join(out_dir, "data.h5mu"))
