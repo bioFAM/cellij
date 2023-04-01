@@ -6,12 +6,16 @@ import numpy as np
 import pandas
 import pandas as pd
 import pyro
+import pickle
 import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
 
 import cellij
 from cellij.core._data import DataContainer
+from cellij.utils import (
+    _get_keys_from_model,
+)
 
 
 class FactorModel(PyroModule):
@@ -306,7 +310,7 @@ class FactorModel(PyroModule):
         if likelihood != "Normal":
             raise ValueError("Only Normal likelihood is implemented so far.")
 
-        svi = SVI(
+        self.svi = SVI(
             model=self._model,
             guide=self._guide,
             optim=pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)}),  # type: ignore
@@ -317,13 +321,37 @@ class FactorModel(PyroModule):
         data = self._model.values - self._model.values.mean(dim=0)
 
         for i in range(epochs + 1):
-            loss = svi.step(X=data)
+            loss = self.svi.step(X=data)
 
             if i % verbose_epochs == 0:
                 print(f"Epoch {i:>6}: {loss:>14.2f}")
 
         self._is_trained = True
-        self.params = self._model.params
+
+        # Get keys from model and then pull out of param storage
+        param_keys = _get_keys_from_model(self)
+        pyro_param_storage = pyro.get_param_store()
+        self.param_storage: dict[str, torch.Tensor] = {}
+        for key in param_keys:
+            self.param_storage[key] = pyro_param_storage[key].detach()
+
+    def _get_from_param_storage(
+        self,
+        name: str,
+        param: str = "locs",  # can also be "scales"
+        views: Union[str, List[str]] = "all",
+        format: str = "numpy",
+    ) -> np.ndarray:
+
+        data = cellij.tools.inspect._get_from_param_storage(
+            model=self,
+            name=name,
+            param=param,
+            views=views,
+            format=format
+        )
+
+        return data
 
     def get_w(self, views: Union[str, List[str]] = "all", format="numpy") -> np.ndarray:
 
@@ -336,3 +364,8 @@ class FactorModel(PyroModule):
     def get_z(self, format="numpy") -> np.ndarray:
 
         return cellij.tools.inspect.get_z(model=self, format=format)
+
+    def save(self, name:str, path: str = "./"):
+
+        with open(path + name, "wb") as handle:
+            pickle.dump(self, handle, protocol=pickle.HIGHEST_PROTOCOL)

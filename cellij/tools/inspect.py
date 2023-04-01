@@ -2,12 +2,15 @@ from typing import List, Optional, Union
 import pyro
 import cellij
 import numpy as np
-import numpy.typing as npt
+from cellij.utils import (
+    _get_param_storage_key_prefix
+)
 
 
-def pull_from_param_storage(
+def _get_from_param_storage(
     model: cellij.core._factormodel.FactorModel,
     name: str,
+    param: str = "locs",
     views: Union[str, List[str]] = "all",
     format: str = "numpy",
 ) -> np.ndarray:
@@ -26,16 +29,15 @@ def pull_from_param_storage(
     parameter : torch.Tensor or numpy.ndarray
         The parameter pulled from the pyro parameter storage.
     """
-    if not isinstance(model, cellij.core._factormodel.FactorModel):
-        raise TypeError(
-            "Parameter 'model' must be of type cellij.core._factormodel.FactorModel."
-        )
 
     if not isinstance(name, str):
         raise TypeError("Parameter 'name' must be of type str.")
 
-    if not isinstance(format, str):
-        raise TypeError("Parameter 'format' must be of type str.")
+    if not isinstance(param, str):
+        raise TypeError("Parameter 'param' must be of type str.")
+
+    if param not in ["locs", "scales"]:
+        raise ValueError("Parameter 'param' must be in ['locs', 'scales'].")
 
     if not isinstance(views, (str, list)):
         raise TypeError("Parameter 'views' must be of type str or list.")
@@ -44,43 +46,56 @@ def pull_from_param_storage(
         if not all([isinstance(view, str) for view in views]):
             raise TypeError("Parameter 'views' must be a list of strings.")
 
+    if not isinstance(format, str):
+        raise TypeError("Parameter 'format' must be of type str.")
+
     if format not in ["numpy", "torch", "pyro"]:
         raise ValueError("Parameter 'format' must be in ['numpy', 'torch', 'pyro'].")
 
-    param_storage = model._model.params
+    key = _get_param_storage_key_prefix(with_guide=True) + param + "." + name
 
-    if name not in param_storage.keys():
+    if key not in list(model.param_storage.keys()):
         raise ValueError(
-            f"Parameter '{name}' not found in parameter storage. Availiable choices are: {param_storage.keys()}"
+            f"Parameter '{key}' not found in parameter storage. Availiable choices are: {list(model.param_storage.keys())}"
         )
 
     if format == "numpy":
-        data = param_storage[name].detach().numpy().squeeze()
+        data = model.param_storage[key].detach().numpy().squeeze()
     elif format == "torch":
-        data = param_storage[name].detach().squeeze()
+        data = model.param_storage[key].detach().squeeze()
     elif format == "pyro":
-        data = param_storage[name]
-
-    if name == "w":
-        if views == "all":
-            return data
-        else:
-            if isinstance(views, str):
-                views = [views]
-            return data[:, views, :]
+        data = model.param_storage[key]
 
     return data
 
 
 def get_w(
-    model: cellij.core._factormodel.FactorModel, format: str = "numpy"
+    model: cellij.core._factormodel.FactorModel,
+    param: str = "locs",
+    views: Union[str, List[str]] = "all",
+    format: str = "numpy"
 ) -> np.ndarray:
 
-    return pull_from_param_storage(model, "w", format)
+    return _get_from_param_storage(
+        model=model,
+        name="w",
+        param=param,
+        views=views,
+        format=format,
+    )
 
 
 def get_z(
-    model: cellij.core._factormodel.FactorModel, format: str = "numpy"
+    model: cellij.core._factormodel.FactorModel,
+    param: str = "locs",
+    views: Union[str, List[str]] = "all",
+    format: str = "numpy"
 ) -> np.ndarray:
 
-    return pull_from_param_storage(model, "z", format)
+    return _get_from_param_storage(
+        model=model,
+        name="z",
+        param=param,
+        views=views,
+        format=format,
+    )
