@@ -16,10 +16,11 @@ def compute_factor_correlation(actuals, predictions, replace_nan=0):
     """
     # Because the factors might not be in the same order, we need to find the
     # permutation that maximizes the correlation values.
+    print(actuals.shape[1], predictions.shape[1])
     correlations = np.zeros((actuals.shape[1], predictions.shape[1]))
     for i in range(actuals.shape[1]):
         for j in range(predictions.shape[1]):
-            correlations[i, j] = pearsonr(actuals[:, i], predictions[:, j])
+            correlations[i, j] = pearsonr(actuals[:, i], predictions[:, j])[0]
 
     if replace_nan is not None:
         correlations = np.nan_to_num(correlations, nan=replace_nan)
@@ -37,3 +38,5 @@ def compute_factor_correlation(actuals, predictions, replace_nan=0):
         factorwise_correlation,
         (row_idx, col_idx)
     )
+
+
