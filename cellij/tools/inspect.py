@@ -20,7 +20,7 @@ def _get_from_param_storage(
         The name of the parameter to be pulled.
     format : str
         The format in which the parameter should be returned.
-        Options are: "numpy", "torch", "pyro".
+        Options are: "numpy", "torch".
 
     Returns
     -------
@@ -47,8 +47,8 @@ def _get_from_param_storage(
     if not isinstance(format, str):
         raise TypeError("Parameter 'format' must be of type str.")
 
-    if format not in ["numpy", "torch", "pyro"]:
-        raise ValueError("Parameter 'format' must be in ['numpy', 'torch', 'pyro'].")
+    if format not in ["numpy", "torch"]:
+        raise ValueError("Parameter 'format' must be in ['numpy', 'torch'].")
 
     key = _get_param_storage_key_prefix(with_guide=True) + param + "." + name
 
@@ -57,11 +57,6 @@ def _get_from_param_storage(
             f"Parameter '{key}' not found in parameter storage. Availiable choices are: {list(model.param_storage.keys())}"
         )
 
-    # if format == "numpy":
-    #     data = model.param_storage[key].detach().numpy().squeeze()
-    # elif format == "torch":
-    #     data = model.param_storage[key].detach().squeeze()
-    # elif format == "pyro":
     data = model.param_storage[key]
 
     if views != "all":
