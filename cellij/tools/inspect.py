@@ -54,7 +54,7 @@ def _get_from_param_storage(
 
     if key not in list(model.param_storage.keys()):
         raise ValueError(
-            f"Parameter '{key}' not found in parameter storage. Availiable choices are: {list(model.param_storage.keys())}"
+            f"Parameter '{key}' not found in parameter storage. Availiable choices are: {', '.join(list(model.param_storage.keys()))}"
         )
 
     data = model.param_storage[key]
