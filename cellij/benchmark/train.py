@@ -72,6 +72,8 @@ def train(
     out_dir,
 ):
     """Train on synthetic data."""
+    if isinstance(n_factors, str):
+        n_factors = int(n_factors)
 
     # create output directory recursively
     # does not raise an exception if the directory already exists
@@ -109,6 +111,7 @@ def train(
     click.echo("Training model...")
     # TODO: update likelihoods to be a list of likelihoods in the fit method
     # TODO: use random seed to reproduce training
+    # TODO: Expose more paraemters to the user, e.g., autoguide, etc.
     model.fit(
         likelihood=likelihoods[0].title(),
         epochs=epochs,
