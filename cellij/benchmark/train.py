@@ -1,6 +1,5 @@
 import json
-import os
-import pathlib
+from pathlib import Path
 
 import click
 import muon as mu
@@ -77,23 +76,28 @@ def train(
     # create output directory recursively
     # does not raise an exception if the directory already exists
     click.echo("Creating output directory...")
-    pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
     click.echo("Storing arguments...")
     config = locals()
     with open(Path(out_dir).joinpath("config.json"), "w") as f:
         json.dump(config, f)
 
-    data_config = json.load(open(os.path.join(data_dir, "config.json")))
+    click.echo(f"Loading data from `{data_dir}`...")
+    with open(Path(data_dir).joinpath("config.json"), "r") as f:
+        data_config = json.load(f)
+
     click.echo(data_config)
-    mdata = mu.read_h5mu(os.path.join(data_dir, "data.h5mu"))
+    mdata = mu.read_h5mu(Path(data_dir).joinpath("data.h5mu"))
 
     n_feature_groups = len(data_config["n_features"])
     if len(likelihoods) == 0:
         likelihoods = mdata.uns["likelihoods"]
 
-    assert n_feature_groups == len(
-        likelihoods
-    ), "Number of features and likelihoods must match."
+    if n_feature_groups != len(likelihoods):
+        raise ValueError(
+            "Number of feature groups and likelihoods must be equal. "
+            f"Got {n_feature_groups} features and {len(likelihoods)} likelihoods."
+        )
 
     if n_factors is None:
         n_factors = mdata.obsm["z"].shape[1]
