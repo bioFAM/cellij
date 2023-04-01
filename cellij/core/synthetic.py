@@ -4,6 +4,8 @@ import logging
 import math
 from typing import List, Optional, Tuple
 
+import anndata as ad
+import mudata as mu
 import numpy as np
 from numpy.random import Generator
 from numpy.typing import ArrayLike
@@ -213,6 +215,7 @@ class DataGenerator:
     def _generate_factor_mask(
         self,
         rng: Optional[Generator] = None,
+        all_combs: bool = False,
         level: str = "features",
     ) -> ArrayLike:
         """Generate factor activity mask across groups.
@@ -221,6 +224,9 @@ class DataGenerator:
         ----------
         rng : Optional[Generator], optional
             Random number generator, by default None
+        all_combs : bool, optional
+            Whether to generate all combinations of active factors,
+            by default False
         level : str, optional
             'obs' or 'features', by default 'features'
 
@@ -229,38 +235,64 @@ class DataGenerator:
         ArrayLike
             A boolean array of groups times factors.
         """
-        if rng is None:
-            rng = np.random.default_rng()
 
         # n_groups = self.n_sample_groups
         if level == "features":
             n_groups = self.n_feature_groups
 
+        if all_combs and n_groups == 1:
+            logger.warning(
+                f"Single `{level}` group dataset, "
+                f"cannot generate factor combinations for a single `{level}` group."
+            )
+            all_combs = False
+        if all_combs:
+            logger.warning(
+                "Generating all possible binary combinations of "
+                f"{n_groups} variables."
+            )
+            self.n_fully_shared_factors = 1
+            self.n_private_factors = n_groups
+            self.n_partially_shared_factors = 2**n_groups - 2 - self.n_private_factors
+            logger.warning(
+                f"New factor configuration across `{level}` groups: "
+                f"{self.n_fully_shared_factors} fully shared, "
+                f"{self.n_partially_shared_factors} partially shared, "
+                f"{self.n_private_factors} private factors."
+            )
+
+            return np.array(
+                [list(i) for i in itertools.product([1, 0], repeat=n_groups)]
+            )[:-1, :].T
+
+        if rng is None:
+            rng = np.random.default_rng()
+
         factor_mask = np.ones([n_groups, self.n_factors])
 
         for factor_idx in range(self.n_fully_shared_factors, self.n_factors):
-            # exclude view subsets for partially shared factors
+            # exclude group subsets for partially shared factors
             if (
                 factor_idx
                 < self.n_fully_shared_factors + self.n_partially_shared_factors
             ):
                 if n_groups > 2:
-                    exclude_view_subset_size = rng.integers(1, n_groups - 1)
+                    exclude_group_subset_size = rng.integers(1, n_groups - 1)
                 else:
-                    exclude_view_subset_size = 0
+                    exclude_group_subset_size = 0
 
-                exclude_view_subset = rng.choice(
-                    n_groups, exclude_view_subset_size, replace=False
+                exclude_group_subset = rng.choice(
+                    n_groups, exclude_group_subset_size, replace=False
                 )
-            # exclude all but one view for private factors
+            # exclude all but one group for private factors
             else:
-                include_view_idx = rng.integers(n_groups)
-                exclude_view_subset = [
-                    i for i in range(n_groups) if i != include_view_idx
+                include_group_idx = rng.integers(n_groups)
+                exclude_group_subset = [
+                    i for i in range(n_groups) if i != include_group_idx
                 ]
 
-            for m in exclude_view_subset:
-                factor_mask[m, factor_idx] = 0
+            for g in exclude_group_subset:
+                factor_mask[g, factor_idx] = 0
 
         if self.n_private_factors >= n_groups:
             factor_mask[-n_groups:, -n_groups:] = np.eye(n_groups)
@@ -289,7 +321,12 @@ class DataGenerator:
         """Sigmoid transformation."""
         return 1.0 / (1 + np.exp(-x))
 
-    def generate(self, seed: int = None, overwrite: bool = False) -> Generator:
+    def generate(
+        self,
+        seed: int = None,
+        all_feature_group_combs: bool = False,
+        overwrite: bool = False,
+    ) -> Generator:
         """Generate synthetic data.
 
         Parameters
@@ -322,13 +359,16 @@ class DataGenerator:
         ys = []
         w_masks = []
 
+        # may change the number of factors if all_feature_group_combs is True
+        feature_group_factor_mask = self._generate_factor_mask(
+            rng, all_combs=all_feature_group_combs, level="features"
+        )
+
         # generate factor scores which lie in the latent space
         z = rng.standard_normal((self.n_samples, self.n_factors))
 
         if self.n_covariates > 0:
             x = rng.standard_normal((self.n_samples, self.n_covariates))
-
-        feature_group_factor_mask = self._generate_factor_mask(rng)
 
         n_active_factors = self.n_active_factors
         if n_active_factors <= 1.0:
@@ -582,3 +622,31 @@ class DataGenerator:
         self.presence_masks = masks
 
         return rng
+
+    def to_mdata(self) -> mu.MuData:
+        ad_dict = {}
+        for m in range(self.n_feature_groups):
+            adata = ad.AnnData(
+                self.ys[m],
+                dtype=np.float32,
+            )
+            adata.var_names = f"feature_group_{m}:" + adata.var_names
+            adata.varm["w"] = self.ws[m].T
+            ad_dict[f"feature_group_{m}"] = adata
+
+        mdata = mu.MuData(ad_dict)
+        mdata.uns["likelihoods"] = list(self.likelihoods)
+        mdata.uns["n_active_factors"] = self.n_active_factors
+
+        mdata.obsm["z"] = self.z
+
+        return mdata
+
+
+if __name__ == "__main__":
+    dg = DataGenerator(
+        n_samples=200,
+        n_features=[400, 400],
+        likelihoods="normal",
+    )
+    dg.generate()
