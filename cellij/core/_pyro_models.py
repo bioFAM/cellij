@@ -56,7 +56,7 @@ class MOFA_Model(PyroModule):
                 ).view(-1, 1, self.n_factors, self.n_features)
 
                 self.params["w_scale"] = pyro.sample(
-                    "w_scale", dist.ContinuousBernoulli(probs=pi)  # type: ignore
+                    "w_scale", dist.ContinuousBernoulli(probs=self.params["pi"])  # type: ignore
                 ).view(-1, 1, self.n_factors, self.n_features)
 
             elif self.sparsity_prior == "Spikeandslab-RelaxedBernoulli":
