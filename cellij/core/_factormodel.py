@@ -10,6 +10,7 @@ import pickle
 import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
+from cellij.core.utils_training import EarlyStopper
 
 import cellij
 from cellij.core._data import DataContainer
@@ -232,7 +233,6 @@ class FactorModel(PyroModule):
                 self.add_data(name=modality_name, data=anndata_object, merge=False)
 
         if merge:
-
             self._data.merge_data(**kwargs)
 
     def _add_data(
@@ -296,9 +296,29 @@ class FactorModel(PyroModule):
         else:
             raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
 
-    def fit(self, likelihood, epochs=1000, learning_rate=0.003, verbose_epochs=100):
+    def fit(
+        self,
+        likelihood,
+        epochs=1000,
+        learning_rate=0.003,
+        verbose_epochs=100,
+        early_stopping=True,
+        patience=500,
+        min_delta=0.1,
+        percentage=True,
+    ):
         # Clear pyro param
         pyro.clear_param_store()
+
+        # If early stopping is set, check if it is a valid value
+        if early_stopping:
+            if min_delta < 0:
+                raise ValueError("min_delta must be positive.")
+            earlystopper = EarlyStopper(
+                patience=patience, min_delta=min_delta, percentage=percentage
+            )
+        else:
+            earlystopper = None
 
         # Check if data is set
         if self._data is None:
@@ -317,14 +337,27 @@ class FactorModel(PyroModule):
             loss=pyro.infer.Trace_ELBO(),  # type: ignore
         )
 
-        # # Center data
+        # Center data
         data = self._model.values - self._model.values.mean(dim=0)
 
+        self.losses = []
         for i in range(epochs + 1):
-            loss = self.svi.step(X=data)
+
+            loss = svi.step(X=data)
+            self.losses.append(loss)
+
+            if early_stopping:
+                if earlystopper.step(loss):
+                    print(f"Early stopping of training due to convergence at step {i}")
+                    break
 
             if i % verbose_epochs == 0:
-                print(f"Epoch {i:>6}: {loss:>14.2f}")
+                if i > 1:
+                    rel_change = f"{100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:7.2f}%"
+                else:
+                    rel_change = ""
+
+                print(f"Epoch {i:>6}: {loss:>14.2f} \t | {rel_change}")
 
         self._is_trained = True
 
@@ -335,6 +368,8 @@ class FactorModel(PyroModule):
         for key in param_keys:
             self.param_storage[key] = pyro_param_storage[key].detach()
 
+        print("Training finished.")
+        
     def _get_from_param_storage(
         self,
         name: str,

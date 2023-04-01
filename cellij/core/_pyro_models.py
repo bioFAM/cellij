@@ -8,6 +8,8 @@ class MOFA_Model(PyroModule):
     def __init__(self, n_factors: int, sparsity_prior: str):
         super().__init__(name="MOFA_Model")
         self.n_factors = n_factors
+        # TODO: We should check if the prior is defined. Having a typo in the name
+        # of the prior will not raise an error, but run the model without a prior.
         self.sparsity_prior = sparsity_prior
 
     def _setup(self, data):
@@ -26,6 +28,7 @@ class MOFA_Model(PyroModule):
         plates = self.get_plates()
 
         with plates["obs"], plates["factors"]:
+
             self.params["z"] = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(
                 -1, self.n_obs, self.n_factors, 1
             )
@@ -53,7 +56,7 @@ class MOFA_Model(PyroModule):
                 ).view(-1, 1, self.n_factors, self.n_features)
 
                 self.params["w_scale"] = pyro.sample(
-                    "w_scale", dist.ContinuousBernoulli(probs=self.params["pi"])  # type: ignore
+                    "w_scale", dist.ContinuousBernoulli(probs=pi)  # type: ignore
                 ).view(-1, 1, self.n_factors, self.n_features)
 
             elif self.sparsity_prior == "Spikeandslab-RelaxedBernoulli":
