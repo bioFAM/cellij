@@ -101,7 +101,7 @@ def _get_from_param_storage(
         return data
 
 
-def get_w(
+def _get_w(
     model: cellij.core._factormodel.FactorModel,
     param: str = "locs",
     views: Union[str, List[str]] = "all",
@@ -117,7 +117,7 @@ def get_w(
     )
 
 
-def get_z(
+def _get_z(
     model: cellij.core._factormodel.FactorModel,
     param: str = "locs",
     views: Union[str, List[str]] = "all",

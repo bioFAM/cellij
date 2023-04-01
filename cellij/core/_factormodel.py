@@ -305,7 +305,7 @@ class FactorModel(PyroModule):
         early_stopping: bool = True,
         patience: int = 500,
         min_delta: float = 0.1,
-        percentage: bool =True,
+        percentage: bool = True,
     ):
         # Clear pyro param
         pyro.clear_param_store()
@@ -373,32 +373,22 @@ class FactorModel(PyroModule):
     def _get_from_param_storage(
         self,
         name: str,
-        param: str = "locs",  # can also be "scales"
+        param: str = "locs", 
         views: Union[str, List[str]] = "all",
         format: str = "numpy",
     ) -> np.ndarray:
 
-        data = cellij.tools.inspect._get_from_param_storage(
+        return cellij.tools.inspect._get_from_param_storage(
             model=self, name=name, param=param, views=views, format=format
         )
 
-        return data
-
     def get_w(self, views: Union[str, List[str]] = "all", format="numpy") -> np.ndarray:
 
-        return cellij.tools.inspect.get_w(
-            model=self,
-            views=views,
-            format=format
-        )
+        return cellij.tools.inspect._get_w(model=self, views=views, format=format)
 
     def get_z(self, views: Union[str, List[str]] = "all", format="numpy") -> np.ndarray:
 
-        return cellij.tools.inspect.get_w(
-            model=self,
-            views=views,
-            format=format
-        )
+        return cellij.tools.inspect._get_z(model=self, views=views, format=format)
 
     def save(self, name: str, path: str = "./"):
 
