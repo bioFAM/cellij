@@ -80,7 +80,7 @@ def train(
     pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
     click.echo("Storing arguments...")
     config = locals()
-    with open(os.path.join(out_dir, "config.json"), "w") as f:
+    with open(Path(out_dir).joinpath("config.json"), "w") as f:
         json.dump(config, f)
 
     data_config = json.load(open(os.path.join(data_dir, "config.json")))
