@@ -2,9 +2,7 @@ from typing import List, Optional, Union
 import pyro
 import cellij
 import numpy as np
-from cellij.utils import (
-    _get_param_storage_key_prefix
-)
+from cellij.utils import _get_param_storage_key_prefix
 
 
 def _get_from_param_storage(
@@ -59,21 +57,55 @@ def _get_from_param_storage(
             f"Parameter '{key}' not found in parameter storage. Availiable choices are: {list(model.param_storage.keys())}"
         )
 
-    if format == "numpy":
-        data = model.param_storage[key].detach().numpy().squeeze()
-    elif format == "torch":
-        data = model.param_storage[key].detach().squeeze()
-    elif format == "pyro":
-        data = model.param_storage[key]
+    # if format == "numpy":
+    #     data = model.param_storage[key].detach().numpy().squeeze()
+    # elif format == "torch":
+    #     data = model.param_storage[key].detach().squeeze()
+    # elif format == "pyro":
+    data = model.param_storage[key]
 
-    return data
+    if views != "all":
+
+        if isinstance(views, str):
+
+            if views not in model.data._names:
+                raise ValueError(
+                    f"Parameter 'views' must be in {list(model.data._names)}."
+                )
+
+            if format == "numpy":
+                result = data[..., model.data._feature_idx[views]].numpy()
+            elif format == "torch":
+                result = data[..., model.data._feature_idx[views]]
+
+            return result
+
+        elif isinstance(views, list):
+
+            if not all([view in model.data._names for view in views]):
+                raise ValueError(
+                    f"All elements in 'views' must be in {list(model.data._names)}."
+                )
+
+            result = {}
+            for view in views:
+                if format == "numpy":
+                    result[view] = data[..., model.data._feature_idx[view]].numpy()
+                elif format == "torch":
+                    result[view] = data[..., model.data._feature_idx[view]]
+
+            return result
+
+    elif views == "all":
+
+        return data
 
 
 def get_w(
     model: cellij.core._factormodel.FactorModel,
     param: str = "locs",
     views: Union[str, List[str]] = "all",
-    format: str = "numpy"
+    format: str = "numpy",
 ) -> np.ndarray:
 
     return _get_from_param_storage(
@@ -89,7 +121,7 @@ def get_z(
     model: cellij.core._factormodel.FactorModel,
     param: str = "locs",
     views: Union[str, List[str]] = "all",
-    format: str = "numpy"
+    format: str = "numpy",
 ) -> np.ndarray:
 
     return _get_from_param_storage(

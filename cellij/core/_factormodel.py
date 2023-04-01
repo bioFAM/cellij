@@ -299,13 +299,13 @@ class FactorModel(PyroModule):
     def fit(
         self,
         likelihood,
-        epochs=1000,
-        learning_rate=0.003,
-        verbose_epochs=100,
-        early_stopping=True,
-        patience=500,
-        min_delta=0.1,
-        percentage=True,
+        epochs: int = 1000,
+        learning_rate: float = 0.003,
+        verbose_epochs: int = 100,
+        early_stopping: bool = True,
+        patience: int = 500,
+        min_delta: float = 0.1,
+        percentage: bool =True,
     ):
         # Clear pyro param
         pyro.clear_param_store()
@@ -343,7 +343,7 @@ class FactorModel(PyroModule):
         self.losses = []
         for i in range(epochs + 1):
 
-            loss = svi.step(X=data)
+            loss = self.svi.step(X=data)
             self.losses.append(loss)
 
             if early_stopping:
@@ -366,10 +366,10 @@ class FactorModel(PyroModule):
         pyro_param_storage = pyro.get_param_store()
         self.param_storage: dict[str, torch.Tensor] = {}
         for key in param_keys:
-            self.param_storage[key] = pyro_param_storage[key].detach()
+            self.param_storage[key] = pyro_param_storage[key].detach().squeeze()
 
         print("Training finished.")
-        
+
     def _get_from_param_storage(
         self,
         name: str,
@@ -379,28 +379,28 @@ class FactorModel(PyroModule):
     ) -> np.ndarray:
 
         data = cellij.tools.inspect._get_from_param_storage(
-            model=self,
-            name=name,
-            param=param,
-            views=views,
-            format=format
+            model=self, name=name, param=param, views=views, format=format
         )
 
         return data
 
     def get_w(self, views: Union[str, List[str]] = "all", format="numpy") -> np.ndarray:
 
-        if views == "all":
+        return cellij.tools.inspect.get_w(
+            model=self,
+            views=views,
+            format=format
+        )
 
-            data = cellij.tools.inspect.get_w(model=self, format=format)
+    def get_z(self, views: Union[str, List[str]] = "all", format="numpy") -> np.ndarray:
 
-            return data
+        return cellij.tools.inspect.get_w(
+            model=self,
+            views=views,
+            format=format
+        )
 
-    def get_z(self, format="numpy") -> np.ndarray:
-
-        return cellij.tools.inspect.get_z(model=self, format=format)
-
-    def save(self, name:str, path: str = "./"):
+    def save(self, name: str, path: str = "./"):
 
         with open(path + name, "wb") as handle:
             pickle.dump(self, handle, protocol=pickle.HIGHEST_PROTOCOL)

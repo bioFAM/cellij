@@ -67,7 +67,6 @@ class DataContainer:
     def n_obs(self):
         return len(self._merged_obs_names)
 
-
     @property
     def n_features(self):
         return len(self._merged_feature_names)
@@ -120,7 +119,6 @@ class DataContainer:
 
         """Merges all feature_groups into a single tensor."""
 
-
         feature_groups = {}
         for name in self._names:
             feature_groups[name] = self._feature_groups[name].to_df().sort_index()
@@ -144,7 +142,6 @@ class DataContainer:
             imputer = KNNImputer(n_neighbors=k)
             merged_feature_group_imputed = imputer.fit_transform(
                 merged_feature_group.values
-
             )
 
             self._values = merged_feature_group_imputed
@@ -161,7 +158,6 @@ class DataContainer:
             feature_group_obs_names = self._feature_groups[name].obs_names.to_list()
             feature_group_feature_names = self._feature_groups[name].var_names.to_list()
 
-
             self._obs_idx[name] = [
                 i
                 for i, val in enumerate(merged_obs_names)
@@ -172,7 +168,6 @@ class DataContainer:
                 i
                 for i, val in enumerate(merged_feature_names)
                 if val in feature_group_feature_names
-
             ]
 
     def to_df(self) -> pd.DataFrame:
@@ -191,7 +186,6 @@ class DataContainer:
         """Returns a 'anndata.AnnData' representation of the contained data with feature and observation names."""
 
         return anndata.AnnData(self.to_df())
-
 
     def to_tensor(self) -> torch.Tensor:
         """Returns a 'torch.Tensor' representation of the contained data."""
