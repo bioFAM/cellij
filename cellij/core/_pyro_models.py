@@ -8,6 +8,8 @@ class MOFA_Model(PyroModule):
     def __init__(self, n_factors: int, sparsity_prior: str):
         super().__init__(name="MOFA_Model")
         self.n_factors = n_factors
+        # TODO: We should check if the prior is defined. Having a typo in the name
+        # of the prior will not raise an error, but run the model without a prior.
         self.sparsity_prior = sparsity_prior
 
     def _setup(self, data):

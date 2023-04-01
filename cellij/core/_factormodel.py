@@ -332,7 +332,7 @@ class FactorModel(PyroModule):
             loss=pyro.infer.Trace_ELBO(),  # type: ignore
         )
 
-        # # Center data
+        # Center data
         data = self._model.values - self._model.values.mean(dim=0)
 
         self.losses = []
