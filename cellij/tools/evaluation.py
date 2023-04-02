@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.stats import pearsonr
 from scipy.optimize import linear_sum_assignment
+from sklearn.metrics import pairwise_distances
 
 
 def compute_factor_correlation(actuals, predictions, replace_nan=0):
@@ -16,11 +17,12 @@ def compute_factor_correlation(actuals, predictions, replace_nan=0):
     """
     # Because the factors might not be in the same order, we need to find the
     # permutation that maximizes the correlation values.
-    print(actuals.shape[1], predictions.shape[1])
-    correlations = np.zeros((actuals.shape[1], predictions.shape[1]))
-    for i in range(actuals.shape[1]):
-        for j in range(predictions.shape[1]):
-            correlations[i, j] = pearsonr(actuals[:, i], predictions[:, j])[0]
+    correlations = pairwise_distances(
+        actuals.T,
+        predictions.T,
+        metric=lambda a, b: pearsonr(a, b)[0],
+        force_all_finite=False,
+    )
 
     if replace_nan is not None:
         correlations = np.nan_to_num(correlations, nan=replace_nan)
@@ -33,10 +35,4 @@ def compute_factor_correlation(actuals, predictions, replace_nan=0):
     factorwise_correlation = correlations[row_idx, col_idx]
     mean_correlation = np.abs(factorwise_correlation).mean()
 
-    return (
-        mean_correlation,
-        factorwise_correlation,
-        (row_idx, col_idx)
-    )
-
-
+    return mean_correlation, factorwise_correlation, row_idx, col_idx
