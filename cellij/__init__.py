@@ -1,2 +1,2 @@
-from .core import _data, _factormodel, _group, _pyro_models, models, synthetic
+from .core import _data, _factormodel, _group, _pyro_models, models, synthetic, constants
 from .tools import evaluation

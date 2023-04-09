@@ -10,6 +10,7 @@ import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
 from cellij.core.utils_training import EarlyStopper
+from cellij.core.constants import DISTRIBUTIONS_PROPERTIES
 
 from cellij.core._data import DataContainer
 
@@ -293,7 +294,7 @@ class FactorModel(PyroModule):
 
     def fit(
         self,
-        likelihood,
+        likelihoods,
         epochs=1000,
         learning_rate=0.003,
         verbose_epochs=100,
@@ -315,15 +316,47 @@ class FactorModel(PyroModule):
         else:
             earlystopper = None
 
+        # Prepare likelihoods
+        if isinstance(likelihoods, dict):
+            # Raise error if likelihoods are not in our constants.py file
+            all_valid_distributions = [
+                x.__name__ for x in DISTRIBUTIONS_PROPERTIES.keys()
+            ]
+
+            for name, distribution in likelihoods.items():
+                if isinstance(distribution, str):
+                    if distribution not in all_valid_distributions:
+                        raise ValueError(
+                            f"Likelihood {distribution} for {name} not supported. Must be one of {all_valid_distributions}."
+                        )
+
+                elif isinstance(distribution, pyro.distributions.torch.Distribution):
+                    if distribution not in DISTRIBUTIONS_PROPERTIES.keys():
+                        raise ValueError(
+                            f"Likelihood {distribution} for {name} not supported. Must be one of {all_valid_distributions}."
+                        )
+
+            # If user passed strings, replace the likelihood strings with the actual distributions
+            for name, distribution in likelihoods.items():
+                if isinstance(distribution, str):
+                    likelihoods[name] = getattr(pyro.distributions, distribution)
+
+            # Raise error if likelihoods are not set for all modalities
+            if len(likelihoods.keys()) != len(self._data.feature_groups):
+                raise ValueError(
+                    f"Likelihoods must be set for all modalities. Got {likelihoods.keys()} but expected {self._data.mod.keys()}."
+                )
+        else:
+            raise ValueError(
+                f"likelihoods must be a dictionary, got {type(likelihoods)}."
+            )
+
         # Check if data is set
         if self._data is None:
             raise ValueError("No data set.")
 
         # Provide data information to generative model
-        self._model._setup(data=self._data)
-
-        if likelihood != "Normal":
-            raise ValueError("Only Normal likelihood is implemented so far.")
+        self._model._setup(data=self._data, likelihoods=likelihoods)
 
         svi = SVI(
             model=self._model,
@@ -332,8 +365,8 @@ class FactorModel(PyroModule):
             loss=pyro.infer.Trace_ELBO(),  # type: ignore
         )
 
-        # Center data
-        data = self._model.values - self._model.values.mean(dim=0)
+        # TOOD: Preprocess data
+        data = self._model.values
 
         self.losses = []
         for i in range(epochs + 1):

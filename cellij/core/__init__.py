@@ -4,3 +4,4 @@ from ._group import Group
 from ._pyro_models import MOFA_Model
 from .models import MOFA
 from .synthetic import DataGenerator
+from .constants import DISTRIBUTIONS_PROPERTIES
