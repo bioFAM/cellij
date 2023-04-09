@@ -14,17 +14,22 @@ class core_TestClass(unittest.TestCase):
         self.mdata = cellij._data.Importer().load_CLL()
 
     def test_model_is_untrained_before_fit_function(self):
-        
         model = cellij.core.models.MOFA(n_factors=self.n_factors)
         model.add_data(data=self.mdata, na_strategy="knn_by_obs")
-        
-        assert model.is_trained == False
-       
-    def test_model_is_trained_before_fit_function(self):
 
+        assert model.is_trained == False
+
+    def test_model_is_trained_before_fit_function(self):
         model = cellij.core.models.MOFA(n_factors=self.n_factors)
         model.add_data(data=self.mdata, na_strategy="knn_by_obs")
-        model.fit(likelihood="Normal",  epochs=self.n_epochs)
-        
+        model.fit(
+            likelihoods={
+                "drugs": "Normal",
+                "methylation": "Normal",
+                "mrna": "Normal",
+                "mutations": "Normal",
+            },
+            epochs=self.n_epochs,
+        )
+
         assert model.is_trained == True
-        
