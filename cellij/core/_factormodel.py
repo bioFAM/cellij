@@ -75,6 +75,7 @@ class FactorModel(PyroModule):
         trainer,
         dtype: torch.dtype = torch.float32,
         device="cpu",
+        **kwargs,
     ):
         super().__init__(name="FactorModel")
 
@@ -90,10 +91,29 @@ class FactorModel(PyroModule):
 
         # Setup
         if isinstance(guide, str):
-            if guide == "AutoNormal":
-                self._guide = pyro.infer.autoguide.AutoNormal(self._model)  # type: ignore
-            else:
-                raise ValueError(f"Unknown guide: {guide}")
+            # Implement some default guides
+            guide_args = {}
+            if "init_loc_fn" in kwargs:
+                guide_args["init_loc_fn"] = kwargs["init_loc_fn"]
+
+            if guide == "AutoDelta":
+                self._guide = pyro.infer.autoguide.AutoDelta(self._model, **guide_args)  # type: ignore
+            elif guide == "AutoNormal":
+                if "init_scale" in kwargs:
+                    guide_args["init_scale"] = kwargs["init_scale"]
+                self._guide = pyro.infer.autoguide.AutoNormal(self._model, **guide_args)  # type: ignore
+            elif guide == "AutoLowRankMultivariateNormal":
+                if "init_scale" in kwargs:
+                    guide_args["init_scale"] = kwargs["init_scale"]
+                if "rank" in kwargs:
+                    guide_args["rank"] = kwargs["rank"]
+                self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal(  # type: ignore
+                    self._model, **guide_args
+                )
+        elif isinstance(guide, pyro.infer.autoguide.AutoGuide):
+            self._guide = guide(self.model)
+        else:
+            raise ValueError(f"Unknown guide: {guide}")
 
     @property
     def model(self):
