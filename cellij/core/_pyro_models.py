@@ -2,7 +2,7 @@ import pyro
 import pyro.distributions as dist
 import torch
 from pyro.nn import PyroModule
-from cellij.core.constants import DISTRIBUTIONS_PROPERTIES
+from pyro.distributions import constraints
 
 
 class MOFA_Model(PyroModule):
@@ -13,7 +13,7 @@ class MOFA_Model(PyroModule):
         # of the prior will not raise an error, but run the model without a prior.
         self.sparsity_prior = sparsity_prior
         self.f_positive = torch.nn.Softplus()
-        self.f_unity = torch.nn.Sigmoid()
+        self.f_unit_interval = torch.nn.Sigmoid()
 
     def _setup(self, data, likelihoods):
         # TODO: at some point replace n_obs with obs_offsets
@@ -28,33 +28,41 @@ class MOFA_Model(PyroModule):
         self.n_feature_per_groups = [len(x) for x in data._feature_idx.values()]
         self.enum_data = {i: j for j, i in enumerate(data.names)}
 
-        self.n_parameters_per_group = [
-            DISTRIBUTIONS_PROPERTIES[l]["params"] for l in likelihoods.values()
-        ]
+        # Create a dict of modality name :
+        #   (llh name, number of parameters, constraints of parameters)
+        self.distr_properties = {}
+        for name, llh in likelihoods.items():
+            if ("probs" in llh.arg_constraints) and ("logits" in llh.arg_constraints):
+                self.distr_properties[name] = (
+                    llh.__name__,
+                    {
+                        k: v for k, v in llh.arg_constraints.items() if k != "probs"
+                    },  # TODO: This is a hack
+                )
+            else:
+                self.distr_properties[name] = (
+                    llh.__name__,
+                    llh.arg_constraints,
+                )
 
-        # Now, we prepare some variables we need in the forward function repeatedly
-
-        # In addition to the z*w, for some distributions we have to esitmate an additional parameter
+        # In addition to the z*w, for some distributions we have to esitmate additional parameters
         # we are storing them here
-        self.p2 = {}
-        # contains idx of feature group where we need to estimate a 2nd parameter
-        self.estimate_p2 = []
-        for name, llh in self.likelihoods.items():
-            if DISTRIBUTIONS_PROPERTIES[llh]["params"] > 1:
-                self.estimate_p2.append(name)
-
-        # Prepare constraints
-        self.constrain_p1 = {}
-        for name, llh in self.likelihoods.items():
-            if DISTRIBUTIONS_PROPERTIES[llh]["constraints"][0] == "positive":
-                self.constrain_p1[name] = self.f_positive
-            if DISTRIBUTIONS_PROPERTIES[llh]["constraints"][0] == "unit_interval":
-                self.constrain_p1[name] = self.f_unity
+        self.distr_parameters = {}
 
     def forward(self, X):
         """Generative model for MOFA."""
         # TODO: Is it helpful to move this into the _setup()?
         plates = self.get_plates()
+
+        # We store all distributional parameters for the final likelihoods in a dict
+        # keys are the modalities, values are dictionaries with keys being the distributional parameter names
+        # and the values tensors
+        params = {}
+        for mod_name, (
+            distr_name,
+            moment_constraints
+        ) in self.distr_properties.items():
+            params[mod_name] = {k: None for k in moment_constraints.keys()}
 
         with plates["obs"], plates["factors"]:
             z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(
@@ -143,14 +151,24 @@ class MOFA_Model(PyroModule):
             if self.sparsity_prior == "Nonnegative":
                 w = torch.nn.Softplus()(w)
 
-        # For a Normal distribution, we have to estimate a noise parameter
-        for name in self.estimate_p2:
-            i = self.enum_data[name]
-            with plates[f"features_{i}"]:
-                self.p2[name] = pyro.sample(
-                    f"p2_{i}",
-                    dist.InverseGamma(torch.tensor(3.0), torch.tensor(1.0)),
-                ).view(-1, 1, 1, self.n_feature_per_groups[i])
+        # Estimate additional distributional parameters
+        # TODO: This is a bit hardcoded for now, and has to be accessible by the user at some point
+        for mod_name, (
+            distr_name,
+            moment_constraints
+        ) in self.distr_properties.items():
+            for idx, k in enumerate(moment_constraints.keys()):
+                # The first parameter will be the result of z*w, hence we skip it here
+                if idx == 0:
+                    continue
+
+                i = self.enum_data[mod_name]
+                # TODO: Look-up conjugate prior based on distr_name
+                with plates[f"features_{i}"]:
+                    params[mod_name][k] = pyro.sample(
+                        f"p{k}_{i}",
+                        dist.InverseGamma(torch.tensor(3.0), torch.tensor(1.0)),
+                    ).view(-1, 1, 1, self.n_feature_per_groups[i])
 
         with plates["obs"]:
             # We assume that the first parameter of each distribution is modelled as the product of
@@ -158,36 +176,39 @@ class MOFA_Model(PyroModule):
             p1 = torch.einsum("...ikj,...ikj->...ij", z, w).view(
                 -1, self.n_obs, 1, self.n_features
             )
+            for mod_name, (_, moment_constraints) in self.distr_properties.items():
+                params[mod_name][next(iter(moment_constraints))] = p1[
+                    ..., self.feature_idx[mod_name]
+                ]
 
-            # Apply constraints to parts of the product if necessary
-            # TODO: Also apply to other parameters of the distribution
-            for name, f in self.constrain_p1.items():
-                p1[..., self.feature_idx[name]] = f(p1[..., self.feature_idx[name]])
+            # Apply constraints to parameters if necessary
+            # Loop over all modalities and all distributional parameters
+            # Apply constraints if necessary
+            # and match against observed data
+            for mod_name, (_, moment_constraints) in self.distr_properties.items():
+                for k, (moment, constraint) in enumerate(moment_constraints.items()):
+                    if constraint == constraints.positive:
+                        params[mod_name][moment] = self.f_positive(
+                            params[mod_name][moment]
+                        )
+                    elif constraint == constraints.unit_interval:
+                        params[mod_name][moment] = self.f_unit_interval(
+                            params[mod_name][moment]
+                        )
 
-            # Iterate through all LLHs and sample from the appropriate distribution
-            for name, llh in self.likelihoods.items():
-                if llh.__name__ == "Normal":
-                    y = pyro.sample(
-                        name,
-                        self.likelihoods[name](
-                            p1[..., self.feature_idx[name]], torch.sqrt(self.p2[name])
-                        ),
-                        obs=X[..., self.feature_idx[name]],
-                    )
-                elif llh.__name__ == "Bernoulli":
-                    y = pyro.sample(
-                        name,
-                        self.likelihoods[name](probs=p1[..., self.feature_idx[name]]),
-                        obs=X[..., self.feature_idx[name]],
-                    )
-                elif llh.__name__ == "Poisson":
-                    y = pyro.sample(
-                        name,
-                        self.likelihoods[name](p1[..., self.feature_idx[name]]),
-                        obs=X[..., self.feature_idx[name]],
-                    )
+            # Manual post-processing
+            # - For normal distributions: estimate standard deviation, not variance
+            for mod_name, (distr_name, _) in self.distr_properties.items():
+                if distr_name == "Normal":
+                    params[mod_name]["scale"] = torch.sqrt(params[mod_name]["scale"])
 
-        return {"z": z, "w": w, "p2": self.p2, "y": y}
+            # Prepare args
+            for mod_name in self.distr_properties.keys():
+                y = pyro.sample(
+                    mod_name,
+                    self.likelihoods[mod_name](**params[mod_name]),
+                    obs=X[..., self.feature_idx[mod_name]],
+                )
 
     def get_plates(self):
         # plates without and index '_i' cover the sum of all items

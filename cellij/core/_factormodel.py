@@ -10,7 +10,6 @@ import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
 from cellij.core.utils_training import EarlyStopper
-from cellij.core.constants import DISTRIBUTIONS_PROPERTIES
 
 from cellij.core._data import DataContainer
 
@@ -318,28 +317,16 @@ class FactorModel(PyroModule):
 
         # Prepare likelihoods
         if isinstance(likelihoods, dict):
-            # Raise error if likelihoods are not in our constants.py file
-            all_valid_distributions = [
-                x.__name__ for x in DISTRIBUTIONS_PROPERTIES.keys()
-            ]
-
-            for name, distribution in likelihoods.items():
-                if isinstance(distribution, str):
-                    if distribution not in all_valid_distributions:
-                        raise ValueError(
-                            f"Likelihood {distribution} for {name} not supported. Must be one of {all_valid_distributions}."
-                        )
-
-                elif isinstance(distribution, pyro.distributions.torch.Distribution):
-                    if distribution not in DISTRIBUTIONS_PROPERTIES.keys():
-                        raise ValueError(
-                            f"Likelihood {distribution} for {name} not supported. Must be one of {all_valid_distributions}."
-                        )
-
+            # TODO: If string is passed, check if string corresponds to a valid pyro distribution
+            # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
+            
             # If user passed strings, replace the likelihood strings with the actual distributions
             for name, distribution in likelihoods.items():
                 if isinstance(distribution, str):
-                    likelihoods[name] = getattr(pyro.distributions, distribution)
+                    try:
+                        likelihoods[name] = getattr(pyro.distributions, distribution)
+                    except AttributeError:
+                        raise AttributeError(f"Could not find valid Pyro distribution for {distribution}.")
 
             # Raise error if likelihoods are not set for all modalities
             if len(likelihoods.keys()) != len(self._data.feature_groups):
