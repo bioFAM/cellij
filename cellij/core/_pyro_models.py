@@ -57,6 +57,20 @@ class MOFA_Model(PyroModule):
         for mod_name, (_, moment_constraints) in self.distr_properties.items():
             params[mod_name] = {k: None for k in moment_constraints.keys()}
 
+            # Estimate additional distributional parameters
+            for idx, k in enumerate(moment_constraints.keys()):
+                # The first parameter will be the result of z*w, hence we skip it here
+                if idx == 0:
+                    continue
+
+                i = self.enum_data[mod_name]
+                # TODO: Look-up conjugate prior based on distr_name
+                with plates[f"features_{i}"]:
+                    params[mod_name][k] = pyro.sample(
+                        f"p{k}_{i}",
+                        dist.InverseGamma(torch.tensor(3.0), torch.tensor(1.0)),
+                    ).view(-1, 1, 1, self.n_feature_per_groups[i])
+
         with plates["obs"], plates["factors"]:
             z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(
                 -1, self.n_obs, self.n_factors, 1
@@ -144,38 +158,23 @@ class MOFA_Model(PyroModule):
             if self.sparsity_prior == "Nonnegative":
                 w = torch.nn.Softplus()(w)
 
-        # Estimate additional distributional parameters
-        for mod_name, (_, moment_constraints) in self.distr_properties.items():
-            for idx, k in enumerate(moment_constraints.keys()):
-                # The first parameter will be the result of z*w, hence we skip it here
-                if idx == 0:
-                    continue
-
-                i = self.enum_data[mod_name]
-                # TODO: Look-up conjugate prior based on distr_name
-                with plates[f"features_{i}"]:
-                    params[mod_name][k] = pyro.sample(
-                        f"p{k}_{i}",
-                        dist.InverseGamma(torch.tensor(3.0), torch.tensor(1.0)),
-                    ).view(-1, 1, 1, self.n_feature_per_groups[i])
-
         with plates["obs"]:
             # We assume that the first parameter of each distribution is modelled as the product of
             # factor weights and loadings, aka z * w
             prod = torch.einsum("...ikj,...ikj->...ij", z, w).view(
                 -1, self.n_obs, 1, self.n_features
             )
-            # Split prod according to the modalities and assign it to the first estimated parameter
-            for mod_name, (_, moment_constraints) in self.distr_properties.items():
-                params[mod_name][next(iter(moment_constraints))] = prod[
-                    ..., self.feature_idx[mod_name]
-                ]
 
             # Apply constraints to parameters if necessary
             # Loop over all modalities and all distributional parameters
             # Apply constraints if necessary
             # and match against observed data
-            for mod_name, (_, moment_constraints) in self.distr_properties.items():
+            for mod_name, (distr_name, moment_constraints) in self.distr_properties.items():
+                # Split prod according to the modalities and assign it to the first estimated parameter
+                params[mod_name][next(iter(moment_constraints))] = prod[
+                    ..., self.feature_idx[mod_name]
+                ]
+
                 for k, (moment, constraint) in enumerate(moment_constraints.items()):
                     if constraint == constraints.positive:
                         params[mod_name][moment] = self.f_positive(
@@ -186,9 +185,8 @@ class MOFA_Model(PyroModule):
                             params[mod_name][moment]
                         )
 
-            # Manual post-processing
-            # - For normal distributions: estimate standard deviation, not variance
-            for mod_name, (distr_name, _) in self.distr_properties.items():
+                # Manual post-processing
+                # - For normal distributions: estimate standard deviation, not variance
                 if distr_name == "Normal":
                     params[mod_name]["scale"] = torch.sqrt(params[mod_name]["scale"])
 
