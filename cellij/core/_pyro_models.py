@@ -12,6 +12,7 @@ class MOFA_Model(PyroModule):
         # TODO: We should check if the prior is defined. Having a typo in the name
         # of the prior will not raise an error, but run the model without a prior.
         self.sparsity_prior = sparsity_prior
+        # Default function to enforce constraints on the distributon parameters
         self.f_positive = torch.nn.Softplus()
         self.f_unit_interval = torch.nn.Sigmoid()
 
@@ -28,26 +29,21 @@ class MOFA_Model(PyroModule):
         self.n_feature_per_groups = [len(x) for x in data._feature_idx.values()]
         self.enum_data = {i: j for j, i in enumerate(data.names)}
 
-        # Create a dict of modality name :
-        #   (llh name, number of parameters, constraints of parameters)
+        # Create a dict of
+        #   modality name : constraints of parameters
+        # TODO: Remove the llh name in the Tuple
         self.distr_properties = {}
         for name, llh in likelihoods.items():
-            if ("probs" in llh.arg_constraints) and ("logits" in llh.arg_constraints):
-                self.distr_properties[name] = (
-                    llh.__name__,
-                    {
-                        k: v for k, v in llh.arg_constraints.items() if k != "probs"
-                    },  # TODO: This is a hack
-                )
-            else:
-                self.distr_properties[name] = (
-                    llh.__name__,
-                    llh.arg_constraints,
-                )
-
-        # In addition to the z*w, for some distributions we have to esitmate additional parameters
-        # we are storing them here
-        self.distr_parameters = {}
+            # For some distributions you can pass one (!) out of multiple arguments, e.g., probs or logits
+            # but you must not pass both. For probs vs. logits, we stick to logits, because it's simpler
+            self.distr_properties[name] = (
+                llh.__name__,
+                {
+                    k: v
+                    for k, v in llh.arg_constraints.items()
+                    if not ((k == "probs") and (set(["probs", "logits"]).issubset(llh.arg_constraints.keys())))
+                },
+            )
 
     def forward(self, X):
         """Generative model for MOFA."""
@@ -58,10 +54,7 @@ class MOFA_Model(PyroModule):
         # keys are the modalities, values are dictionaries with keys being the distributional parameter names
         # and the values tensors
         params = {}
-        for mod_name, (
-            distr_name,
-            moment_constraints
-        ) in self.distr_properties.items():
+        for mod_name, (_, moment_constraints) in self.distr_properties.items():
             params[mod_name] = {k: None for k in moment_constraints.keys()}
 
         with plates["obs"], plates["factors"]:
@@ -152,11 +145,7 @@ class MOFA_Model(PyroModule):
                 w = torch.nn.Softplus()(w)
 
         # Estimate additional distributional parameters
-        # TODO: This is a bit hardcoded for now, and has to be accessible by the user at some point
-        for mod_name, (
-            distr_name,
-            moment_constraints
-        ) in self.distr_properties.items():
+        for mod_name, (_, moment_constraints) in self.distr_properties.items():
             for idx, k in enumerate(moment_constraints.keys()):
                 # The first parameter will be the result of z*w, hence we skip it here
                 if idx == 0:
@@ -173,11 +162,12 @@ class MOFA_Model(PyroModule):
         with plates["obs"]:
             # We assume that the first parameter of each distribution is modelled as the product of
             # factor weights and loadings, aka z * w
-            p1 = torch.einsum("...ikj,...ikj->...ij", z, w).view(
+            prod = torch.einsum("...ikj,...ikj->...ij", z, w).view(
                 -1, self.n_obs, 1, self.n_features
             )
+            # Split prod according to the modalities and assign it to the first estimated parameter
             for mod_name, (_, moment_constraints) in self.distr_properties.items():
-                params[mod_name][next(iter(moment_constraints))] = p1[
+                params[mod_name][next(iter(moment_constraints))] = prod[
                     ..., self.feature_idx[mod_name]
                 ]
 
