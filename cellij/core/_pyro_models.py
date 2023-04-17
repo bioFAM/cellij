@@ -202,9 +202,8 @@ class MOFA_Model(PyroModule):
                 if distr_name == "Normal":
                     params[mod_name]["scale"] = torch.sqrt(params[mod_name]["scale"])
 
-            # Prepare args
             for mod_name in self.distr_properties.keys():
-                y = pyro.sample(
+                pyro.sample(
                     mod_name,
                     self.likelihoods[mod_name](**params[mod_name]),
                     obs=X[..., self.feature_idx[mod_name]],
