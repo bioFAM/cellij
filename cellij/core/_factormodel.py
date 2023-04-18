@@ -338,7 +338,7 @@ class FactorModel(PyroModule):
         # Raise error if likelihoods are not set for all modalities
         if len(likelihoods.keys()) != len(self._data.feature_groups):
             raise ValueError(
-                f"Likelihoods must be set for all modalities. Got {likelihoods.keys()} but expected {self._data.mod.keys()}."
+                f"Likelihoods must be set for all modalities. Got {len(likelihoods.keys())} likelihood and {len(self._data.feature_groups)} data modalities."
             )
 
         # Provide data information to generative model
