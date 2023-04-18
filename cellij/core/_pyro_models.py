@@ -26,8 +26,7 @@ class MOFA_Model(PyroModule):
         self.obs_idx = data._obs_idx
         self.feature_idx = data._feature_idx
         self.likelihoods = likelihoods
-        self.n_feature_per_groups = [len(x) for x in data._feature_idx.values()]
-        self.enum_data = {i: j for j, i in enumerate(data.names)}
+        self.data_dict = {i: j for j, i in enumerate(data.names)}
 
         # Create a dict of
         #   modality name : constraints of parameters
@@ -63,13 +62,13 @@ class MOFA_Model(PyroModule):
                 if idx == 0:
                     continue
 
-                i = self.enum_data[mod_name]
+                i = self.data_dict[mod_name]
                 # TODO: Look-up conjugate prior based on distr_name
                 with plates[f"features_{i}"]:
                     params[mod_name][k] = pyro.sample(
                         f"p{k}_{i}",
                         dist.InverseGamma(torch.tensor(3.0), torch.tensor(1.0)),
-                    ).view(-1, 1, 1, self.n_feature_per_groups[i])
+                    ).view(-1, 1, 1, len(self.feature_idx.values()[i]))
 
         with plates["obs"], plates["factors"]:
             z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(

@@ -315,32 +315,31 @@ class FactorModel(PyroModule):
         else:
             earlystopper = None
 
-        # Prepare likelihoods
-        if isinstance(likelihoods, dict):
-            # TODO: If string is passed, check if string corresponds to a valid pyro distribution
-            # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
-            
-            # If user passed strings, replace the likelihood strings with the actual distributions
-            for name, distribution in likelihoods.items():
-                if isinstance(distribution, str):
-                    try:
-                        likelihoods[name] = getattr(pyro.distributions, distribution)
-                    except AttributeError:
-                        raise AttributeError(f"Could not find valid Pyro distribution for {distribution}.")
-
-            # Raise error if likelihoods are not set for all modalities
-            if len(likelihoods.keys()) != len(self._data.feature_groups):
-                raise ValueError(
-                    f"Likelihoods must be set for all modalities. Got {likelihoods.keys()} but expected {self._data.mod.keys()}."
-                )
-        else:
+        # Checks
+        if self._data is None:
+            raise ValueError("No data set.")
+        if not isinstance(likelihoods, dict):
             raise ValueError(
                 f"likelihoods must be a dictionary, got {type(likelihoods)}."
             )
 
-        # Check if data is set
-        if self._data is None:
-            raise ValueError("No data set.")
+        # Prepare likelihoods
+        # TODO: If string is passed, check if string corresponds to a valid pyro distribution
+        # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
+
+        # If user passed strings, replace the likelihood strings with the actual distributions
+        for name, distribution in likelihoods.items():
+            if isinstance(distribution, str):
+                try:
+                    likelihoods[name] = getattr(pyro.distributions, distribution)
+                except AttributeError:
+                    raise AttributeError(f"Could not find valid Pyro distribution for {distribution}.")
+
+        # Raise error if likelihoods are not set for all modalities
+        if len(likelihoods.keys()) != len(self._data.feature_groups):
+            raise ValueError(
+                f"Likelihoods must be set for all modalities. Got {likelihoods.keys()} but expected {self._data.mod.keys()}."
+            )
 
         # Provide data information to generative model
         self._model._setup(data=self._data, likelihoods=likelihoods)
