@@ -68,7 +68,7 @@ class MOFA_Model(PyroModule):
                     params[mod_name][k] = pyro.sample(
                         f"p{k}_{i}",
                         dist.InverseGamma(torch.tensor(3.0), torch.tensor(1.0)),
-                    ).view(-1, 1, 1, len(self.feature_idx.values()[i]))
+                    ).view(-1, 1, 1, len(self.feature_idx[mod_name]))
 
         with plates["obs"], plates["factors"]:
             z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(
