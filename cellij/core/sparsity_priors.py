@@ -4,40 +4,50 @@ import torch
 from typing import List
 
 
-def get_prior_function(sparsity_prior: str, n_factors: int, n_features: int, feature_idx: dict, feature_group_scale: dict, feature_group_names: List):
+def get_prior_function(
+    sparsity_prior: str,
+    n_factors: int,
+    n_features: int,
+    feature_idx: dict,
+    feature_group_scale: dict,
+    feature_group_names: List,
+):
+    view_shape = (-1, 1, n_factors, n_features)
     if sparsity_prior == "Spikeandslab-Beta":
 
         def prior_sample():
             return pyro.sample(
                 "w_scale", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
-            ).view(-1, 1, n_factors, n_features)
+            ).view(view_shape)
 
         return prior_sample
 
     elif sparsity_prior == "Spikeandslab-ContinuousBernoulli":
+
         def prior_sample():
             pi = pyro.sample(
                 "pi", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
-            ).view(-1, 1, n_factors, n_features)
+            ).view(view_shape)
 
             return pyro.sample(
                 "w_scale", dist.ContinuousBernoulli(probs=pi)  # type: ignore
-            ).view(-1, 1, n_factors, n_features)
+            ).view(view_shape)
 
         return prior_sample
 
     elif sparsity_prior == "Spikeandslab-RelaxedBernoulli":
+
         def prior_sample():
             pi = pyro.sample(
                 "pi", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
-            ).view(-1, 1, n_factors, n_features)
+            ).view(view_shape)
 
             return pyro.sample(
                 "w_scale",
                 dist.RelaxedBernoulliStraightThrough(
                     temperature=torch.tensor(0.1), probs=pi
                 ),
-            ).view(-1, 1, n_factors, n_features)
+            ).view(view_shape)
 
         return prior_sample
 
@@ -48,8 +58,9 @@ def get_prior_function(sparsity_prior: str, n_factors: int, n_features: int, fea
         raise NotImplementedError()
 
     elif sparsity_prior == "Horseshoe":
+
         def prior_sample():
-            w_shape = (-1, 1, n_factors, n_features)
+            w_shape = view_shape
             w_scale = pyro.sample("w_scale", dist.HalfCauchy(torch.ones(1))).view(  # type: ignore
                 w_shape
             )
@@ -61,11 +72,11 @@ def get_prior_function(sparsity_prior: str, n_factors: int, n_features: int, fea
                 ],
                 dim=-1,
             )
+
         return prior_sample
 
     elif sparsity_prior == "Lasso":
         # TODO: Add source paper
-        # TODO: Parametrize scale
         # Approximation to the Laplace density with a SoftLaplace,
         # see https://docs.pyro.ai/en/stable/_modules/pyro/distributions/softlaplace.html#SoftLaplace
         #
@@ -73,12 +84,15 @@ def get_prior_function(sparsity_prior: str, n_factors: int, n_features: int, fea
         def prior_sample():
             return pyro.sample(
                 "w_scale", dist.SoftLaplace(torch.tensor(0.0), torch.tensor(1.0))
-            ).view(-1, 1, n_factors, n_features)
+            ).view(view_shape)
+
         return prior_sample
 
     elif sparsity_prior == "Nonnegative":
+
         def prior_sample():
             return pyro.sample(
                 "w_scale", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))
-            ).view(-1, 1, n_factors, n_features)
+            ).view(view_shape)
+
         return prior_sample
