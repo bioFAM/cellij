@@ -188,7 +188,8 @@ class FactorModel(PyroModule):
     @feature_groups.setter
     def feature_groups(self, *args):
         raise AttributeError(
-            "Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` to modify this property."
+            "Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` "
+            "to modify this property."
         )
 
     @property
@@ -351,6 +352,11 @@ class FactorModel(PyroModule):
         # If user passed strings, replace the likelihood strings with the actual distributions
         for name, distribution in likelihoods.items():
             if isinstance(distribution, str):
+                # Replace likelihood string with common synonyms and correct for align with Pyro
+                distribution = distribution.title()
+                if distribution == "Gaussian":
+                    distribution = "Normal"
+
                 try:
                     likelihoods[name] = getattr(pyro.distributions, distribution)
                 except AttributeError:
