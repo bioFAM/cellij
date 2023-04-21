@@ -398,7 +398,7 @@ class FactorModel(PyroModule):
 
             if i % verbose_epochs == 0:
                 log = f"Epoch {i:>6}: {loss:>14.2f} \t"
-                if i > 1:
+                if i >= 1:
                     log += f"| {100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:7.2f}%"
                     log += f"| {(timer() - time_start):.2f}s"
 
