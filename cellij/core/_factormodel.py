@@ -1,10 +1,8 @@
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 import anndata
 import muon
-import numpy as np
 import pandas
-import pandas as pd
 import pyro
 import torch
 from pyro.infer import SVI
@@ -110,7 +108,7 @@ class FactorModel(PyroModule):
                 self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal(  # type: ignore
                     self._model, **guide_args
                 )
-        elif isinstance(guide, pyro.infer.autoguide.AutoGuide):
+        elif isinstance(guide, pyro.infer.autoguide.AutoGuide):  # type: ignore
             self._guide = guide(self.model)
         else:
             raise ValueError(f"Unknown guide: {guide}")
@@ -217,9 +215,7 @@ class FactorModel(PyroModule):
                 f"Expected data to be one of {valid_types}, got {type(data)}."
             )
 
-        if not isinstance(data, muon.MuData) and not isinstance(
-            name, str
-        ):
+        if not isinstance(data, muon.MuData) and not isinstance(name, str):
             raise ValueError(
                 "When adding data that is not a MuData object, a name must be provided."
             )
@@ -314,13 +310,13 @@ class FactorModel(PyroModule):
 
     def fit(
         self,
-        likelihoods,
-        epochs=1000,
-        learning_rate=0.003,
-        verbose_epochs=100,
-        early_stopping=True,
-        patience=500,
-        min_delta=0.1,
+        likelihoods: Union[str, dict],
+        epochs: int = 1000,
+        learning_rate: float = 0.003,
+        verbose_epochs: int = 100,
+        early_stopping: bool = True,
+        patience: int = 500,
+        min_delta: float = 0.1,
         percentage: bool = True,
         scale: bool = True,
     ):
@@ -340,9 +336,10 @@ class FactorModel(PyroModule):
         # Checks
         if self._data is None:
             raise ValueError("No data set.")
-        if not isinstance(likelihoods, dict):
+
+        if not isinstance(likelihoods, (str, dict)):
             raise ValueError(
-                f"likelihoods must be a dictionary, got {type(likelihoods)}."
+                f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
             )
 
         # Prepare likelihoods
@@ -350,6 +347,9 @@ class FactorModel(PyroModule):
         # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
 
         # If user passed strings, replace the likelihood strings with the actual distributions
+        if isinstance(likelihoods, str):
+            likelihoods = {modality: likelihoods for modality in self._data.feature_groups}
+            
         for name, distribution in likelihoods.items():
             if isinstance(distribution, str):
                 # Replace likelihood string with common synonyms and correct for align with Pyro
@@ -358,7 +358,7 @@ class FactorModel(PyroModule):
                     distribution = "Normal"
 
                 try:
-                    likelihoods[name] = getattr(pyro.distributions, distribution)
+                    likelihoods[name] = getattr(pyro.distributions, distribution)  # type: ignore
                 except AttributeError:
                     raise AttributeError(
                         f"Could not find valid Pyro distribution for {distribution}."
@@ -392,7 +392,7 @@ class FactorModel(PyroModule):
 
         self.losses = []
         for i in range(epochs + 1):
-            loss = svi.step(X=data)
+            loss = svi.step(data=data)
             self.losses.append(loss)
 
             if early_stopping:
