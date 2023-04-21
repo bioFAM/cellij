@@ -12,7 +12,7 @@ dependencies:
   - flake8
   - pip
   - pyro-ppl
-  - python
+  - python=3.9
   - pytorch
   - pytest
   - pytest-cov
