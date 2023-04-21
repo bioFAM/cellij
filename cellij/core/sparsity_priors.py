@@ -1,7 +1,8 @@
+from typing import List
+
 import pyro
 import pyro.distributions as dist
 import torch
-from typing import List
 
 
 def get_prior_function(

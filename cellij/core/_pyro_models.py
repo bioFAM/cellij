@@ -44,7 +44,7 @@ class MOFA_Model(PyroModule):
         self.likelihoods = likelihoods
         self.data_dict = {i: j for j, i in enumerate(data.names)}
 
-        self.prior = partial(
+        self.f_sparsity_prior = partial(
             get_prior_function,
             sparsity_prior=self.sparsity_prior,
             n_factors=self.n_factors,
@@ -119,11 +119,11 @@ class MOFA_Model(PyroModule):
             )
 
             if self.sparsity_prior:
-                w_scale = self.prior(feature_group_scale=feature_group_scale)()
+                w_scale = self.f_sparsity_prior(feature_group_scale=feature_group_scale)()
                 w = w_scale * w
 
-            if self.sparsity_prior == "Nonnegative":
-                w = torch.nn.Softplus()(w)
+        if self.sparsity_prior == "Nonnegative":
+            w = torch.nn.Softplus()(w)
 
         with plates["obs"]:
             # We assume that the first parameter of each distribution is modelled as the product of
