@@ -40,7 +40,14 @@ class MOFA_Model(PyroModule):
                 {
                     k: v
                     for k, v in llh.arg_constraints.items()
-                    if not ((k == "probs") and (set(["probs", "logits"]).issubset(llh.arg_constraints.keys())))
+                    if not (
+                        (k == "probs")
+                        and (
+                            set(["probs", "logits"]).issubset(
+                                llh.arg_constraints.keys()
+                            )
+                        )
+                    )
                 },
             )
 
@@ -168,7 +175,10 @@ class MOFA_Model(PyroModule):
             # Loop over all modalities and all distributional parameters
             # Apply constraints if necessary
             # and match against observed data
-            for mod_name, (distr_name, moment_constraints) in self.distr_properties.items():
+            for mod_name, (
+                distr_name,
+                moment_constraints,
+            ) in self.distr_properties.items():
                 # Split prod according to the modalities and assign it to the first estimated parameter
                 params[mod_name][next(iter(moment_constraints))] = prod[
                     ..., self.feature_idx[mod_name]
