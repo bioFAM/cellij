@@ -1,20 +1,36 @@
 import pyro
+import logging
 import pyro.distributions as dist
 import torch
 from pyro.nn import PyroModule
 from pyro.distributions import constraints
+from cellij.core.sparsity_priors import get_prior_function
+from functools import partial
+
+logger = logging.getLogger(__name__)
 
 
 class MOFA_Model(PyroModule):
     def __init__(self, n_factors: int, sparsity_prior: str):
         super().__init__(name="MOFA_Model")
         self.n_factors = n_factors
-        # TODO: We should check if the prior is defined. Having a typo in the name
-        # of the prior will not raise an error, but run the model without a prior.
         self.sparsity_prior = sparsity_prior
         # Default function to enforce constraints on the distributon parameters
         self.f_positive = torch.nn.Softplus()
         self.f_unit_interval = torch.nn.Sigmoid()
+
+        valid_priors = [
+            "Horseshoe",
+            "Spikeandslab-Beta",
+            "Spikeandslab-ContinuousBernoulli",
+            "Spikeandslab-RelaxedBernoulli",
+            "Spikeandslab-Enumeration",
+            "Spikeandslab-Lasso",
+            "Lasso",
+            "Nonnegative",
+        ]
+        if self.sparsity_prior not in valid_priors:
+            logger.warning("No prior for inference selected.")
 
     def _setup(self, data, likelihoods):
         # TODO: at some point replace n_obs with obs_offsets
@@ -28,13 +44,23 @@ class MOFA_Model(PyroModule):
         self.likelihoods = likelihoods
         self.data_dict = {i: j for j, i in enumerate(data.names)}
 
+        self.prior = partial(
+            get_prior_function,
+            sparsity_prior=self.sparsity_prior,
+            n_factors=self.n_factors,
+            n_features=self.n_features,
+            feature_idx=self.feature_idx,
+            feature_group_names=self.feature_group_names,
+        )
+
         # Create a dict of
         #   modality name : constraints of parameters
         # TODO: Remove the llh name in the Tuple
         self.distr_properties = {}
         for name, llh in likelihoods.items():
             # For some distributions you can pass one (!) out of multiple arguments, e.g., probs or logits
-            # but you must not pass both. For probs vs. logits, we stick to logits, because it's simpler
+            # but you must not pass both.
+            # - For probs vs. logits, we stick to logits, because it's simpler
             self.distr_properties[name] = (
                 llh.__name__,
                 {
@@ -52,30 +78,27 @@ class MOFA_Model(PyroModule):
             )
 
     def forward(self, X):
-        """Generative model for MOFA."""
-        # TODO: Is it helpful to move this into the _setup()?
+        """Generative model for MOFA+."""
         plates = self.get_plates()
 
-        # We store all distributional parameters for the final likelihoods in a dict
-        # keys are the modalities, values are dictionaries with keys being the distributional parameter names
-        # and the values tensors
+        # We store all distributional parameters for the final likelihoods in a dict, called `params`.
+        # Keys are the modalities, values are dictionaries with keys being the distributional parameter names
+        # and the values the corresponding tensors
         params = {}
         for mod_name, (_, moment_constraints) in self.distr_properties.items():
             params[mod_name] = {k: None for k in moment_constraints.keys()}
 
-            # Estimate additional distributional parameters
+            # Estimate distributional parameters in addition to z*w if necessary
             for idx, k in enumerate(moment_constraints.keys()):
                 # The first parameter will be the result of z*w, hence we skip it here
-                if idx == 0:
-                    continue
-
-                i = self.data_dict[mod_name]
-                # TODO: Look-up conjugate prior based on distr_name
-                with plates[f"features_{i}"]:
-                    params[mod_name][k] = pyro.sample(
-                        f"p{k}_{i}",
-                        dist.InverseGamma(torch.tensor(3.0), torch.tensor(1.0)),
-                    ).view(-1, 1, 1, len(self.feature_idx[mod_name]))
+                if idx > 0:
+                    i = self.data_dict[mod_name]
+                    # TODO: Look-up conjugate prior based on distr_name
+                    with plates[f"features_{i}"]:
+                        params[mod_name][k] = pyro.sample(
+                            f"p{k}_{i}",
+                            dist.InverseGamma(torch.tensor(3.0), torch.tensor(1.0)),
+                        ).view(-1, 1, 1, len(self.feature_idx[mod_name]))
 
         with plates["obs"], plates["factors"]:
             z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(
@@ -87,79 +110,17 @@ class MOFA_Model(PyroModule):
                 feature_group_scale = pyro.sample(
                     "feature_group_scale", dist.HalfCauchy(torch.ones(1))  # type: ignore
                 ).view(-1, self.n_feature_groups)
+        else:
+            feature_group_scale = None
 
         with plates["features"], plates["factors"]:
-            if self.sparsity_prior == "Spikeandslab-Beta":
-                w_scale = pyro.sample(
-                    "w_scale", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
-                ).view(-1, 1, self.n_factors, self.n_features)
-
-            elif self.sparsity_prior == "Spikeandslab-ContinuousBernoulli":
-                pi = pyro.sample(
-                    "pi", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
-                ).view(-1, 1, self.n_factors, self.n_features)
-
-                w_scale = pyro.sample(
-                    "w_scale", dist.ContinuousBernoulli(probs=pi)  # type: ignore
-                ).view(-1, 1, self.n_factors, self.n_features)
-
-            elif self.sparsity_prior == "Spikeandslab-RelaxedBernoulli":
-                pi = pyro.sample(
-                    "pi", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
-                ).view(-1, 1, self.n_factors, self.n_features)
-
-                w_scale = pyro.sample(
-                    "w_scale",
-                    dist.RelaxedBernoulliStraightThrough(
-                        temperature=torch.tensor(0.1), probs=pi
-                    ),
-                ).view(-1, 1, self.n_factors, self.n_features)
-
-            elif self.sparsity_prior == "Spikeandslab-Enumeration":
-                raise NotImplementedError()
-
-            elif self.sparsity_prior == "Spikeandslab-Lasso":
-                raise NotImplementedError()
-
-            elif self.sparsity_prior == "Horseshoe":
-                # implement the horseshoe prior
-                w_shape = (-1, 1, self.n_factors, self.n_features)
-                w_scale = pyro.sample("w_scale", dist.HalfCauchy(torch.ones(1))).view(  # type: ignore
-                    w_shape
-                )
-                w_scale = torch.cat(
-                    [
-                        w_scale[..., self.feature_idx[view]]
-                        * feature_group_scale[..., idx : idx + 1]
-                        for idx, view in enumerate(self.feature_group_names)
-                    ],
-                    dim=-1,
-                )
-
-            elif self.sparsity_prior == "Lasso":
-                # TODO: Add source paper
-                # TODO: Parametrize scale
-                # Approximation to the Laplace density with a SoftLaplace,
-                # see https://docs.pyro.ai/en/stable/_modules/pyro/distributions/softlaplace.html#SoftLaplace
-                #
-                # Unlike the Laplace distribution, this distribution is infinitely differentiable everywhere
-                w_scale = pyro.sample(
-                    "w_scale", dist.SoftLaplace(torch.tensor(0.0), torch.tensor(1.0))
-                ).view(-1, 1, self.n_factors, self.n_features)
-
-            elif self.sparsity_prior == "Nonnegative":
-                w_scale = pyro.sample(
-                    "w_scale", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))
-                ).view(-1, 1, self.n_factors, self.n_features)
-
-            else:
-                w_scale = torch.ones(1)
-
             w = pyro.sample("w", dist.Normal(torch.zeros(1), torch.ones(1))).view(
                 -1, 1, self.n_factors, self.n_features
             )
 
-            w = w_scale * w
+            if self.sparsity_prior:
+                w_scale = self.prior(feature_group_scale=feature_group_scale)()
+                w = w_scale * w
 
             if self.sparsity_prior == "Nonnegative":
                 w = torch.nn.Softplus()(w)
