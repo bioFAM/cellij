@@ -218,7 +218,7 @@ class FactorModel(PyroModule):
             )
 
         if not isinstance(data, muon.MuData) and not isinstance(
-            name, (type(None), str)
+            name, str
         ):
             raise ValueError(
                 "When adding data that is not a MuData object, a name must be provided."
