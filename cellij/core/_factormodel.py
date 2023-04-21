@@ -1,3 +1,4 @@
+from timeit import default_timer as timer
 from typing import List, Optional, Union
 
 import anndata
@@ -9,9 +10,9 @@ import pyro
 import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
-from cellij.core.utils_training import EarlyStopper
 
 from cellij.core._data import DataContainer
+from cellij.core.utils_training import EarlyStopper
 
 
 class FactorModel(PyroModule):
@@ -385,6 +386,7 @@ class FactorModel(PyroModule):
         data = self._model.values
 
         self.losses = []
+        time_start = timer()
         for i in range(epochs + 1):
             loss = svi.step(X=data)
             self.losses.append(loss)
@@ -395,12 +397,12 @@ class FactorModel(PyroModule):
                     break
 
             if i % verbose_epochs == 0:
+                log = f"Epoch {i:>6}: {loss:>14.2f} \t"
                 if i > 1:
-                    rel_change = f"{100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:7.2f}%"
-                else:
-                    rel_change = ""
+                    log += f"| {100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:7.2f}%"
+                    log += f"| {(timer() - time_start):.2f}s"
 
-                print(f"Epoch {i:>6}: {loss:>14.2f} \t | {rel_change}")
+                print(log)
 
         self._is_trained = True
         print("Training finished.")
