@@ -300,7 +300,8 @@ class FactorModel(PyroModule):
         early_stopping=True,
         patience=500,
         min_delta=0.1,
-        percentage=True,
+        percentage: bool = True,
+        scale: bool = True,
     ):
         # Clear pyro param
         pyro.clear_param_store()
@@ -333,20 +334,29 @@ class FactorModel(PyroModule):
                 try:
                     likelihoods[name] = getattr(pyro.distributions, distribution)
                 except AttributeError:
-                    raise AttributeError(f"Could not find valid Pyro distribution for {distribution}.")
+                    raise AttributeError(
+                        f"Could not find valid Pyro distribution for {distribution}."
+                    )
 
         # Raise error if likelihoods are not set for all modalities
         if len(likelihoods.keys()) != len(self._data.feature_groups):
             raise ValueError(
-                f"Likelihoods must be set for all modalities. Got {len(likelihoods.keys())} likelihood and {len(self._data.feature_groups)} data modalities."
+                f"Likelihoods must be set for all modalities. Got {len(likelihoods.keys())} likelihood "
+                f"and {len(self._data.feature_groups)} data modalities."
             )
 
         # Provide data information to generative model
         self._model._setup(data=self._data, likelihoods=likelihoods)
 
+        # We scale the gradients by the number of total samples to allow a better comparison across
+        # models/datasets
+        scaling_constant = 1.0
+        if scale:
+            scaling_constant = 1.0 / self._data.values.shape[1]
+
         svi = SVI(
-            model=self._model,
-            guide=self._guide,
+            model=pyro.poutine.scale(self._model, scale=scaling_constant),
+            guide=pyro.poutine.scale(self._guide, scale=scaling_constant),
             optim=pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)}),  # type: ignore
             loss=pyro.infer.Trace_ELBO(),  # type: ignore
         )
