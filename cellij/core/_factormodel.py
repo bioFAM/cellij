@@ -313,14 +313,15 @@ class FactorModel(PyroModule):
 
     def fit(
         self,
-        likelihood,
+        likelihoods,
         epochs=1000,
         learning_rate=0.003,
         verbose_epochs=100,
         early_stopping=True,
         patience=500,
         min_delta=0.1,
-        percentage=True,
+        percentage: bool = True,
+        scale: bool = True,
     ):
         # Clear pyro param
         pyro.clear_param_store()
@@ -335,25 +336,53 @@ class FactorModel(PyroModule):
         else:
             earlystopper = None
 
-        # Check if data is set
+        # Checks
         if self._data is None:
             raise ValueError("No data set.")
+        if not isinstance(likelihoods, dict):
+            raise ValueError(
+                f"likelihoods must be a dictionary, got {type(likelihoods)}."
+            )
+
+        # Prepare likelihoods
+        # TODO: If string is passed, check if string corresponds to a valid pyro distribution
+        # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
+
+        # If user passed strings, replace the likelihood strings with the actual distributions
+        for name, distribution in likelihoods.items():
+            if isinstance(distribution, str):
+                try:
+                    likelihoods[name] = getattr(pyro.distributions, distribution)
+                except AttributeError:
+                    raise AttributeError(
+                        f"Could not find valid Pyro distribution for {distribution}."
+                    )
+
+        # Raise error if likelihoods are not set for all modalities
+        if len(likelihoods.keys()) != len(self._data.feature_groups):
+            raise ValueError(
+                f"Likelihoods must be set for all modalities. Got {len(likelihoods.keys())} likelihood "
+                f"and {len(self._data.feature_groups)} data modalities."
+            )
 
         # Provide data information to generative model
-        self._model._setup(data=self._data)
+        self._model._setup(data=self._data, likelihoods=likelihoods)
 
-        if likelihood != "Normal":
-            raise ValueError("Only Normal likelihood is implemented so far.")
+        # We scale the gradients by the number of total samples to allow a better comparison across
+        # models/datasets
+        scaling_constant = 1.0
+        if scale:
+            scaling_constant = 1.0 / self._data.values.shape[1]
 
         svi = SVI(
-            model=self._model,
-            guide=self._guide,
+            model=pyro.poutine.scale(self._model, scale=scaling_constant),
+            guide=pyro.poutine.scale(self._guide, scale=scaling_constant),
             optim=pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)}),  # type: ignore
             loss=pyro.infer.Trace_ELBO(),  # type: ignore
         )
 
-        # Center data
-        data = self._model.values - self._model.values.mean(dim=0)
+        # TOOD: Preprocess data
+        data = self._model.values
 
         self.losses = []
         for i in range(epochs + 1):
