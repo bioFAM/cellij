@@ -125,7 +125,6 @@ class MOFA_Model(PyroModule):
         if self.sparsity_prior == "Nonnegative":
             w = torch.nn.Softplus()(w)
 
-        
         with plates["obs"]:
             # We assume that the first parameter of each distribution is modelled as the product of
             # factor weights and loadings, aka z * w
@@ -162,16 +161,16 @@ class MOFA_Model(PyroModule):
                     params[mod_name]["scale"] = torch.sqrt(params[mod_name]["scale"])
 
             for mod_name in self.distr_properties.keys():
-                
+
                 mod_data = data[..., self.feature_idx[mod_name]]
-                
+
                 with pyro.poutine.mask(mask=torch.isnan(mod_data) == 0):
-                    
+
                     # https://forum.pyro.ai/t/poutine-nan-mask-not-working/3489
                     # Assign temporary values to the missing data, not used
                     # anyway due to masking.
                     masked_data = torch.nan_to_num(mod_data, nan=1.0)
-                
+
                     pyro.sample(
                         mod_name,
                         self.likelihoods[mod_name](**params[mod_name]),
