@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from functools import reduce
 from importlib import resources
-from typing import List, Optional
 
 import anndata
 import muon as mu
@@ -66,7 +65,6 @@ class DataContainer:
     @property
     def n_obs(self):
         return len(self._merged_obs_names)
-
 
     @property
     def n_features(self):
@@ -189,7 +187,6 @@ class DataContainer:
         """Returns a 'anndata.AnnData' representation of the contained data with feature and observation names."""
 
         return anndata.AnnData(self.to_df())
-
 
     def to_tensor(self) -> torch.Tensor:
         """Returns a 'torch.Tensor' representation of the contained data."""
