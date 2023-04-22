@@ -1,6 +1,5 @@
 import logging
 from functools import partial
-from operator import isubset
 
 import pyro
 import pyro.distributions as dist
@@ -69,7 +68,7 @@ class MOFA_Model(PyroModule):
                 {
                     k: v
                     for k, v in llh.arg_constraints.items()
-                    if not ((k == "probs") and (isubset(["probs", "logits"], list(llh.arg_constraints.keys()))))
+                    if not ((k == "probs") and (["probs", "logits"] <= list(llh.arg_constraints.keys())))
                 },
             )
 
