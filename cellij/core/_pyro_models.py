@@ -77,7 +77,7 @@ class MOFA_Model(PyroModule):
                 },
             )
 
-    def forward(self, X):
+    def forward(self, data: torch.Tensor):
         """Generative model for MOFA+."""
         plates = self.get_plates()
 
@@ -161,11 +161,21 @@ class MOFA_Model(PyroModule):
                     params[mod_name]["scale"] = torch.sqrt(params[mod_name]["scale"])
 
             for mod_name in self.distr_properties.keys():
-                pyro.sample(
-                    mod_name,
-                    self.likelihoods[mod_name](**params[mod_name]),
-                    obs=X[..., self.feature_idx[mod_name]],
-                )
+
+                mod_data = data[..., self.feature_idx[mod_name]]
+
+                with pyro.poutine.mask(mask=torch.isnan(mod_data) == 0):
+
+                    # https://forum.pyro.ai/t/poutine-nan-mask-not-working/3489
+                    # Assign temporary values to the missing data, not used
+                    # anyway due to masking.
+                    masked_data = torch.nan_to_num(mod_data, nan=1.0)
+
+                    pyro.sample(
+                        mod_name,
+                        self.likelihoods[mod_name](**params[mod_name]),
+                        obs=masked_data,
+                    )
 
     def get_plates(self):
         # plates without and index '_i' cover the sum of all items
