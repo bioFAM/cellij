@@ -5,6 +5,7 @@ import pyro
 import pyro.distributions as dist
 import torch
 from pyro.distributions import constraints
+from pyro.infer import config_enumerate
 from pyro.nn import PyroModule
 
 from cellij.core.sparsity_priors import get_prior_function
@@ -72,6 +73,7 @@ class MOFA_Model(PyroModule):
                 },
             )
 
+    @config_enumerate(default="parallel")
     def forward(self, data: torch.Tensor):
         """Define the generative model for MOFA+."""
         plates = self.get_plates()
