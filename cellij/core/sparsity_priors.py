@@ -26,21 +26,6 @@ def get_prior_function(
     Returns:
         A function that samples the sparsity prior for each feature group.
     """
-    valid_priors = [
-        None,
-        "Spikeandslab-Beta",
-        "Spikeandslab-ContinuousBernoulli",
-        "Spikeandslab-RelaxedBernoulli",
-        "Spikeandslab-Enumeration",
-        "Spikeandslab-Lasso",
-        "Lasso",
-        "Horseshoe",
-        "Nonnegative",
-    ]
-    if not any([sparsity_prior == prior for prior in valid_priors]):
-        raise ValueError(
-            f"Sparsity prior {sparsity_prior} is not valid. Valid priors are {valid_priors}."
-        )
 
     view_shape = (-1, 1, n_factors, n_features)
     if sparsity_prior == "Spikeandslab-Beta":
@@ -134,8 +119,19 @@ def get_prior_function(
             return torch.ones(1)
 
         return no_sample
-    
+
     else:
+        valid_priors = [
+            None,
+            "Spikeandslab-Beta",
+            "Spikeandslab-ContinuousBernoulli",
+            "Spikeandslab-RelaxedBernoulli",
+            "Spikeandslab-Enumeration",
+            "Spikeandslab-Lasso",
+            "Lasso",
+            "Horseshoe",
+            "Nonnegative",
+        ]
         raise ValueError(
-            f"Sparsity prior {sparsity_prior} is not valid. Valid priors are {valid_priors}."
+            f"Sparsity prior '{sparsity_prior}' is not valid. Valid priors are {valid_priors}."
         )

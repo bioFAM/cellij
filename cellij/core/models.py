@@ -12,7 +12,7 @@ class MOFA(FactorModel):
         by Argelaguet, R. et al. (2020)
     """
 
-    def __init__(self, n_factors, sparsity_prior="spikeandslab", **kwargs):
+    def __init__(self, n_factors, sparsity_prior="Spikeandslab-Beta", **kwargs):
         # If default variable is provided in kwargs, overwrite it
         mofa_defaults = {
             "model": MOFA_Model(n_factors=n_factors, sparsity_prior=sparsity_prior),
