@@ -26,7 +26,7 @@ dependencies = [
   "coverage",
   "python-graphviz",
   "pyro-ppl",
-  "python=3.9",
+  "python>=3.9",
   "pytorch",
   "numpy",
   "muon",
