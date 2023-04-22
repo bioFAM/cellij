@@ -117,9 +117,7 @@ class DataContainer:
         self._feature_names[name] = data.var_names.to_list()
 
     def merge_data(self, **kwargs):
-
         """Merges all feature_groups into a single tensor."""
-
 
         feature_groups = {}
         for name in self._names:
