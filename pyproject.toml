@@ -24,7 +24,7 @@ readme = "README.md"
 dependencies = [
   "anndata",
   "coverage",
-  "python-graphviz",
+  "graphviz",
   "pyro-ppl",
   "python>=3.9",
   "pytorch",
