@@ -1,5 +1,5 @@
 from timeit import default_timer as timer
-from typing import Optional, Union
+from typing import Optional, Union, List
 
 import anndata
 import muon
@@ -8,6 +8,7 @@ import pyro
 import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
+import numpy as np
 
 from cellij.core._data import DataContainer
 from cellij.core.utils_training import EarlyStopper
@@ -309,6 +310,99 @@ class FactorModel(PyroModule):
         else:
             raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
 
+    def _get_from_param_storage(
+        self,
+        name: str,
+        param: str = "locs",
+        views: Union[str, List[str]] = "all",
+        format: str = "numpy",
+    ) -> np.ndarray:
+        """Pulls a parameter from the pyro parameter storage.
+
+        TODO: Get all parameters, but in a dict.
+
+        Parameters
+        ----------
+        name : str
+            The name of the parameter to be pulled.
+        format : str
+            The format in which the parameter should be returned.
+            Options are: "numpy", "torch".
+
+        Returns
+        -------
+        parameter : torch.Tensor or numpy.ndarray
+            The parameter pulled from the pyro parameter storage.
+        """
+
+        if not isinstance(name, str):
+            raise TypeError("Parameter 'name' must be of type str.")
+
+        if not isinstance(param, str):
+            raise TypeError("Parameter 'param' must be of type str.")
+
+        if param not in ["locs", "scales"]:
+            raise ValueError("Parameter 'param' must be in ['locs', 'scales'].")
+
+        if not isinstance(views, (str, list)):
+            raise TypeError("Parameter 'views' must be of type str or list.")
+
+        if isinstance(views, list):
+            if not all([isinstance(view, str) for view in views]):
+                raise TypeError("Parameter 'views' must be a list of strings.")
+
+        if not isinstance(format, str):
+            raise TypeError("Parameter 'format' must be of type str.")
+
+        if format not in ["numpy", "torch"]:
+            raise ValueError("Parameter 'format' must be in ['numpy', 'torch'].")
+
+        key = "FactorModel._guide." + param + "." + name
+
+        if key not in list(pyro.get_param_store().keys()):
+            raise ValueError(
+                f"Parameter '{key}' not found in parameter storage. Availiable choices are: {', '.join(list(pyro.get_param_store().keys()))}"
+            )
+
+        data = pyro.get_param_store()[key]
+
+        if views != "all":
+            if isinstance(views, str):
+                if views not in self.data._names:
+                    raise ValueError(
+                        f"Parameter 'views' must be in {list(self.data._names)}."
+                    )
+
+                result = data[..., self.data._feature_idx[views]]
+
+            elif isinstance(views, list):
+                if not all([view in self.data._names for view in views]):
+                    raise ValueError(
+                        f"All elements in 'views' must be in {list(self.data._names)}."
+                    )
+
+                result = {}
+                for view in views:
+                    result[view] = data[..., self.data._feature_idx[view]]
+
+        elif views == "all":
+            result = data
+
+        if format == "numpy":
+            result = result.detach().numpy()
+
+        return result.squeeze()
+
+    def get_weights(self, views: Union[str, List[str]] = "all", format="numpy"):
+        return self._get_from_param_storage(
+            name="w", param="locs", views=views, format=format
+        )
+
+    def get_factors(self, views: Union[str, List[str]] = "all", format="numpy"):
+        return self._get_from_param_storage(
+            name="z", param="locs", views=views, format=format
+        )
+
     def fit(
         self,
         likelihoods: Union[str, dict],
@@ -349,8 +443,10 @@ class FactorModel(PyroModule):
 
         # If user passed strings, replace the likelihood strings with the actual distributions
         if isinstance(likelihoods, str):
-            likelihoods = {modality: likelihoods for modality in self._data.feature_groups}
-            
+            likelihoods = {
+                modality: likelihoods for modality in self._data.feature_groups
+            }
+
         for name, distribution in likelihoods.items():
             if isinstance(distribution, str):
                 # Replace likelihood string with common synonyms and correct for align with Pyro
