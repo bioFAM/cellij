@@ -229,9 +229,10 @@ class MOFA_Model(PyroModule):
                     w = torch.nn.Softplus()(w)
 
             else:
-                w = pyro.sample(
-                    "w", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))
-                ).view(shape)
+                with plates["features"], plates["factors"]:
+                    w = pyro.sample(
+                        "w", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))
+                    ).view(shape)
 
         with plates["obs"]:
             # We assume that the first parameter of each distribution is modelled as the product of
