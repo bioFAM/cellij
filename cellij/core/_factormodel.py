@@ -209,6 +209,7 @@ class FactorModel(PyroModule):
         merge: bool = True,
         **kwargs,
     ):
+        # TODO: Add a check that no name is "all"
         valid_types = (pandas.DataFrame, anndata.AnnData, muon.MuData)
         metadata = None
 
@@ -314,7 +315,8 @@ class FactorModel(PyroModule):
         self,
         name: str,
         param: str = "locs",
-        views: Union[str, List[str]] = "all",
+        views: Optional[Union[str, List[str]]] = "all",
+        groups: Optional[Union[str, List[str]]] = "all",
         format: str = "numpy",
     ) -> np.ndarray:
         """Pulls a parameter from the pyro parameter storage.
@@ -344,12 +346,24 @@ class FactorModel(PyroModule):
         if param not in ["locs", "scales"]:
             raise ValueError("Parameter 'param' must be in ['locs', 'scales'].")
 
-        if not isinstance(views, (str, list)):
-            raise TypeError("Parameter 'views' must be of type str or list.")
+        if views is None and groups is None:
+            raise ValueError("Parameters 'views' and 'groups' cannot both be None.")
 
-        if isinstance(views, list):
-            if not all([isinstance(view, str) for view in views]):
-                raise TypeError("Parameter 'views' must be a list of strings.")
+        if views is not None:
+            if not isinstance(views, (str, list)):
+                raise TypeError("Parameter 'views' must be of type str or list.")
+
+            if isinstance(views, list):
+                if not all([isinstance(view, str) for view in views]):
+                    raise TypeError("Parameter 'views' must be a list of strings.")
+
+        if groups is not None:
+            if not isinstance(groups, (str, list)):
+                raise TypeError("Parameter 'groups' must be of type str or list.")
+
+            if isinstance(groups, list):
+                if not all([isinstance(view, str) for view in groups]):
+                    raise TypeError("Parameter 'groups' must be a list of strings.")
 
         if not isinstance(format, str):
             raise TypeError("Parameter 'format' must be of type str.")
@@ -361,46 +375,57 @@ class FactorModel(PyroModule):
 
         if key not in list(pyro.get_param_store().keys()):
             raise ValueError(
-                f"Parameter '{key}' not found in parameter storage. Availiable choices are: {', '.join(list(pyro.get_param_store().keys()))}"
+                f"Parameter '{key}' not found in parameter storage. Available choices are: {', '.join(list(pyro.get_param_store().keys()))}"
             )
 
         data = pyro.get_param_store()[key]
 
-        if views != "all":
-            if isinstance(views, str):
-                if views not in self.data._names:
-                    raise ValueError(
-                        f"Parameter 'views' must be in {list(self.data._names)}."
-                    )
+        # TODO: Add full support for group selection.
 
-                result = data[..., self.data._feature_idx[views]]
+        if views is not None:
+            if views != "all":
+                if isinstance(views, str):
+                    if views not in self.data._names:
+                        raise ValueError(
+                            f"Parameter 'views' must be in {list(self.data._names)}."
+                        )
 
-            elif isinstance(views, list):
-                if not all([view in self.data._names for view in views]):
-                    raise ValueError(
-                        f"All elements in 'views' must be in {list(self.data._names)}."
-                    )
+                    result = data[..., self.data._feature_idx[views]]
 
-                result = {}
-                for view in views:
-                    result[view] = data[..., self.data._feature_idx[view]]
+                elif isinstance(views, list):
+                    if not all([view in self.data._names for view in views]):
+                        raise ValueError(
+                            f"All elements in 'views' must be in {list(self.data._names)}."
+                        )
 
-        elif views == "all":
-            result = data
+                    result = {}
+                    for view in views:
+                        result[view] = data[..., self.data._feature_idx[view]]
+
+            elif views == "all":
+                result = data
+
+        if groups is not None:
+            if groups != "all":
+                raise NotImplementedError()
+            elif groups == "all":
+                result = data
 
         if format == "numpy":
+            if result.is_cuda:
+                result = result.cpu()
             result = result.detach().numpy()
 
         return result.squeeze()
 
     def get_weights(self, views: Union[str, List[str]] = "all", format="numpy"):
         return self._get_from_param_storage(
-            name="w", param="locs", views=views, format=format
+            name="w", param="locs", views=views, groups=None, format=format
         )
 
-    def get_factors(self, views: Union[str, List[str]] = "all", format="numpy"):
+    def get_factors(self, groups: Union[str, List[str]] = "all", format="numpy"):
         return self._get_from_param_storage(
-            name="z", param="locs", views=views, format=format
+            name="z", param="locs", views=None, groups=groups, format=format
         )
 
     def fit(
