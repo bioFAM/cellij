@@ -3,6 +3,8 @@ from pathlib import Path
 
 import click
 import muon as mu
+import numpy as np
+import pyro
 from cellij.core.models import MOFA
 
 
@@ -113,13 +115,34 @@ def train(
     # TODO: use random seed to reproduce training
     # TODO: Expose more paraemters to the user, e.g., autoguide, etc.
     model.fit(
-        likelihood=likelihoods[0].title(),
+        # TODO: use likelihoods parameter instead of inferring from mdata
+        likelihoods=mdata.uns["likelihoods"],
         epochs=epochs,
         learning_rate=learning_rate,
         verbose_epochs=verbose_epochs,
     )
     click.echo("Saving model...")
     # TODO: save model
+    z = (
+        pyro.get_param_store()
+        .get_param("FactorModel._guide.locs.z")
+        .squeeze()
+        .cpu()
+        .detach()
+        .numpy()
+    )
+    w = (
+        pyro.get_param_store()
+        .get_param("FactorModel._guide.locs.w")
+        .squeeze()
+        .cpu()
+        .detach()
+        .numpy()
+    )
+    np.save(Path(out_dir).joinpath("z.npy"), z)
+    np.save(Path(out_dir).joinpath("w.npy"), w)
+    click.echo(f"Model parameters saved in `{out_dir}`...")
+    return model
 
 
 if __name__ == "__main__":

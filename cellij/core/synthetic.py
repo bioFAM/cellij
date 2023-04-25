@@ -40,7 +40,7 @@ class DataGenerator:
             Number of feature for each feature group.
         likelihoods : List[str], optional
             Likelihoods for each feature group,
-            "normal" or "bernoulli", by default None.
+            "Normal" or "Bernoulli", by default None.
         n_fully_shared_factors : int, optional
             Number of fully shared latent factors,
             by default 2.
@@ -95,7 +95,7 @@ class DataGenerator:
 
         # custom assignment
         if likelihoods is None:
-            likelihoods = ["normal" for _ in range(self.n_feature_groups)]
+            likelihoods = ["Normal" for _ in range(self.n_feature_groups)]
         self.likelihoods = likelihoods
 
         self.n_active_factors = n_active_factors
@@ -309,7 +309,7 @@ class DataGenerator:
         """
 
         for m in range(self.n_feature_groups):
-            if self.likelihoods[m] == "normal":
+            if self.likelihoods[m] == "Normal":
                 y = np.array(self.ys[m], dtype=np.float32, copy=True)
                 y -= y.mean(axis=0)
                 if with_std:
@@ -429,7 +429,7 @@ class DataGenerator:
             # generate feature sigmas
             sigma = 1.0 / np.sqrt(rng.gamma(10.0, 1.0, n_features))
 
-            if self.likelihoods[m] == "normal":
+            if self.likelihoods[m] == "Normal":
                 y = rng.normal(loc=y_loc, scale=sigma)
             else:
                 y = rng.binomial(1, self.sigmoid(y_loc))
@@ -624,6 +624,7 @@ class DataGenerator:
         return rng
 
     def to_mdata(self) -> mu.MuData:
+        feature_group_names = []
         ad_dict = {}
         for m in range(self.n_feature_groups):
             adata = ad.AnnData(
@@ -632,10 +633,13 @@ class DataGenerator:
             )
             adata.var_names = f"feature_group_{m}:" + adata.var_names
             adata.varm["w"] = self.ws[m].T
-            ad_dict[f"feature_group_{m}"] = adata
+            adata.varm["w_mask"] = self.w_masks[m].T
+            feature_group_name = f"feature_group_{m}"
+            ad_dict[feature_group_name] = adata
+            feature_group_names.append(feature_group_name)
 
         mdata = mu.MuData(ad_dict)
-        mdata.uns["likelihoods"] = list(self.likelihoods)
+        mdata.uns["likelihoods"] = dict(zip(feature_group_names, self.likelihoods))
         mdata.uns["n_active_factors"] = self.n_active_factors
 
         mdata.obsm["z"] = self.z
@@ -647,6 +651,6 @@ if __name__ == "__main__":
     dg = DataGenerator(
         n_samples=200,
         n_features=[400, 400],
-        likelihoods="normal",
+        likelihoods="Normal",
     )
     dg.generate()
