@@ -28,7 +28,7 @@ class MOFA_Model(PyroModule):
             "Spikeandslab-ContinuousBernoulli",
             "Spikeandslab-RelaxedBernoulli",
             # "Spikeandslab-Enumeration",
-            # "Spikeandslab-Lasso",
+            "Spikeandslab-Lasso",
             "Lasso",
             "Nonnegative",
         ]
@@ -217,7 +217,40 @@ class MOFA_Model(PyroModule):
                 raise NotImplementedError()
 
             elif self.sparsity_prior == "Spikeandslab-Lasso":
-                raise NotImplementedError()
+                # Spike-and-Slab with a Laplace distribution for the spike and slab
+                lambda_spike = kwargs.get("lambda_spike", 20)
+                lambda_slab = kwargs.get("lambda_slab", 1)
+
+                samples = []
+                for idx, (_, features) in enumerate(self.feature_idx.items()):
+                    # The hyperparamters in the beta prior are a=1 and b=#number of features
+                    with plates["feature_groups"], plates["factors"]:
+                        samples_beta = pyro.sample(
+                            f"samples_beta_{idx}",
+                            dist.Beta(1, len(features)),
+                        )
+                    samples_beta = samples_beta.view(-1, self.n_feature_groups, self.n_factors, 1)
+
+                    with plates[f"features_{idx}"], plates["factors"]:
+                        samples_bernoulli = pyro.sample(
+                            f"samples_bernoulli_{idx}",
+                            dist.ContinuousBernoulli(probs=samples_beta[0, idx]),
+                        )
+
+                        samples_lambda_spike = pyro.sample(
+                            f"samples_lambda_spike_{idx}",
+                            dist.SoftLaplace(torch.tensor(0.0), torch.tensor(lambda_spike)),
+                        )
+                        samples_lambda_slab = pyro.sample(
+                            f"samples_lambda_slab_{idx}",
+                            dist.SoftLaplace(torch.tensor(0.0), torch.tensor(lambda_slab)),
+                        )
+
+                    samples.append(
+                        (1 - samples_bernoulli) * samples_lambda_spike + samples_bernoulli * samples_lambda_slab
+                    )
+
+                w = torch.cat(samples, axis=-1).view(shape)
 
             elif self.sparsity_prior == "Nonnegative":
                 with plates["features"], plates["factors"]:
