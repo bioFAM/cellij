@@ -1,9 +1,14 @@
-import pyro
 import logging
+from functools import partial
+
+import pyro
 import pyro.distributions as dist
 import torch
-from pyro.nn import PyroModule
 from pyro.distributions import constraints
+from pyro.infer import config_enumerate
+from pyro.nn import PyroModule
+
+from cellij.core.sparsity_priors import get_prior_function
 
 logger = logging.getLogger(__name__)
 
@@ -55,14 +60,7 @@ class MOFA_Model(PyroModule):
                 {
                     k: v
                     for k, v in llh.arg_constraints.items()
-                    if not (
-                        (k == "probs")
-                        and (
-                            set(["probs", "logits"]).issubset(
-                                llh.arg_constraints.keys()
-                            )
-                        )
-                    )
+                    if not ((k == "probs") and (["probs", "logits"] <= list(llh.arg_constraints.keys())))
                 },
             )
 
@@ -75,7 +73,7 @@ class MOFA_Model(PyroModule):
         # and the values the corresponding tensors
         params = {}
         for mod_name, (_, moment_constraints) in self.distr_properties.items():
-            params[mod_name] = {k: None for k in moment_constraints.keys()}
+            params[mod_name] = {k: None for k in moment_constraints}
 
             # Estimate distributional parameters in addition to z*w if necessary
             for idx, k in enumerate(moment_constraints.keys()):
@@ -104,7 +102,7 @@ class MOFA_Model(PyroModule):
             # J. G. S. (2010).
             with plates["feature_groups"]:
                 feature_group_scale = pyro.sample(
-                    "feature_group_scale", dist.HalfCauchy(torch.ones(1))  # type: ignore
+                    "feature_group_scale", dist.HalfCauchy(torch.ones(1))  # type: ignore[call-overload]
                 ).view(-1, self.n_feature_groups)
 
             with plates["features"], plates["factors"]:
@@ -237,9 +235,7 @@ class MOFA_Model(PyroModule):
         with plates["obs"]:
             # We assume that the first parameter of each distribution is modelled as the product of
             # factor weights and loadings, aka z * w
-            prod = torch.einsum("...ikj,...ikj->...ij", z, w).view(
-                -1, self.n_obs, 1, self.n_features
-            )
+            prod = torch.einsum("...ikj,...ikj->...ij", z, w).view(-1, self.n_obs, 1, self.n_features)
 
             # Apply constraints to parameters if necessary
             # Loop over all modalities and all distributional parameters
@@ -250,19 +246,13 @@ class MOFA_Model(PyroModule):
                 moment_constraints,
             ) in self.distr_properties.items():
                 # Split prod according to the modalities and assign it to the first estimated parameter
-                params[mod_name][next(iter(moment_constraints))] = prod[
-                    ..., self.feature_idx[mod_name]
-                ]
+                params[mod_name][next(iter(moment_constraints))] = prod[..., self.feature_idx[mod_name]]
 
-                for k, (moment, constraint) in enumerate(moment_constraints.items()):
+                for moment, constraint in moment_constraints.items():
                     if constraint == constraints.positive:
-                        params[mod_name][moment] = self.f_positive(
-                            params[mod_name][moment]
-                        )
+                        params[mod_name][moment] = self.f_positive(params[mod_name][moment])
                     elif constraint == constraints.unit_interval:
-                        params[mod_name][moment] = self.f_unit_interval(
-                            params[mod_name][moment]
-                        )
+                        params[mod_name][moment] = self.f_unit_interval(params[mod_name][moment])
 
                 # Manual post-processing
                 # - For normal distributions: estimate standard deviation, not variance
@@ -299,8 +289,6 @@ class MOFA_Model(PyroModule):
         }
         # Add one feature plate for each group
         for i, feature_set in enumerate(self.feature_idx.values()):
-            plates[f"features_{i}"] = pyro.plate(
-                f"features_{i}", len(feature_set), dim=-1
-            )
+            plates[f"features_{i}"] = pyro.plate(f"features_{i}", len(feature_set), dim=-1)
 
         return plates
