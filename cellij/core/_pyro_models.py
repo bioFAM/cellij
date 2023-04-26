@@ -24,11 +24,11 @@ class MOFA_Model(PyroModule):
 
         valid_priors = [
             "Horseshoe",
-            "Spikeandslab-Beta",
+            # "Spikeandslab-Beta",
             "Spikeandslab-ContinuousBernoulli",
             "Spikeandslab-RelaxedBernoulli",
-            "Spikeandslab-Enumeration",
-            "Spikeandslab-Lasso",
+            # "Spikeandslab-Enumeration",
+            # "Spikeandslab-Lasso",
             "Lasso",
             "Nonnegative",
         ]
@@ -47,15 +47,6 @@ class MOFA_Model(PyroModule):
         self.likelihoods = likelihoods
         self.data_dict = {i: j for j, i in enumerate(data.names)}
 
-        self.f_sparsity_prior = partial(
-            get_prior_function,
-            sparsity_prior=self.sparsity_prior,
-            n_factors=self.n_factors,
-            n_features=self.n_features,
-            feature_idx=self.feature_idx,
-            feature_group_names=self.feature_group_names,
-        )
-
         # Create a dict of
         #   modality name : constraints of parameters
         # TODO: Remove the llh name in the Tuple
@@ -73,9 +64,8 @@ class MOFA_Model(PyroModule):
                 },
             )
 
-    @config_enumerate(default="parallel")
-    def forward(self, data: torch.Tensor):
-        """Define the generative model for MOFA+."""
+    def forward(self, data: torch.Tensor, **kwargs):
+        """Generative model for MOFA+."""
         plates = self.get_plates()
 
         # We store all distributional parameters for the final likelihoods in a dict, called `params`.
@@ -98,27 +88,149 @@ class MOFA_Model(PyroModule):
                         ).view(-1, 1, 1, len(self.feature_idx[mod_name]))
 
         with plates["obs"], plates["factors"]:
-            z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(-1, self.n_obs, self.n_factors, 1)
+            z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(
+                -1, self.n_obs, self.n_factors, 1
+            )
+
+        # Priors
+
+        shape = (-1, 1, self.n_factors, self.n_features)
 
         if self.sparsity_prior == "Horseshoe":
+            # Horseshoe
+            # Reference: "The horseshoe estimator for sparse signals.", C. M. Carvalho, N. G. Polson,
+            # J. G. S. (2010).
             with plates["feature_groups"]:
                 feature_group_scale = pyro.sample(
                     "feature_group_scale", dist.HalfCauchy(torch.ones(1))  # type: ignore[call-overload]
                 ).view(-1, self.n_feature_groups)
+
+            with plates["features"], plates["factors"]:
+                if self.sparsity_prior == "Horseshoe":
+                    w_scale = pyro.sample("w_scale", dist.HalfCauchy(torch.ones(1))).view(  # type: ignore
+                        shape
+                    )
+                    w_scale = torch.cat(
+                        [
+                            w_scale[..., self.feature_idx[view]]
+                            * feature_group_scale[..., idx : idx + 1]
+                            for idx, view in enumerate(self.feature_group_names)
+                        ],
+                        dim=-1,
+                    )
+
+            w = w_scale * pyro.sample("w", dist.Normal(torch.zeros(1), torch.ones(1)))
+            w = w.view(shape)
+
         else:
-            feature_group_scale = None
+            if self.sparsity_prior == "Lasso":
+                with plates["features"], plates["factors"]:
+                    # Bayesian Lasso
+                    # Reference: "The Bayesian lasso.", Park, T. and Casella, G. (2008).
+                    # Journal of the American Statistical Association
+                    #
+                    # Approximation to the Laplace density with a SoftLaplace,
+                    # see https://docs.pyro.ai/en/stable/_modules/pyro/distributions/softlaplace.html#SoftLaplace
+                    lambda_ = kwargs.get("lambda", 0.1)
+                    w = pyro.sample(
+                        "w",
+                        dist.SoftLaplace(torch.tensor(0.0), torch.tensor(lambda_)),
+                    ).view(shape)
 
-        with plates["features"], plates["factors"]:
-            w = pyro.sample("w", dist.Normal(torch.zeros(1), torch.ones(1))).view(
-                -1, 1, self.n_factors, self.n_features
-            )
+            elif self.sparsity_prior == "Spikeandslab-ContinuousBernoulli":
+                # Spike-and-Slab with a continuous relaxation of the Bernoulli distribution
+                alpha_beta = kwargs.get("alpha_beta", 1.0)
+                beta_beta = kwargs.get("beta_beta", 1.0)
+                alpha_gamma = kwargs.get("alpha_gamma", 0.001)
+                beta_gamma = kwargs.get("beta_gamma", 0.001)
+                # We estimate one value per factor and per modality
+                with plates["feature_groups"], plates["factors"]:
+                    theta = pyro.sample(
+                        "theta",
+                        dist.Beta(torch.tensor(alpha_beta), torch.tensor(beta_beta)),
+                    )
+                theta = theta.view(-1, self.n_feature_groups, self.n_factors, 1)
 
-            if self.sparsity_prior:
-                w_scale = self.f_sparsity_prior(feature_group_scale=feature_group_scale)()
-                w = w_scale * w
+                with plates["feature_groups"], plates["factors"]:
+                    alpha = pyro.sample(
+                        "alpha",
+                        dist.Gamma(torch.tensor(alpha_gamma), torch.tensor(beta_gamma)),
+                    )
+                alpha = alpha.view(-1, self.n_feature_groups, self.n_factors, 1)
 
-        if self.sparsity_prior == "Nonnegative":
-            w = torch.nn.Softplus()(w)
+                samples = []
+                for idx, _ in enumerate(self.feature_group_names):
+                    with plates[f"features_{idx}"], plates["factors"]:
+                        samples_normal = pyro.sample(
+                            f"samples_normal_{idx}",
+                            dist.Normal(loc=0, scale=alpha[0, idx]),
+                        )
+                        samples_bernoulli = pyro.sample(
+                            f"samples_bernoulli_{idx}",
+                            dist.ContinuousBernoulli(probs=theta[0, idx]),
+                        )
+                    samples.append(samples_normal * samples_bernoulli)
+
+                w = torch.cat(samples, axis=-1).view(shape)
+
+            elif self.sparsity_prior == "Spikeandslab-RelaxedBernoulli":
+                # Spike-and-Slab with a continuous relaxation of the Bernoulli distribution
+                alpha_beta = kwargs.get("alpha_beta", 1.0)
+                beta_beta = kwargs.get("beta_beta", 1.0)
+                alpha_gamma = kwargs.get("alpha_gamma", 0.001)
+                beta_gamma = kwargs.get("beta_gamma", 0.001)
+                temperature = kwargs.get("temperature", 0.1)
+                # We estimate one value per factor and per modality
+                with plates["feature_groups"], plates["factors"]:
+                    theta = pyro.sample(
+                        "theta",
+                        dist.Beta(torch.tensor(alpha_beta), torch.tensor(beta_beta)),
+                    )
+                theta = theta.view(-1, self.n_feature_groups, self.n_factors, 1)
+
+                with plates["feature_groups"], plates["factors"]:
+                    alpha = pyro.sample(
+                        "alpha",
+                        dist.Gamma(torch.tensor(alpha_gamma), torch.tensor(beta_gamma)),
+                    )
+                alpha = alpha.view(-1, self.n_feature_groups, self.n_factors, 1)
+
+                samples = []
+                for idx, _ in enumerate(self.feature_group_names):
+                    with plates[f"features_{idx}"], plates["factors"]:
+                        samples_normal = pyro.sample(
+                            f"samples_normal_{idx}",
+                            dist.Normal(loc=0, scale=alpha[0, idx]),
+                        )
+                        samples_bernoulli = pyro.sample(
+                            f"samples_bernoulli_{idx}",
+                            dist.RelaxedBernoulliStraightThrough(
+                                temperature=torch.tensor(temperature),
+                                probs=theta[0, idx],
+                            ),
+                        )
+                    samples.append(samples_normal * samples_bernoulli)
+
+                w = torch.cat(samples, axis=-1).view(shape)
+
+            elif self.sparsity_prior == "Spikeandslab-Enumeration":
+                raise NotImplementedError()
+
+            elif self.sparsity_prior == "Spikeandslab-Lasso":
+                raise NotImplementedError()
+
+            elif self.sparsity_prior == "Nonnegative":
+                with plates["features"], plates["factors"]:
+                    w = pyro.sample(
+                        "w", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))
+                    ).view(shape)
+                    w = torch.nn.Softplus()(w)
+
+            else:
+                with plates["features"], plates["factors"]:
+                    w = pyro.sample(
+                        "w", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))
+                    ).view(shape)
 
         with plates["obs"]:
             # We assume that the first parameter of each distribution is modelled as the product of
@@ -147,7 +259,7 @@ class MOFA_Model(PyroModule):
                 if distr_name == "Normal":
                     params[mod_name]["scale"] = torch.sqrt(params[mod_name]["scale"])
 
-            for mod_name in self.distr_properties:
+            for mod_name in self.distr_properties.keys():
                 mod_data = data[..., self.feature_idx[mod_name]]
 
                 with pyro.poutine.mask(mask=torch.isnan(mod_data) == 0):
@@ -168,7 +280,12 @@ class MOFA_Model(PyroModule):
             "obs": pyro.plate("obs", self.n_obs, dim=-3),
             "factors": pyro.plate("factors", self.n_factors, dim=-2),
             "features": pyro.plate("features", self.n_features, dim=-1),
-            "feature_groups": pyro.plate("feature_groups", self.n_feature_groups, dim=-1),
+            "feature_groups": pyro.plate(
+                "feature_groups", self.n_feature_groups, dim=-1
+            ),
+            "feature_groups3": pyro.plate(
+                "feature_groups3", self.n_feature_groups, dim=-3
+            ),
         }
         # Add one feature plate for each group
         for i, feature_set in enumerate(self.feature_idx.values()):
