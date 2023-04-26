@@ -136,7 +136,7 @@ class MOFA_Model(PyroModule):
                 # Split prod according to the modalities and assign it to the first estimated parameter
                 params[mod_name][next(iter(moment_constraints))] = prod[..., self.feature_idx[mod_name]]
 
-                for _, (moment, constraint) in enumerate(moment_constraints.items()):
+                for moment, constraint in moment_constraints.items():
                     if constraint == constraints.positive:
                         params[mod_name][moment] = self.f_positive(params[mod_name][moment])
                     elif constraint == constraints.unit_interval:
