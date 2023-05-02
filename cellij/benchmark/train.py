@@ -124,6 +124,7 @@ def train(
         learning_rate=learning_rate,
         verbose_epochs=verbose_epochs,
     )
+    return model
     click.echo("Saving model...")
     # TODO: save model
     np.save(Path(out_dir).joinpath("z.npy"), get_z())
@@ -137,7 +138,37 @@ def get_w(sparsity_prior):
         unscaled_w = pyro.get_param_store()["FactorModel._guide.locs.unscaled_w"]
         w_scale = pyro.get_param_store()["FactorModel._guide.locs.w_scale"]
         w = unscaled_w * w_scale
-    # elif sparsity_prior == "Lasso":
+    elif sparsity_prior == "Spikeandslab-Lasso":
+        samples_bernoulli = torch.cat(
+            [
+                pyro.get_param_store()[
+                    f"FactorModel._guide.locs.samples_bernoulli_{idx}"
+                ]
+                for idx in range(3)
+            ],
+            dim=1,
+        )
+        samples_lambda_spike = torch.cat(
+            [
+                pyro.get_param_store()[
+                    f"FactorModel._guide.locs.samples_lambda_spike_{idx}"
+                ]
+                for idx in range(3)
+            ],
+            dim=1,
+        )
+        samples_lambda_slab = torch.cat(
+            [
+                pyro.get_param_store()[
+                    f"FactorModel._guide.locs.samples_lambda_slab_{idx}"
+                ]
+                for idx in range(3)
+            ],
+            dim=1,
+        )
+        w = (
+            1 - samples_bernoulli
+        ) * samples_lambda_spike + samples_bernoulli * samples_lambda_slab
     else:
         w = pyro.get_param_store()["FactorModel._guide.locs.w"]
     return w.squeeze().cpu().detach().numpy()
