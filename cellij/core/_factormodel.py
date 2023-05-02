@@ -1,14 +1,14 @@
 from timeit import default_timer as timer
-from typing import Optional, Union, List
+from typing import List, Optional, Union
 
 import anndata
 import muon
+import numpy as np
 import pandas
 import pyro
 import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
-import numpy as np
 
 from cellij.core._data import DataContainer
 from cellij.core.utils_training import EarlyStopper

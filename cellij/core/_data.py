@@ -56,7 +56,6 @@ class DataContainer:
 
     @merged_obs_names.setter
     def merged_obs_names(self, names):
-
         if len(set(names)) != len(names):
             raise ValueError("Duplicate names found in observations.")
 
@@ -80,7 +79,6 @@ class DataContainer:
 
     @merged_feature_names.setter
     def merged_feature_names(self, names):
-
         if len(set(names)) != len(names):
             raise ValueError("Duplicate names found in features.")
 
@@ -140,23 +138,19 @@ class DataContainer:
             imputer = KNNImputer(n_neighbors=k)
             merged_feature_group_imputed = imputer.fit_transform(
                 merged_feature_group.values
-
             )
 
             self._values = merged_feature_group_imputed
 
         elif na_strategy is None:
-
             self._values = merged_feature_group.values
 
         self._merged_obs_names = merged_obs_names
         self._merged_feature_names = merged_feature_names
 
         for name in self._names:
-
             feature_group_obs_names = self._feature_groups[name].obs_names.to_list()
             feature_group_feature_names = self._feature_groups[name].var_names.to_list()
-
 
             self._obs_idx[name] = [
                 i
@@ -168,7 +162,6 @@ class DataContainer:
                 i
                 for i, val in enumerate(merged_feature_names)
                 if val in feature_group_feature_names
-
             ]
 
     def to_df(self) -> pd.DataFrame:

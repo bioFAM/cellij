@@ -5,6 +5,8 @@ import click
 import muon as mu
 import numpy as np
 import pyro
+import torch
+
 from cellij.core.models import MOFA
 
 
@@ -73,6 +75,7 @@ def train(
     seed,
     out_dir,
 ):
+    torch.set_default_tensor_type("torch.cuda.FloatTensor")
     """Train on synthetic data."""
     if isinstance(n_factors, str):
         n_factors = int(n_factors)
@@ -123,7 +126,25 @@ def train(
     )
     click.echo("Saving model...")
     # TODO: save model
-    z = (
+    np.save(Path(out_dir).joinpath("z.npy"), get_z())
+    np.save(Path(out_dir).joinpath("w.npy"), get_w(sparsity_prior))
+    click.echo(f"Model parameters saved in `{out_dir}`...")
+    return model
+
+
+def get_w(sparsity_prior):
+    if sparsity_prior == "Horseshoe":
+        unscaled_w = pyro.get_param_store()["FactorModel._guide.locs.unscaled_w"]
+        w_scale = pyro.get_param_store()["FactorModel._guide.locs.w_scale"]
+        w = unscaled_w * w_scale
+    # elif sparsity_prior == "Lasso":
+    else:
+        w = pyro.get_param_store()["FactorModel._guide.locs.w"]
+    return w.squeeze().cpu().detach().numpy()
+
+
+def get_z():
+    return (
         pyro.get_param_store()
         .get_param("FactorModel._guide.locs.z")
         .squeeze()
@@ -131,18 +152,6 @@ def train(
         .detach()
         .numpy()
     )
-    w = (
-        pyro.get_param_store()
-        .get_param("FactorModel._guide.locs.w")
-        .squeeze()
-        .cpu()
-        .detach()
-        .numpy()
-    )
-    np.save(Path(out_dir).joinpath("z.npy"), z)
-    np.save(Path(out_dir).joinpath("w.npy"), w)
-    click.echo(f"Model parameters saved in `{out_dir}`...")
-    return model
 
 
 if __name__ == "__main__":
