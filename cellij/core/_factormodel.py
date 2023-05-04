@@ -432,7 +432,9 @@ class FactorModel(PyroModule):
         self,
         likelihoods: Union[str, dict],
         epochs: int = 1000,
+        num_particles: int = 1,
         learning_rate: float = 0.003,
+        optimizer: str = "Clipped",
         verbose_epochs: int = 100,
         early_stopping: bool = True,
         patience: int = 500,
@@ -502,13 +504,21 @@ class FactorModel(PyroModule):
         if scale:
             scaling_constant = 1.0 / self._data.values.shape[1]
 
+        optim = pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)})
+        if optimizer.lower() == "clipped":
+            gamma = 0.1
+            lrd = gamma ** (1 / epochs)
+            optim = pyro.optim.ClippedAdam({"lr": learning_rate, "lrd": lrd})
+
         svi = SVI(
             model=pyro.poutine.scale(self._model, scale=scaling_constant),
             guide=pyro.poutine.scale(self._guide, scale=scaling_constant),
-            optim=pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)}),  # type: ignore
+            optim=optim,
             # loss=pyro.infer.Trace_ELBO(),  # type: ignore
             loss=pyro.infer.TraceMeanField_ELBO(
                 retain_graph=True,
+                num_particles=num_particles,
+                vectorize_particles=True,
             ),
         )
 

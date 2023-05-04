@@ -91,7 +91,7 @@ class MOFA_Model(PyroModule):
         #     # We assume that the first parameter of each distribution is modelled as the product of
         #     # factor weights and loadings, aka z * w
         #     prod = torch.einsum("...ikj,...ikj->...ij", z, w).view(-1, self.n_obs, 1, self.n_features)
-            
+
         #     # prod = torch.matmul(z, w)
 
         #     x = pyro.sample(
@@ -102,7 +102,7 @@ class MOFA_Model(PyroModule):
 
         # return
         # # #### !!! DEBUG !!!
-        
+
         # We store all distributional parameters for the final likelihoods in a dict, called `params`.
         # Keys are the modalities, values are dictionaries with keys being the distributional parameter names
         # and the values the corresponding tensors
@@ -153,13 +153,19 @@ class MOFA_Model(PyroModule):
                     dim=-1,
                 )
 
-                unscaled_w = pyro.sample(
-                    "unscaled_w", dist.Normal(torch.zeros(1), torch.ones(1))
-                )
-                w = pyro.deterministic("w", unscaled_w * w_scale)
+                # caux = pyro.sample(
+                #     "caux",
+                #     dist.InverseGamma(torch.tensor(0.5), torch.tensor(0.5)),
+                # )
+                # w_scale = (torch.sqrt(caux) * w_scale) / torch.sqrt(caux + w_scale**2)
+
+                # unscaled_w = pyro.sample(
+                #     "unscaled_w", dist.Normal(torch.zeros(1), torch.ones(1))
+                # )
+                # w = pyro.deterministic("w", unscaled_w * w_scale)
+
+                w = pyro.sample("w", dist.Normal(torch.zeros(1), w_scale)).view(shape)
                 w = w.view(shape)
-                
-                # w = pyro.sample("w", dist.Normal(torch.zeros(1), w_scale)).view(shape)
 
         else:
             if self.sparsity_prior == "Lasso":
@@ -358,7 +364,9 @@ class MOFA_Model(PyroModule):
                     pyro.sample(
                         mod_name,
                         self.likelihoods[mod_name](**params[mod_name]),
-                        obs=masked_data.view(-1, self.n_obs, 1, len(self.feature_idx[mod_name])),
+                        obs=masked_data.view(
+                            -1, self.n_obs, 1, len(self.feature_idx[mod_name])
+                        ),
                     )
 
     def get_plates(self):
@@ -369,9 +377,6 @@ class MOFA_Model(PyroModule):
             "features": pyro.plate("features", self.n_features, dim=-1),
             "feature_groups": pyro.plate(
                 "feature_groups", self.n_feature_groups, dim=-1
-            ),
-            "feature_groups3": pyro.plate(
-                "feature_groups3", self.n_feature_groups, dim=-3
             ),
         }
         # Add one feature plate for each group
