@@ -71,6 +71,38 @@ class MOFA_Model(PyroModule):
         """Generative model for MOFA+."""
         plates = self.get_plates()
 
+        # # #### !!! DEBUG !!!
+        # with plates["obs"], plates["factors"]:
+        #     z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(
+        #         -1, self.n_obs, self.n_factors, 1
+        #     )
+
+        # with plates["features"], plates["factors"]:
+        #     w = pyro.sample("w", dist.Normal(torch.zeros(1), torch.ones(1))).view(
+        #         -1, 1, self.n_factors, self.n_features
+        #     )
+
+        # with plates["features"]:
+        #     sigma = pyro.sample(
+        #         "sigma", dist.InverseGamma(torch.tensor(1.0), torch.tensor(1.0))
+        #     ).view(-1, 1, 1, self.n_features)
+
+        # with plates["obs"]:
+        #     # We assume that the first parameter of each distribution is modelled as the product of
+        #     # factor weights and loadings, aka z * w
+        #     prod = torch.einsum("...ikj,...ikj->...ij", z, w).view(-1, self.n_obs, 1, self.n_features)
+            
+        #     # prod = torch.matmul(z, w)
+
+        #     x = pyro.sample(
+        #         "x",
+        #         dist.Normal(prod, torch.sqrt(sigma)),
+        #         obs=data.view(-1, self.n_obs, 1, self.n_features),
+        #     )
+
+        # return
+        # # #### !!! DEBUG !!!
+        
         # We store all distributional parameters for the final likelihoods in a dict, called `params`.
         # Keys are the modalities, values are dictionaries with keys being the distributional parameter names
         # and the values the corresponding tensors
@@ -87,7 +119,7 @@ class MOFA_Model(PyroModule):
                     with plates[f"features_{i}"]:
                         params[mod_name][k] = pyro.sample(
                             f"p{k}_{i}",
-                            dist.InverseGamma(torch.tensor(3.0), torch.tensor(1.0)),
+                            dist.InverseGamma(torch.tensor(1.0), torch.tensor(1.0)),
                         ).view(-1, 1, 1, len(self.feature_idx[mod_name]))
 
         with plates["obs"], plates["factors"]:
@@ -126,6 +158,8 @@ class MOFA_Model(PyroModule):
                 )
                 w = pyro.deterministic("w", unscaled_w * w_scale)
                 w = w.view(shape)
+                
+                # w = pyro.sample("w", dist.Normal(torch.zeros(1), w_scale)).view(shape)
 
         else:
             if self.sparsity_prior == "Lasso":
@@ -315,16 +349,16 @@ class MOFA_Model(PyroModule):
             for mod_name in self.distr_properties.keys():
                 mod_data = data[..., self.feature_idx[mod_name]]
 
-                with pyro.poutine.mask(mask=torch.isnan(mod_data) == 0):
+                with pyro.poutine.mask(mask=~torch.isnan(mod_data)):
                     # https://forum.pyro.ai/t/poutine-nan-mask-not-working/3489
                     # Assign temporary values to the missing data, not used
                     # anyway due to masking.
-                    masked_data = torch.nan_to_num(mod_data, nan=1.0)
+                    masked_data = torch.nan_to_num(mod_data, nan=0.0)
 
                     pyro.sample(
                         mod_name,
                         self.likelihoods[mod_name](**params[mod_name]),
-                        obs=masked_data,
+                        obs=masked_data.view(-1, self.n_obs, 1, len(self.feature_idx[mod_name])),
                     )
 
     def get_plates(self):
