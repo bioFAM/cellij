@@ -506,7 +506,10 @@ class FactorModel(PyroModule):
             model=pyro.poutine.scale(self._model, scale=scaling_constant),
             guide=pyro.poutine.scale(self._guide, scale=scaling_constant),
             optim=pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)}),  # type: ignore
-            loss=pyro.infer.Trace_ELBO(),  # type: ignore
+            # loss=pyro.infer.Trace_ELBO(),  # type: ignore
+            loss=pyro.infer.TraceMeanField_ELBO(
+                retain_graph=True,
+            ),
         )
 
         # TOOD: Preprocess data
@@ -514,6 +517,7 @@ class FactorModel(PyroModule):
 
         self.losses = []
         time_start = timer()
+        verbose_time_start = time_start
         for i in range(epochs + 1):
             loss = svi.step(data=data)
             self.losses.append(loss)
@@ -526,8 +530,10 @@ class FactorModel(PyroModule):
             if i % verbose_epochs == 0:
                 log = f"Epoch {i:>6}: {loss:>14.2f} \t"
                 if i >= 1:
-                    log += f"| {100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:7.2f}%"
-                    log += f"| {(timer() - time_start):.2f}s"
+                    log += f"| {100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:>6.2f}%\t"
+                    log += f"| {(timer() - verbose_time_start):>6.2f}s"
+                    
+                verbose_time_start = timer()
 
                 print(log)
 
