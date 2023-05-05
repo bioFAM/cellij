@@ -9,7 +9,7 @@ import muon as mu
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.impute import KNNImputer
+import cellij
 
 
 class DataContainer:
@@ -126,49 +126,15 @@ class DataContainer:
         merged_feature_names = merged_feature_group.columns
 
         na_strategy = kwargs.get("na_strategy", None)
-        print(na_strategy)
-        if na_strategy is not None:
-            if "knn" in na_strategy:
-                k = int(np.round(np.sqrt(merged_feature_group.shape[0]))) if "k" not in kwargs else kwargs["k"]
-                imputer = KNNImputer(n_neighbors=k)
-
-                if na_strategy == "knn":
-                    merged_feature_group_imputed = imputer.fit_transform(
-                        merged_feature_group.values.ravel().reshape(-1, 1)
-                    ).ravel()
-                    self._values = merged_feature_group_imputed.reshape(merged_feature_group.shape)
-
-                elif na_strategy == "knn_by_features":
-                    merged_feature_group_imputed = imputer.fit_transform(merged_feature_group.values)
-                    self._values = merged_feature_group_imputed
-
-                elif na_strategy == "knn_by_observations":
-                    merged_feature_group_imputed = imputer.fit_transform(merged_feature_group.T.values).T
-                    self._values = merged_feature_group_imputed
-
-            else:
-                if na_strategy == "mean":
-                    mean = np.nanmean(merged_feature_group.values)
-                    self._values = np.where(np.isnan(merged_feature_group.values), mean, merged_feature_group.values)
-
-                elif na_strategy == "mean_by_features":
-                    col_means = np.nanmean(merged_feature_group.values, axis=0)
-                    col_means[np.isnan(col_means)] = 0
-                    col_means = np.repeat(col_means[np.newaxis, :], merged_feature_group.values.shape[0], axis=0)
-                    self._values = np.where(
-                        np.isnan(merged_feature_group.values), col_means, merged_feature_group.values
-                    )
-
-                elif na_strategy == "mean_by_observations":
-                    row_means = np.nanmean(merged_feature_group.values, axis=1)
-                    row_means[np.isnan(row_means)] = 0
-                    row_means = np.repeat(row_means[:, np.newaxis], merged_feature_group.values.shape[1], axis=1)
-                    self._values = np.where(
-                        np.isnan(merged_feature_group.values), row_means, merged_feature_group.values
-                    )
-
-        elif na_strategy is None:
+        if na_strategy is None:
             self._values = merged_feature_group.values
+
+        else:
+            self._values = cellij.impute_data(
+                data=merged_feature_group,
+                strategy=na_strategy,
+                kwargs=kwargs,
+            )
 
         self._merged_obs_names = merged_obs_names
         self._merged_feature_names = merged_feature_names
