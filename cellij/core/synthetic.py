@@ -410,12 +410,10 @@ class DataGenerator:
             # set small values to zero
             tiny_w_threshold = 0.1
             w_mask[np.abs(w) < tiny_w_threshold] = 0.0
-            w = w_mask * w
+            w_mask = w_mask.astype(bool)
             # add some noise to avoid exactly zero values
-            w = np.where(
-                np.abs(w) < tiny_w_threshold, w + rng.standard_normal(w_shape) / 100, w
-            )
-            assert ((np.abs(w) > tiny_w_threshold) * 1.0 == w_mask).all()
+            w = np.where(w_mask, w, rng.standard_normal(w_shape) / 100)
+            assert ((np.abs(w) > tiny_w_threshold) == w_mask).all()
 
             y_loc = np.matmul(z, w)
 
