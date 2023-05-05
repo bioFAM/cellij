@@ -1,3 +1,3 @@
-from .core import _data, _factormodel, _group, _pyro_models, models, synthetic
+from .core import _data, _factormodel, _group, _pyro_models, models, synthetic, sparsity_priors
 from .tools import evaluation
-from .utils import impute_data
+from .utils import load_model, impute_data

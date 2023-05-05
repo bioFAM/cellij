@@ -1,9 +1,12 @@
+import os
+from typing import Optional, Union
 from timeit import default_timer as timer
 from typing import Optional, Union, List
 
 import anndata
 import muon
 import pandas
+import pickle
 import pyro
 import torch
 from pyro.infer import SVI
@@ -533,3 +536,26 @@ class FactorModel(PyroModule):
 
         self._is_trained = True
         print("Training finished.")
+
+    def save(self, filename: str):
+        if not self._is_trained:
+            raise ValueError("Model must be trained before saving.")
+
+        if not isinstance(filename, str):
+            raise ValueError(
+                f"Parameter 'filename' must be a string, got {type(filename)}."
+            )
+
+        # Verify that the user used a file ending
+        _, file_ending = os.path.splitext(filename)
+
+        if file_ending == "":
+            raise ValueError(
+                "No file ending provided. Please provide a file ending such as '.pkl'."
+            )
+
+        with open(filename, "wb") as f:
+            pickle.dump(self, f)
+
+        torch.save(self.state_dict(), filename.replace(".pkl", ".state_dict"))
+        
