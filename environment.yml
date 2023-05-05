@@ -20,3 +20,4 @@ dependencies:
   - numpy
   - pip:
       - muon
+      - rich

@@ -28,6 +28,7 @@ dependencies = [
   "pyro-ppl",
   "torch",
   "numpy",
+  "rich",
   "muon",
 ]
 
