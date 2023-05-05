@@ -1,5 +1,7 @@
 import os
 from typing import Optional, Union
+from timeit import default_timer as timer
+from typing import Optional, Union, List
 
 import anndata
 import muon
@@ -9,9 +11,10 @@ import pyro
 import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
-from cellij.core.utils_training import EarlyStopper
+import numpy as np
 
 from cellij.core._data import DataContainer
+from cellij.core.utils_training import EarlyStopper
 
 
 class FactorModel(PyroModule):
@@ -110,7 +113,7 @@ class FactorModel(PyroModule):
                 self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal(  # type: ignore
                     self._model, **guide_args
                 )
-        elif isinstance(guide, pyro.infer.autoguide.AutoGuide):
+        elif isinstance(guide, pyro.infer.autoguide.AutoGuide):  # type: ignore
             self._guide = guide(self.model)
         else:
             raise ValueError(f"Unknown guide: {guide}")
@@ -209,6 +212,7 @@ class FactorModel(PyroModule):
         merge: bool = True,
         **kwargs,
     ):
+        # TODO: Add a check that no name is "all"
         valid_types = (pandas.DataFrame, anndata.AnnData, muon.MuData)
         metadata = None
 
@@ -310,9 +314,126 @@ class FactorModel(PyroModule):
         else:
             raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
 
+    def _get_from_param_storage(
+        self,
+        name: str,
+        param: str = "locs",
+        views: Optional[Union[str, List[str]]] = "all",
+        groups: Optional[Union[str, List[str]]] = "all",
+        format: str = "numpy",
+    ) -> np.ndarray:
+        """Pulls a parameter from the pyro parameter storage.
+
+        TODO: Get all parameters, but in a dict.
+
+        Parameters
+        ----------
+        name : str
+            The name of the parameter to be pulled.
+        format : str
+            The format in which the parameter should be returned.
+            Options are: "numpy", "torch".
+
+        Returns
+        -------
+        parameter : torch.Tensor or numpy.ndarray
+            The parameter pulled from the pyro parameter storage.
+        """
+
+        if not isinstance(name, str):
+            raise TypeError("Parameter 'name' must be of type str.")
+
+        if not isinstance(param, str):
+            raise TypeError("Parameter 'param' must be of type str.")
+
+        if param not in ["locs", "scales"]:
+            raise ValueError("Parameter 'param' must be in ['locs', 'scales'].")
+
+        if views is None and groups is None:
+            raise ValueError("Parameters 'views' and 'groups' cannot both be None.")
+
+        if views is not None:
+            if not isinstance(views, (str, list)):
+                raise TypeError("Parameter 'views' must be of type str or list.")
+
+            if isinstance(views, list):
+                if not all([isinstance(view, str) for view in views]):
+                    raise TypeError("Parameter 'views' must be a list of strings.")
+
+        if groups is not None:
+            if not isinstance(groups, (str, list)):
+                raise TypeError("Parameter 'groups' must be of type str or list.")
+
+            if isinstance(groups, list):
+                if not all([isinstance(view, str) for view in groups]):
+                    raise TypeError("Parameter 'groups' must be a list of strings.")
+
+        if not isinstance(format, str):
+            raise TypeError("Parameter 'format' must be of type str.")
+
+        if format not in ["numpy", "torch"]:
+            raise ValueError("Parameter 'format' must be in ['numpy', 'torch'].")
+
+        key = "FactorModel._guide." + param + "." + name
+
+        if key not in list(pyro.get_param_store().keys()):
+            raise ValueError(
+                f"Parameter '{key}' not found in parameter storage. Available choices are: {', '.join(list(pyro.get_param_store().keys()))}"
+            )
+
+        data = pyro.get_param_store()[key]
+
+        # TODO: Add full support for group selection.
+
+        if views is not None:
+            if views != "all":
+                if isinstance(views, str):
+                    if views not in self.data._names:
+                        raise ValueError(
+                            f"Parameter 'views' must be in {list(self.data._names)}."
+                        )
+
+                    result = data[..., self.data._feature_idx[views]]
+
+                elif isinstance(views, list):
+                    if not all([view in self.data._names for view in views]):
+                        raise ValueError(
+                            f"All elements in 'views' must be in {list(self.data._names)}."
+                        )
+
+                    result = {}
+                    for view in views:
+                        result[view] = data[..., self.data._feature_idx[view]]
+
+            elif views == "all":
+                result = data
+
+        if groups is not None:
+            if groups != "all":
+                raise NotImplementedError()
+            elif groups == "all":
+                result = data
+
+        if format == "numpy":
+            if result.is_cuda:
+                result = result.cpu()
+            result = result.detach().numpy()
+
+        return result.squeeze()
+
+    def get_weights(self, views: Union[str, List[str]] = "all", format="numpy"):
+        return self._get_from_param_storage(
+            name="w", param="locs", views=views, groups=None, format=format
+        )
+
+    def get_factors(self, groups: Union[str, List[str]] = "all", format="numpy"):
+        return self._get_from_param_storage(
+            name="z", param="locs", views=None, groups=groups, format=format
+        )
+
     def fit(
         self,
-        likelihoods,
+        likelihoods: Union[str, dict],
         epochs: int = 1000,
         learning_rate: float = 0.003,
         verbose_epochs: int = 100,
@@ -341,33 +462,32 @@ class FactorModel(PyroModule):
 
         if not isinstance(likelihoods, (str, dict)):
             raise ValueError(
-                f"Parameter 'likelihoods' must either be a single string or a dictionary, got {type(likelihoods)}."
+                f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
             )
 
         # Prepare likelihoods
         # TODO: If string is passed, check if string corresponds to a valid pyro distribution
         # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
+
+        # If user passed strings, replace the likelihood strings with the actual distributions
         if isinstance(likelihoods, str):
-            likelihood_for_all = likelihoods
-            likelihoods: dict[str, str] = {}
-            for feature_group_name in self._data.feature_groups.keys():
-                likelihoods[feature_group_name] = likelihood_for_all
+            likelihoods = {
+                modality: likelihoods for modality in self._data.feature_groups
+            }
 
-        if isinstance(likelihoods, dict):
-            # If user passed strings, replace the likelihood strings with the actual distributions
-            for name, distribution in likelihoods.items():
-                if isinstance(distribution, str):
-                    # Replace likelihood string with common synonyms and correct for align with Pyro
-                    distribution = distribution.title()
-                    if distribution == "Gaussian":
-                        distribution = "Normal"
+        for name, distribution in likelihoods.items():
+            if isinstance(distribution, str):
+                # Replace likelihood string with common synonyms and correct for align with Pyro
+                distribution = distribution.title()
+                if distribution == "Gaussian":
+                    distribution = "Normal"
 
-                    try:
-                        likelihoods[name] = getattr(pyro.distributions, distribution)
-                    except AttributeError:
-                        raise AttributeError(
-                            f"Could not find valid Pyro distribution for {distribution}."
-                        )
+                try:
+                    likelihoods[name] = getattr(pyro.distributions, distribution)  # type: ignore
+                except AttributeError:
+                    raise AttributeError(
+                        f"Could not find valid Pyro distribution for {distribution}."
+                    )
 
         # Raise error if likelihoods are not set for all modalities
         if len(likelihoods.keys()) != len(self._data.feature_groups):
@@ -396,8 +516,9 @@ class FactorModel(PyroModule):
         data = self._model.values
 
         self.losses = []
+        time_start = timer()
         for i in range(epochs + 1):
-            loss = svi.step(X=data)
+            loss = svi.step(data=data)
             self.losses.append(loss)
 
             if early_stopping:
@@ -406,12 +527,12 @@ class FactorModel(PyroModule):
                     break
 
             if i % verbose_epochs == 0:
-                if i > 1:
-                    rel_change = f"{100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:7.2f}%"
-                else:
-                    rel_change = ""
+                log = f"Epoch {i:>6}: {loss:>14.2f} \t"
+                if i >= 1:
+                    log += f"| {100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:7.2f}%"
+                    log += f"| {(timer() - time_start):.2f}s"
 
-                print(f"Epoch {i:>6}: {loss:>14.2f} \t | {rel_change}")
+                print(log)
 
         self._is_trained = True
         print("Training finished.")
