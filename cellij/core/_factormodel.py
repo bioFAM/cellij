@@ -1,10 +1,10 @@
-from typing import List, Optional, Union
+import os
+from typing import Optional, Union
 
 import anndata
 import muon
-import numpy as np
 import pandas
-import pandas as pd
+import pickle
 import pyro
 import torch
 from pyro.infer import SVI
@@ -217,9 +217,7 @@ class FactorModel(PyroModule):
                 f"Expected data to be one of {valid_types}, got {type(data)}."
             )
 
-        if not isinstance(data, muon.MuData) and not isinstance(
-            name, str
-        ):
+        if not isinstance(data, muon.MuData) and not isinstance(name, str):
             raise ValueError(
                 "When adding data that is not a MuData object, a name must be provided."
             )
@@ -315,12 +313,12 @@ class FactorModel(PyroModule):
     def fit(
         self,
         likelihoods,
-        epochs=1000,
-        learning_rate=0.003,
-        verbose_epochs=100,
-        early_stopping=True,
-        patience=500,
-        min_delta=0.1,
+        epochs: int = 1000,
+        learning_rate: float = 0.003,
+        verbose_epochs: int = 100,
+        early_stopping: bool = True,
+        patience: int = 500,
+        min_delta: float = 0.1,
         percentage: bool = True,
         scale: bool = True,
     ):
@@ -340,29 +338,36 @@ class FactorModel(PyroModule):
         # Checks
         if self._data is None:
             raise ValueError("No data set.")
-        if not isinstance(likelihoods, dict):
+
+        if not isinstance(likelihoods, (str, dict)):
             raise ValueError(
-                f"likelihoods must be a dictionary, got {type(likelihoods)}."
+                f"Parameter 'likelihoods' must either be a single string or a dictionary, got {type(likelihoods)}."
             )
 
         # Prepare likelihoods
         # TODO: If string is passed, check if string corresponds to a valid pyro distribution
         # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
+        if isinstance(likelihoods, str):
+            likelihood_for_all = likelihoods
+            likelihoods: dict[str, str] = {}
+            for feature_group_name in self._data.feature_groups.keys():
+                likelihoods[feature_group_name] = likelihood_for_all
 
-        # If user passed strings, replace the likelihood strings with the actual distributions
-        for name, distribution in likelihoods.items():
-            if isinstance(distribution, str):
-                # Replace likelihood string with common synonyms and correct for align with Pyro
-                distribution = distribution.title()
-                if distribution == "Gaussian":
-                    distribution = "Normal"
+        if isinstance(likelihoods, dict):
+            # If user passed strings, replace the likelihood strings with the actual distributions
+            for name, distribution in likelihoods.items():
+                if isinstance(distribution, str):
+                    # Replace likelihood string with common synonyms and correct for align with Pyro
+                    distribution = distribution.title()
+                    if distribution == "Gaussian":
+                        distribution = "Normal"
 
-                try:
-                    likelihoods[name] = getattr(pyro.distributions, distribution)
-                except AttributeError:
-                    raise AttributeError(
-                        f"Could not find valid Pyro distribution for {distribution}."
-                    )
+                    try:
+                        likelihoods[name] = getattr(pyro.distributions, distribution)
+                    except AttributeError:
+                        raise AttributeError(
+                            f"Could not find valid Pyro distribution for {distribution}."
+                        )
 
         # Raise error if likelihoods are not set for all modalities
         if len(likelihoods.keys()) != len(self._data.feature_groups):
@@ -410,3 +415,26 @@ class FactorModel(PyroModule):
 
         self._is_trained = True
         print("Training finished.")
+
+    def save(self, filename: str):
+        if not self._is_trained:
+            raise ValueError("Model must be trained before saving.")
+
+        if not isinstance(filename, str):
+            raise ValueError(
+                f"Parameter 'filename' must be a string, got {type(filename)}."
+            )
+
+        # Verify that the user used a file ending
+        _, file_ending = os.path.splitext(filename)
+
+        if file_ending == "":
+            raise ValueError(
+                "No file ending provided. Please provide a file ending such as '.pkl'."
+            )
+
+        with open(filename, "wb") as f:
+            pickle.dump(self, f)
+
+        torch.save(self.state_dict(), filename.replace(".pkl", ".state_dict"))
+        
