@@ -4,6 +4,8 @@ import pickle
 import numpy as np
 from sklearn.impute import KNNImputer
 
+from cellij import logger
+
 
 def load_model(filename: str):
     if not isinstance(filename, str):
@@ -61,5 +63,7 @@ def impute_data(data, strategy: str, **kwargs):
 
     else:
         raise NotImplementedError("Unknown imputation strategy %s" % strategy)
+
+    logger.info(f"Found {np.isnan(data).sum()} missing values, imputed them using '{strategy}'.")
 
     return result
