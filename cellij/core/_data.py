@@ -56,7 +56,6 @@ class DataContainer:
 
     @merged_obs_names.setter
     def merged_obs_names(self, names):
-
         if len(set(names)) != len(names):
             raise ValueError("Duplicate names found in observations.")
 
@@ -80,7 +79,6 @@ class DataContainer:
 
     @merged_feature_names.setter
     def merged_feature_names(self, names):
-
         if len(set(names)) != len(names):
             raise ValueError("Duplicate names found in features.")
 
@@ -116,64 +114,77 @@ class DataContainer:
 
     def merge_data(self, **kwargs):
         """Merges all feature_groups into a single tensor."""
-
         feature_groups = {}
         for name in self._names:
             feature_groups[name] = self._feature_groups[name].to_df().sort_index()
 
         merged_feature_group = reduce(
-            lambda left, right: pd.merge(
-                left, right, left_index=True, right_index=True, how="outer"
-            ),
+            lambda left, right: pd.merge(left, right, left_index=True, right_index=True, how="outer"),
             feature_groups.values(),
         )
         merged_obs_names = merged_feature_group.index.to_list()
         merged_feature_names = merged_feature_group.columns
 
         na_strategy = kwargs.get("na_strategy", None)
+        print(na_strategy)
+        if na_strategy is not None:
+            if "knn" in na_strategy:
+                k = int(np.round(np.sqrt(merged_feature_group.shape[0]))) if "k" not in kwargs else kwargs["k"]
+                imputer = KNNImputer(n_neighbors=k)
 
-        if na_strategy == "knn_by_obs":
-            if "k" not in kwargs:
-                k = int(np.round(np.sqrt(merged_feature_group.shape[0])))
+                if na_strategy == "knn":
+                    merged_feature_group_imputed = imputer.fit_transform(
+                        merged_feature_group.values.ravel().reshape(-1, 1)
+                    ).ravel()
+                    self._values = merged_feature_group_imputed.reshape(merged_feature_group.shape)
+
+                elif na_strategy == "knn_by_features":
+                    merged_feature_group_imputed = imputer.fit_transform(merged_feature_group.values)
+                    self._values = merged_feature_group_imputed
+
+                elif na_strategy == "knn_by_observations":
+                    merged_feature_group_imputed = imputer.fit_transform(merged_feature_group.T.values).T
+                    self._values = merged_feature_group_imputed
+
             else:
-                k = kwargs["k"]
-            imputer = KNNImputer(n_neighbors=k)
-            merged_feature_group_imputed = imputer.fit_transform(
-                merged_feature_group.values
+                if na_strategy == "mean":
+                    mean = np.nanmean(merged_feature_group.values)
+                    self._values = np.where(np.isnan(merged_feature_group.values), mean, merged_feature_group.values)
 
-            )
+                elif na_strategy == "mean_by_features":
+                    col_means = np.nanmean(merged_feature_group.values, axis=0)
+                    col_means[np.isnan(col_means)] = 0
+                    col_means = np.repeat(col_means[np.newaxis, :], merged_feature_group.values.shape[0], axis=0)
+                    self._values = np.where(
+                        np.isnan(merged_feature_group.values), col_means, merged_feature_group.values
+                    )
 
-            self._values = merged_feature_group_imputed
+                elif na_strategy == "mean_by_observations":
+                    row_means = np.nanmean(merged_feature_group.values, axis=1)
+                    row_means[np.isnan(row_means)] = 0
+                    row_means = np.repeat(row_means[:, np.newaxis], merged_feature_group.values.shape[1], axis=1)
+                    self._values = np.where(
+                        np.isnan(merged_feature_group.values), row_means, merged_feature_group.values
+                    )
 
         elif na_strategy is None:
-
             self._values = merged_feature_group.values
 
         self._merged_obs_names = merged_obs_names
         self._merged_feature_names = merged_feature_names
 
         for name in self._names:
-
             feature_group_obs_names = self._feature_groups[name].obs_names.to_list()
             feature_group_feature_names = self._feature_groups[name].var_names.to_list()
 
-
-            self._obs_idx[name] = [
-                i
-                for i, val in enumerate(merged_obs_names)
-                if val in feature_group_obs_names
-            ]
+            self._obs_idx[name] = [i for i, val in enumerate(merged_obs_names) if val in feature_group_obs_names]
 
             self._feature_idx[name] = [
-                i
-                for i, val in enumerate(merged_feature_names)
-                if val in feature_group_feature_names
-
+                i for i, val in enumerate(merged_feature_names) if val in feature_group_feature_names
             ]
 
     def to_df(self) -> pd.DataFrame:
         """Returns a 'pandas.DataFrame' representation of the contained data with feature and observation names."""
-
         print(self._values)
         res = pd.DataFrame(
             data=self._values,
@@ -185,12 +196,10 @@ class DataContainer:
 
     def to_anndata(self) -> anndata.AnnData:
         """Returns a 'anndata.AnnData' representation of the contained data with feature and observation names."""
-
         return anndata.AnnData(self.to_df())
 
     def to_tensor(self) -> torch.Tensor:
         """Returns a 'torch.Tensor' representation of the contained data."""
-
         return torch.Tensor(self._values)
 
 
@@ -235,7 +244,6 @@ class Importer:
             A muon.MuData object with 4 modalities and associated metadata for 200 patients each
 
         """
-
         with resources.path("cellij.data", "cll_metadata.csv") as res_path:
             obs = pd.read_csv(
                 filepath_or_buffer=os.fspath(res_path),
@@ -258,9 +266,7 @@ class Importer:
                 modalities[ome] = anndata.AnnData(X=modality, dtype="float32")
 
                 if use_drug_compound_names and ome == "drugs":
-                    with resources.path(
-                        "cellij.data", "id_to_drug_names.csv"
-                    ) as compound_path:
+                    with resources.path("cellij.data", "id_to_drug_names.csv") as compound_path:
                         compound_names = pd.read_csv(
                             filepath_or_buffer=os.fspath(compound_path),
                             sep=";",
@@ -274,13 +280,9 @@ class Importer:
 
                     for i, colname in enumerate(ome_colnames):
                         base_id = colname[0 : len(colname) - 2]
-                        drug_name_for_base_id = compound_names.query("id == @base_id")[
-                            "name"
-                        ].values[0]
+                        drug_name_for_base_id = compound_names.query("id == @base_id")["name"].values[0]
                         # print(drug_name_for_base_id)
-                        ome_colnames[i] = colname.replace(
-                            f"{base_id}", drug_name_for_base_id
-                        )
+                        ome_colnames[i] = colname.replace(f"{base_id}", drug_name_for_base_id)
 
                     modalities[ome].var_names = ome_colnames
 
