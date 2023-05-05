@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import torch
 import cellij
+from cellij._logging import logger
 
 
 class DataContainer:
