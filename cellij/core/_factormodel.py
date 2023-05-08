@@ -80,6 +80,7 @@ class FactorModel(PyroModule):
         super().__init__(name="FactorModel")
 
         self._model = model
+        self._guide = guide
         self._n_factors = n_factors
         self._dtype = dtype
         self._device = device
@@ -160,9 +161,7 @@ class FactorModel(PyroModule):
 
     @data.setter
     def data(self, *args):
-        raise AttributeError(
-            "Use `add_data()`, `set_data` or `remove_data()` to modify this property."
-        )
+        raise AttributeError("Use `add_data()`, `set_data` or `remove_data()` to modify this property.")
 
     @property
     def is_trained(self):
@@ -179,8 +178,7 @@ class FactorModel(PyroModule):
     @feature_groups.setter
     def feature_groups(self, *args):
         raise AttributeError(
-            "Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` "
-            "to modify this property."
+            "Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` " "to modify this property."
         )
 
     @property
@@ -189,9 +187,7 @@ class FactorModel(PyroModule):
 
     @obs_groups.setter
     def obs_groups(self, *args):
-        raise AttributeError(
-            "Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property."
-        )
+        raise AttributeError("Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property.")
 
     def add_data(
         self,
@@ -205,14 +201,10 @@ class FactorModel(PyroModule):
         metadata = None
 
         if not isinstance(data, valid_types):
-            raise TypeError(
-                f"Expected data to be one of {valid_types}, got {type(data)}."
-            )
+            raise TypeError(f"Expected data to be one of {valid_types}, got {type(data)}.")
 
         if not isinstance(data, muon.MuData) and not isinstance(name, str):
-            raise ValueError(
-                "When adding data that is not a MuData object, a name must be provided."
-            )
+            raise ValueError("When adding data that is not a MuData object, a name must be provided.")
 
         if isinstance(data, pandas.DataFrame):
             data = anndata.AnnData(
@@ -289,10 +281,7 @@ class FactorModel(PyroModule):
             raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
 
     def _remove_group(self, name, level, **kwargs):
-        if (
-            name not in self._feature_groups.keys()
-            and name not in self._obs_groups.keys()
-        ):
+        if name not in self._feature_groups.keys() and name not in self._obs_groups.keys():
             raise ValueError(f"No group with the name {name} exists.")
 
         if level == "feature":
@@ -377,17 +366,13 @@ class FactorModel(PyroModule):
             if views != "all":
                 if isinstance(views, str):
                     if views not in self.data._names:
-                        raise ValueError(
-                            f"Parameter 'views' must be in {list(self.data._names)}."
-                        )
+                        raise ValueError(f"Parameter 'views' must be in {list(self.data._names)}.")
 
                     result = data[..., self.data._feature_idx[views]]
 
                 elif isinstance(views, list):
                     if not all([view in self.data._names for view in views]):
-                        raise ValueError(
-                            f"All elements in 'views' must be in {list(self.data._names)}."
-                        )
+                        raise ValueError(f"All elements in 'views' must be in {list(self.data._names)}.")
 
                     result = {}
                     for view in views:
@@ -410,14 +395,10 @@ class FactorModel(PyroModule):
         return result.squeeze()
 
     def get_weights(self, views: Union[str, List[str]] = "all", format="numpy"):
-        return self._get_from_param_storage(
-            name="w", param="locs", views=views, groups=None, format=format
-        )
+        return self._get_from_param_storage(name="w", param="locs", views=views, groups=None, format=format)
 
     def get_factors(self, groups: Union[str, List[str]] = "all", format="numpy"):
-        return self._get_from_param_storage(
-            name="z", param="locs", views=None, groups=groups, format=format
-        )
+        return self._get_from_param_storage(name="z", param="locs", views=None, groups=groups, format=format)
 
     def fit(
         self,
@@ -440,9 +421,7 @@ class FactorModel(PyroModule):
         if early_stopping:
             if min_delta < 0:
                 raise ValueError("min_delta must be positive.")
-            earlystopper = EarlyStopper(
-                patience=patience, min_delta=min_delta, percentage=percentage
-            )
+            earlystopper = EarlyStopper(patience=patience, min_delta=min_delta, percentage=percentage)
         else:
             earlystopper = None
 
@@ -488,6 +467,22 @@ class FactorModel(PyroModule):
 
         # # Provide data information to generative model
         # self._model._setup(data=self._data, likelihoods=likelihoods)
+        n_views = len(self.data._feature_groups)
+        n_features = [len(x) for x in self.data._feature_idx.values()]
+        feature_dict = dict(zip([f"view_{m}" for m in range(n_views)], n_features))
+        data_dict = {}
+        for m, (view_name, _) in enumerate(feature_dict.items()):
+            # TODO: This works only for a sinlge group as of now
+            data_dict[view_name] = torch.Tensor(self._data._values[:, self._data._feature_idx[f"feature_group_{m}"]])  #.to(device)
+
+        # Initialize class objects with correct data-related parameters
+        self._model = self._model(
+            n_samples=self._data._values.shape[0],
+            n_factors=self.n_factors,
+            feature_dict=feature_dict,
+            likelihoods=None,
+        )
+        self._guide = self._guide(self._model)
 
         # We scale the gradients by the number of total samples to allow a better comparison across
         # models/datasets
@@ -516,7 +511,8 @@ class FactorModel(PyroModule):
         )
 
         # TOOD: Preprocess data
-        data = self._model.values
+        data = data_dict
+        # data = self._model.values
 
         self.losses = []
         time_start = timer()
@@ -548,20 +544,15 @@ class FactorModel(PyroModule):
             raise ValueError("Model must be trained before saving.")
 
         if not isinstance(filename, str):
-            raise ValueError(
-                f"Parameter 'filename' must be a string, got {type(filename)}."
-            )
+            raise ValueError(f"Parameter 'filename' must be a string, got {type(filename)}.")
 
         # Verify that the user used a file ending
         _, file_ending = os.path.splitext(filename)
 
         if file_ending == "":
-            raise ValueError(
-                "No file ending provided. Please provide a file ending such as '.pkl'."
-            )
+            raise ValueError("No file ending provided. Please provide a file ending such as '.pkl'.")
 
         with open(filename, "wb") as f:
             pickle.dump(self, f)
 
         torch.save(self.state_dict(), filename.replace(".pkl", ".state_dict"))
-        

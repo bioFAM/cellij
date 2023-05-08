@@ -1,6 +1,6 @@
 from cellij.core._factormodel import FactorModel
-
-# from cellij.core._pyro_models import MOFA_Model
+from cellij.core._pyro_models import LassoGenerative, HorseshoeGenerative
+from cellij.core._pyro_guides import LassoGuide, HorseshoeGuide
 
 
 class MOFA(FactorModel):
@@ -15,10 +15,17 @@ class MOFA(FactorModel):
 
     def __init__(self, n_factors, sparsity_prior="Spikeandslab-Beta", **kwargs):
         # If default variable is provided in kwargs, overwrite it
+        if sparsity_prior == "Lasso":
+            prior = LassoGenerative
+            guide = LassoGuide
+        elif sparsity_prior == "Horseshoe":
+            prior = HorseshoeGenerative
+            guide = HorseshoeGuide
+            
         mofa_defaults = {
-            "model": None,
+            "model": prior,
             # "model": MOFA_Model(n_factors=n_factors, sparsity_prior=sparsity_prior),
-            "guide": "AutoNormal",
+            "guide": guide,
             "trainer": "Adam",
         }
 
