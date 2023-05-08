@@ -9,7 +9,6 @@ from pyro.infer import config_enumerate
 from pyro.nn import PyroModule
 
 from cellij.core._dist import Horseshoe
-from cellij.core.sparsity_priors import get_prior_function
 
 logger = logging.getLogger(__name__)
 

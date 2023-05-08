@@ -25,8 +25,6 @@ class FactorModel(PyroModule):
         The variational distribution
     n_factors : int
         The number of factors
-    trainer : cellij.trainer
-        Defines the training procedure, i.e. the loss function and the optimizer
     dtype : torch.dtype, default = torch.float32
         The data type of the model
     device : str, default = "cpu"
@@ -72,7 +70,6 @@ class FactorModel(PyroModule):
         model,
         guide,
         n_factors,
-        trainer,
         dtype: torch.dtype = torch.float32,
         device="cpu",
         **kwargs,
@@ -81,7 +78,6 @@ class FactorModel(PyroModule):
 
         self._model = model
         self._n_factors = n_factors
-        self._trainer = trainer
         self._dtype = dtype
         self._device = device
         self._data = DataContainer()
@@ -138,14 +134,6 @@ class FactorModel(PyroModule):
     @n_factors.setter
     def n_factors(self, n_factors):
         self._n_factors = n_factors
-
-    @property
-    def trainer(self):
-        pass
-
-    @trainer.setter
-    def trainer(self, trainer):
-        pass
 
     @property
     def dtype(self):
