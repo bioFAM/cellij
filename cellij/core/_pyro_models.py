@@ -142,16 +142,15 @@ class Generative(PyroModule):
 
 
 class HorseshoeGenerative(Generative):
-    def __init__(self, n_samples: int, n_factors: int, feature_dict: int, likelihoods):
-        super().__init__(n_samples, n_factors, feature_dict, likelihoods)
-
-    def sample_tau(self, site_name="tau"):
-        return self._sample_site(
-            site_name,
-            (),
-            dist.HalfCauchy,
-            dist_kwargs={"scale": torch.ones(1)},
-        )
+    def __init__(
+        self,
+        n_samples: int,
+        n_factors: int,
+        feature_dict: dict,
+        likelihoods,
+        device=None,
+    ):
+        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
 
     def sample_w(self, site_name="w", feature_group=None):
         w_scale = self._sample_site(
@@ -177,6 +176,26 @@ class HorseshoeGenerative(Generative):
     #         Horseshoe,
     #         dist_kwargs={"scale": torch.ones(1)},
     #     )
+
+
+class LassoGenerative(Generative):
+    def __init__(
+        self,
+        n_samples: int,
+        n_factors: int,
+        feature_dict: dict,
+        likelihoods,
+        device=None,
+    ):
+        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
+
+    def sample_w(self, site_name="w", feature_group=None):
+        return self._sample_site(
+            f"{site_name}_{feature_group}",
+            self.get_w_shape(feature_group),
+            dist.SoftLaplace,
+            dist_kwargs={"loc": torch.zeros(1), "scale": 0.1 * torch.ones(1)},
+        )
 
 
 if __name__ == "__main__":

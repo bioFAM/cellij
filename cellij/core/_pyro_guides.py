@@ -1,14 +1,14 @@
 import logging
+
 import pyro
 import pyro.distributions as dist
 import torch
-
 from pyro.distributions import constraints
 from pyro.infer.autoguide.guides import deep_getattr, deep_setattr
 from pyro.nn import PyroModule, PyroParam
 
-
 logger = logging.getLogger(__name__)
+
 
 class Guide(PyroModule):
     def __init__(
@@ -26,17 +26,19 @@ class Guide(PyroModule):
         self.init_loc = init_loc
         self.init_scale = init_scale
         self.device = device
-        
+
+        self.site_to_shape = {}
         self.sample_dict = {}
 
-        self.setup()
+        self.setup_shapes()
+        self.setup_sites()
 
-    def _get_loc_and_scale(self, name: str):
+    def _get_loc_and_scale(self, site_name: str):
         """Get loc and scale parameters.
 
         Parameters
         ----------
-        name : str
+        site_name : str
             Name of the sampling site
 
         Returns
@@ -44,49 +46,55 @@ class Guide(PyroModule):
         tuple
             Tuple of (loc, scale)
         """
-        site_loc = deep_getattr(self.locs, name)
-        site_scale = deep_getattr(self.scales, name)
+        site_loc = deep_getattr(self.locs, site_name)
+        site_scale = deep_getattr(self.scales, site_name)
         return site_loc, site_scale
 
-    def setup(self):
+    def setup_shapes(self):
         """Setup parameters and sampling sites."""
-        n_factors = self.model.n_factors
-        
-        # TODO: maybe we can read this from the model?
-        site_to_shape = {
-            "z": (self.model.n_samples, n_factors, 1),
-        }
-        
-        for feature_group, n_features in self.model.feature_dict.items():
-            site_to_shape[f"w_{feature_group}"] = (n_factors, n_features)
-            site_to_shape[f"w_scale_{feature_group}"] = (n_factors, n_features)
-            site_to_shape[f"sigma_{feature_group}"] = n_features
 
-        for name, shape in site_to_shape.items():
-            deep_setattr(
-                self.locs,
-                name,
-                PyroParam(
-                    self.init_loc * torch.ones(shape, device=self.device),
-                    constraints.real,
-                ),
-            )
-            deep_setattr(
-                self.scales,
-                name,
-                PyroParam(
-                    self.init_scale * torch.ones(shape, device=self.device),
-                    constraints.softplus_positive,
-                ),
-            )
+        self.site_to_shape["z"] = self.model.get_z_shape()[1:]
+
+        for feature_group, _ in self.model.feature_dict.items():
+            self.site_to_shape[f"w_{feature_group}"] = self.model.get_w_shape(
+                feature_group
+            )[1:]
+            self.site_to_shape[f"sigma_{feature_group}"] = self.model.get_sigma_shape(
+                feature_group
+            )[1:]
+
+        return self.site_to_shape
+
+    def _setup_site(self, site_name, shape):
+        deep_setattr(
+            self.locs,
+            site_name,
+            PyroParam(
+                self.init_loc * torch.ones(shape, device=self.device),
+                constraints.real,
+            ),
+        )
+        deep_setattr(
+            self.scales,
+            site_name,
+            PyroParam(
+                self.init_scale * torch.ones(shape, device=self.device),
+                constraints.softplus_positive,
+            ),
+        )
+
+    def setup_sites(self):
+        """Setup parameters and sampling sites."""
+        for site_name, shape in self.site_to_shape.items():
+            self._setup_site(site_name, shape)
 
     @torch.no_grad()
-    def mode(self, name: str):
+    def mode(self, site_name: str):
         """Get the MAP estimates.
 
         Parameters
         ----------
-        name : str
+        site_name : str
             Name of the sampling site
 
         Returns
@@ -94,11 +102,11 @@ class Guide(PyroModule):
         torch.Tensor
             MAP estimate
         """
-        loc, scale = self._get_loc_and_scale(name)
+        loc, scale = self._get_loc_and_scale(site_name)
         mode = loc
-        # if name not in ["z", "w"]:
+        # if site_name not in ["z", "w"]:
         # TODO! This is a hack, but it works for now
-        if 'sigma' in name or 'w_scale' in name:
+        if "sigma" in site_name or "w_scale" in site_name:
             mode = (loc - scale.pow(2)).exp()
         return mode.clone()
 
@@ -117,26 +125,35 @@ class Guide(PyroModule):
     def get_w(self):
         """Get the factor loadings."""
         return self._get_map_estimate("w")
-    
+
     def get_sigma(self):
         """Get the marginal feature scales."""
         return self._get_map_estimate("sigma")
 
-    def _sample_normal(self, name: str, index=None):
-        # duplicate code below, might update later
-        loc, scale = self._get_loc_and_scale(name)
-        if index is not None:
-            # indices = indices.to(self.device)
-            loc = loc.index_select(0, index)
-            scale = scale.index_select(0, index)
-        return pyro.sample(name, dist.Normal(loc, scale))
+    def _sample_site(
+        self,
+        site_name,
+        dist,
+    ):
+        loc, scale = self._get_loc_and_scale(site_name)
+        samples = pyro.sample(site_name, dist(loc, scale))
+        self.sample_dict[site_name] = samples
+        return samples
 
-    def _sample_log_normal(self, name: str, index=None):
-        loc, scale = self._get_loc_and_scale(name)
-        if index is not None:
-            loc = loc.index_select(0, index)
-            scale = scale.index_select(0, index)
-        return pyro.sample(name, dist.LogNormal(loc, scale))
+    def _sample_normal(self, site_name: str):
+        return self._sample_site(site_name, dist.Normal)
+
+    def _sample_log_normal(self, site_name: str):
+        return self._sample_site(site_name, dist.LogNormal)
+
+    def sample_z(self, site_name="z"):
+        return self._sample_normal(site_name)
+
+    def sample_w(self, site_name="w", feature_group=None):
+        return self._sample_normal(f"{site_name}_{feature_group}")
+
+    def sample_sigma(self, site_name="sigma", feature_group=None):
+        return self._sample_log_normal(f"{site_name}_{feature_group}")
 
     def forward(
         self,
@@ -145,17 +162,40 @@ class Guide(PyroModule):
         """Approximate posterior."""
 
         plates = self.model.get_plates()
-        
+
         with plates["obs"], plates["factors"]:
-            self.sample_dict['z'] = self._sample_normal("z")
+            self.sample_z()
 
         for feature_group, _ in self.model.feature_dict.items():
             with plates["factors"], plates[f"features_{feature_group}"]:
-                self.sample_dict[f"w_scale_{feature_group}"] = self._sample_log_normal(f"w_scale_{feature_group}")
-                self.sample_dict[f"w_{feature_group}"] = self._sample_normal(f"w_{feature_group}")
+                self.sample_w(feature_group=feature_group)
 
             with plates[f"features_{feature_group}"]:
-                site_name = f"sigma_{feature_group}"
-                self.sample_dict[site_name] = self._sample_log_normal(site_name)
-                
+                self.sample_sigma(feature_group=feature_group)
+
         return self.sample_dict
+
+
+class HorseshoeGuide(Guide):
+    def __init__(
+        self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
+    ):
+        super().__init__(model, init_loc, init_scale, device)
+
+    def setup_shapes(self):
+        for feature_group, _ in self.model.feature_dict.items():
+            self.site_to_shape[f"w_scale_{feature_group}"] = self.model.get_w_shape(
+                feature_group
+            )[1:]
+        return super().setup_shapes()
+
+    def sample_w(self, site_name="w", feature_group=None):
+        self._sample_log_normal(f"{site_name}_scale_{feature_group}")
+        return super().sample_w(site_name, feature_group)
+
+
+class LassoGuide(Guide):
+    def __init__(
+        self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
+    ):
+        super().__init__(model, init_loc, init_scale, device)
