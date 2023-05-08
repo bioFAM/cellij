@@ -89,31 +89,31 @@ class FactorModel(PyroModule):
         self._feature_groups = {}
         self._obs_groups = {}
 
-        # Setup
-        if isinstance(guide, str):
-            # Implement some default guides
-            guide_args = {}
-            if "init_loc_fn" in kwargs:
-                guide_args["init_loc_fn"] = kwargs["init_loc_fn"]
+        # # Setup
+        # if isinstance(guide, str):
+        #     # Implement some default guides
+        #     guide_args = {}
+        #     if "init_loc_fn" in kwargs:
+        #         guide_args["init_loc_fn"] = kwargs["init_loc_fn"]
 
-            if guide == "AutoDelta":
-                self._guide = pyro.infer.autoguide.AutoDelta(self._model, **guide_args)  # type: ignore
-            elif guide == "AutoNormal":
-                if "init_scale" in kwargs:
-                    guide_args["init_scale"] = kwargs["init_scale"]
-                self._guide = pyro.infer.autoguide.AutoNormal(self._model, **guide_args)  # type: ignore
-            elif guide == "AutoLowRankMultivariateNormal":
-                if "init_scale" in kwargs:
-                    guide_args["init_scale"] = kwargs["init_scale"]
-                if "rank" in kwargs:
-                    guide_args["rank"] = kwargs["rank"]
-                self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal(  # type: ignore
-                    self._model, **guide_args
-                )
-        elif isinstance(guide, pyro.infer.autoguide.AutoGuide):  # type: ignore
-            self._guide = guide(self.model)
-        else:
-            raise ValueError(f"Unknown guide: {guide}")
+        #     if guide == "AutoDelta":
+        #         self._guide = pyro.infer.autoguide.AutoDelta(self._model, **guide_args)  # type: ignore
+        #     elif guide == "AutoNormal":
+        #         if "init_scale" in kwargs:
+        #             guide_args["init_scale"] = kwargs["init_scale"]
+        #         self._guide = pyro.infer.autoguide.AutoNormal(self._model, **guide_args)  # type: ignore
+        #     elif guide == "AutoLowRankMultivariateNormal":
+        #         if "init_scale" in kwargs:
+        #             guide_args["init_scale"] = kwargs["init_scale"]
+        #         if "rank" in kwargs:
+        #             guide_args["rank"] = kwargs["rank"]
+        #         self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal(  # type: ignore
+        #             self._model, **guide_args
+        #         )
+        # elif isinstance(guide, pyro.infer.autoguide.AutoGuide):  # type: ignore
+        #     self._guide = guide(self.model)
+        # # else:
+        # #     raise ValueError(f"Unknown guide: {guide}")
 
     @property
     def model(self):
@@ -455,54 +455,56 @@ class FactorModel(PyroModule):
         else:
             earlystopper = None
 
-        # Checks
-        if self._data is None:
-            raise ValueError("No data set.")
+        # # Checks
+        # if self._data is None:
+        #     raise ValueError("No data set.")
 
-        if not isinstance(likelihoods, (str, dict)):
-            raise ValueError(
-                f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
-            )
+        # if not isinstance(likelihoods, (str, dict)):
+        #     raise ValueError(
+        #         f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
+        #     )
 
-        # Prepare likelihoods
-        # TODO: If string is passed, check if string corresponds to a valid pyro distribution
-        # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
+        # # Prepare likelihoods
+        # # TODO: If string is passed, check if string corresponds to a valid pyro distribution
+        # # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
 
-        # If user passed strings, replace the likelihood strings with the actual distributions
-        if isinstance(likelihoods, str):
-            likelihoods = {
-                modality: likelihoods for modality in self._data.feature_groups
-            }
+        # # If user passed strings, replace the likelihood strings with the actual distributions
+        # if isinstance(likelihoods, str):
+        #     likelihoods = {
+        #         modality: likelihoods for modality in self._data.feature_groups
+        #     }
 
-        for name, distribution in likelihoods.items():
-            if isinstance(distribution, str):
-                # Replace likelihood string with common synonyms and correct for align with Pyro
-                distribution = distribution.title()
-                if distribution == "Gaussian":
-                    distribution = "Normal"
+        # for name, distribution in likelihoods.items():
+        #     if isinstance(distribution, str):
+        #         # Replace likelihood string with common synonyms and correct for align with Pyro
+        #         distribution = distribution.title()
+        #         if distribution == "Gaussian":
+        #             distribution = "Normal"
 
-                try:
-                    likelihoods[name] = getattr(pyro.distributions, distribution)  # type: ignore
-                except AttributeError:
-                    raise AttributeError(
-                        f"Could not find valid Pyro distribution for {distribution}."
-                    )
+        #         try:
+        #             likelihoods[name] = getattr(pyro.distributions, distribution)  # type: ignore
+        #         except AttributeError:
+        #             raise AttributeError(
+        #                 f"Could not find valid Pyro distribution for {distribution}."
+        #             )
 
-        # Raise error if likelihoods are not set for all modalities
-        if len(likelihoods.keys()) != len(self._data.feature_groups):
-            raise ValueError(
-                f"Likelihoods must be set for all modalities. Got {len(likelihoods.keys())} likelihood "
-                f"and {len(self._data.feature_groups)} data modalities."
-            )
+        # # Raise error if likelihoods are not set for all modalities
+        # if len(likelihoods.keys()) != len(self._data.feature_groups):
+        #     raise ValueError(
+        #         f"Likelihoods must be set for all modalities. Got {len(likelihoods.keys())} likelihood "
+        #         f"and {len(self._data.feature_groups)} data modalities."
+        #     )
 
-        # Provide data information to generative model
-        self._model._setup(data=self._data, likelihoods=likelihoods)
+        # # Provide data information to generative model
+        # self._model._setup(data=self._data, likelihoods=likelihoods)
 
         # We scale the gradients by the number of total samples to allow a better comparison across
         # models/datasets
         scaling_constant = 1.0
         if scale:
-            scaling_constant = 1.0 / self._data.values.shape[1]
+            # scaling_constant = 1.0 / self._data.values.shape[1]
+            # TODO!! remove hardcoding
+            scaling_constant = 1.0 / 200
 
         optim = pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)})
         if optimizer.lower() == "clipped":
@@ -542,7 +544,7 @@ class FactorModel(PyroModule):
                 if i >= 1:
                     log += f"| {100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:>6.2f}%\t"
                     log += f"| {(timer() - verbose_time_start):>6.2f}s"
-                    
+
                 verbose_time_start = timer()
 
                 print(log)
