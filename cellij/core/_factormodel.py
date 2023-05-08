@@ -13,6 +13,7 @@ import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
 
+import cellij
 from cellij.core._data import DataContainer
 from cellij.core.utils_training import EarlyStopper
 
@@ -80,7 +81,6 @@ class FactorModel(PyroModule):
         super().__init__(name="FactorModel")
 
         self._model = model
-        self._guide = guide
         self._n_factors = n_factors
         self._dtype = dtype
         self._device = device
@@ -90,30 +90,31 @@ class FactorModel(PyroModule):
         self._obs_groups = {}
 
         # # Setup
-        # if isinstance(guide, str):
-        #     # Implement some default guides
-        #     guide_args = {}
-        #     if "init_loc_fn" in kwargs:
-        #         guide_args["init_loc_fn"] = kwargs["init_loc_fn"]
+        if isinstance(guide, str):
+            # Implement some default guides
+            guide_args = {}
+            if "init_loc_fn" in kwargs:
+                guide_args["init_loc_fn"] = kwargs["init_loc_fn"]
 
-        #     if guide == "AutoDelta":
-        #         self._guide = pyro.infer.autoguide.AutoDelta(self._model, **guide_args)  # type: ignore
-        #     elif guide == "AutoNormal":
-        #         if "init_scale" in kwargs:
-        #             guide_args["init_scale"] = kwargs["init_scale"]
-        #         self._guide = pyro.infer.autoguide.AutoNormal(self._model, **guide_args)  # type: ignore
-        #     elif guide == "AutoLowRankMultivariateNormal":
-        #         if "init_scale" in kwargs:
-        #             guide_args["init_scale"] = kwargs["init_scale"]
-        #         if "rank" in kwargs:
-        #             guide_args["rank"] = kwargs["rank"]
-        #         self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal(  # type: ignore
-        #             self._model, **guide_args
-        #         )
-        # elif isinstance(guide, pyro.infer.autoguide.AutoGuide):  # type: ignore
-        #     self._guide = guide(self.model)
-        # # else:
-        # #     raise ValueError(f"Unknown guide: {guide}")
+            if guide == "AutoDelta":
+                self._guide = pyro.infer.autoguide.AutoDelta  # type: ignore
+            elif guide == "AutoNormal":
+                if "init_scale" in kwargs:
+                    guide_args["init_scale"] = kwargs["init_scale"]
+                self._guide = pyro.infer.autoguide.AutoNormal  # type: ignore
+            elif guide == "AutoLowRankMultivariateNormal":
+                if "init_scale" in kwargs:
+                    guide_args["init_scale"] = kwargs["init_scale"]
+                if "rank" in kwargs:
+                    guide_args["rank"] = kwargs["rank"]
+                self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal  # type: ignore
+        elif isinstance(guide, pyro.infer.autoguide.AutoGuide):  # type: ignore
+            self._guide = guide
+        elif issubclass(guide, cellij.core._pyro_guides.Guide):
+            print("Using custom guide.")
+            self._guide = guide
+        else:
+            raise ValueError(f"Unknown guide: {guide}")
 
     @property
     def model(self):
