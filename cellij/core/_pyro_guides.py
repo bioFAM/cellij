@@ -153,10 +153,7 @@ class Guide(PyroModule):
         return self._sample_normal(f"{site_name}_{feature_group}")
     
     def sample_tau(self, site_name="tau", feature_group=None):
-        return self._sample_log_normal(f"{site_name}_{feature_group}")
-    
-    def sample_lambda(self, site_name="lambda", feature_group=None):
-        return self._sample_log_normal(f"{site_name}_{feature_group}")
+        return None
 
     def sample_sigma(self, site_name="sigma", feature_group=None):
         return self._sample_log_normal(f"{site_name}_{feature_group}")
@@ -173,6 +170,7 @@ class Guide(PyroModule):
             self.sample_z()
 
         for feature_group, _ in self.model.feature_dict.items():
+            self.sample_tau(feature_group=feature_group)
             with plates["factors"], plates[f"features_{feature_group}"]:
                 self.sample_w(feature_group=feature_group)
 
@@ -190,9 +188,6 @@ class HorseshoeGuide(Guide):
 
     def setup_shapes(self):
         for feature_group, _ in self.model.feature_dict.items():
-            self.site_to_shape[f"w_{feature_group}"] = self.model.get_w_shape(
-                feature_group
-            )[1:]
             self.site_to_shape[f"tau_{feature_group}"] = self.model.get_tau_shape(
                 feature_group
             )[1:]
@@ -203,38 +198,13 @@ class HorseshoeGuide(Guide):
 
     def sample_tau(self, site_name="tau", feature_group=None):
         self._sample_log_normal(f"{site_name}_{feature_group}")
-        # return super().sample_tau(site_name, feature_group)
     
     def sample_lambda(self, site_name="lambda", feature_group=None):
         self._sample_log_normal(f"{site_name}_{feature_group}")
-        # return super().sample_lambda(site_name, feature_group)
     
     def sample_w(self, site_name="w", feature_group=None):
-        self._sample_normal(f"{site_name}_{feature_group}")
-        # return super().sample_w(site_name, feature_group)
-    
-    def forward(
-        self,
-        data: torch.Tensor,
-    ):
-        """Approximate posterior."""
-
-        plates = self.model.get_plates()
-
-        with plates["obs"], plates["factors"]:
-            self.sample_z()
-            
-        for feature_group, _ in self.model.feature_dict.items():
-            self.sample_tau(feature_group=feature_group)
-
-            with plates["factors"], plates[f"features_{feature_group}"]:
-                self.sample_lambda(feature_group=feature_group)
-                self.sample_w(feature_group=feature_group)
-
-            with plates[f"features_{feature_group}"]:
-                self.sample_sigma(feature_group=feature_group)
-
-        return self.sample_dict
+        self.sample_lambda(feature_group=feature_group)
+        return super().sample_w(site_name, feature_group)
 
 
 class LassoGuide(Guide):

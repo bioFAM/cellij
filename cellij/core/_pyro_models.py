@@ -57,8 +57,8 @@ class Generative(PyroModule):
     def get_lambda_shape(self, feature_group=None):
         return (-1, 1, self.n_factors, self.get_n_features(feature_group))
     
-    def get_tau_shape(self, feature_group=None):
-        return (-1, 1, 1, 1)
+    def get_tau_shape(self):
+        return (-1, 1)
 
     def get_z_shape(self):
         return (-1, self.n_samples, self.n_factors, 1)
@@ -82,13 +82,8 @@ class Generative(PyroModule):
             dist_kwargs={"loc": torch.zeros(1), "scale": torch.ones(1)},
         )
 
-    def sample_tau(self, site_name="tau", feature_group=None, scaling=1.0):
-        return self._sample_site(
-            f"{site_name}_{feature_group}",
-            self.get_tau_shape(feature_group),
-            dist.HalfCauchy,
-            dist_kwargs={"scale": scaling * torch.ones(1)},
-        )
+    def sample_tau(self, site_name="tau", feature_group=None):
+        return None
 
     def sample_w(self, site_name="w", feature_group=None):
         return self._sample_site(
@@ -96,14 +91,6 @@ class Generative(PyroModule):
             self.get_w_shape(feature_group),
             dist.Normal,
             dist_kwargs={"loc": torch.zeros(1), "scale": torch.ones(1)},
-        )
-        
-    def sample_lambda(self, site_name="lambda", feature_group=None, scaling=1.0):
-        return self._sample_site(
-            f"{site_name}_{feature_group}",
-            self.get_lambda_shape(feature_group),
-            dist.HalfCauchy,
-            dist_kwargs={"scale": scaling * torch.ones(1)},
         )
 
     def sample_sigma(self, site_name="sigma", feature_group=None):
@@ -121,7 +108,7 @@ class Generative(PyroModule):
             self.sample_z()
 
         for feature_group, _ in self.feature_dict.items():
-                        
+            self.sample_tau(feature_group=feature_group)
             with plates["factors"], plates[f"features_{feature_group}"]:
                 self.sample_w(feature_group=feature_group)
 
@@ -150,78 +137,43 @@ class Generative(PyroModule):
 
 
 class HorseshoeGenerative(Generative):
-    def __init__(self, n_samples: int, n_factors: int, feature_dict: dict, likelihoods, device=None, **kwargs):
+    def __init__(self, n_samples: int, n_factors: int, feature_dict: dict, likelihoods, tau_scale=1.0, lambda_scale=1.0, device=None):
+        self.tau_scale = tau_scale
+        self.lambda_scale = lambda_scale
         super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
-        self.model_hs_scaling_lambda = kwargs.get("model_hs_scaling_lambda", 1.0)
-        self.model_hs_scaling_tau = kwargs.get("model_hs_scaling_tau", 1.0)
-
-    def forward(self, data: torch.Tensor = None, **kwargs):
-        plates = self.get_plates()
-
-        with plates["obs"], plates["factors"]:
-            self.sample_z()
-            
-        for feature_group, _ in self.feature_dict.items():
-            self.sample_tau(feature_group=feature_group, scaling=self.model_hs_scaling_tau)
-
-            with plates["factors"], plates[f"features_{feature_group}"]:
-                self.sample_lambda(feature_group=feature_group, scaling=self.model_hs_scaling_lambda)
-                self.sample_w(feature_group=feature_group)
-
-            with plates[f"features_{feature_group}"]:
-                self.sample_sigma(feature_group=feature_group)
-
-            with plates["obs"]:
-                data_view = None
-                if data is not None:
-                    data_view = data[feature_group].view(self.get_x_shape(feature_group))
-                self.sample_dict[f"x_{feature_group}"] = pyro.sample(
-                    f"x_{feature_group}",
-                    dist.Normal(
-                        torch.einsum(
-                            "...ikj,...ikj->...ij",
-                            self.sample_dict["z"],
-                            self.sample_dict[f"w_{feature_group}"],
-                        ).view(self.get_x_shape(feature_group)),
-                        torch.sqrt(self.sample_dict[f"sigma_{feature_group}"]),
-                    ),
-                    obs=data_view,
-                    infer={"is_auxiliary": True},
-                )
-
-        return self.sample_dict
+        
+    
+    def sample_lambda(self, site_name="lambda", feature_group=None):
+        return self._sample_site(
+            f"{site_name}_{feature_group}",
+            self.get_lambda_shape(feature_group),
+            dist.HalfCauchy,
+            dist_kwargs={"scale": torch.tensor(self.lambda_scale)},
+        )
 
     def sample_w(self, site_name="w", feature_group=None):
-        w_scale = self.sample_dict[f"tau_{feature_group}"] * self.sample_dict[f"lambda_{feature_group}"]
+        lmbda = self.sample_lambda(feature_group=feature_group)
 
         return self._sample_site(
             f"{site_name}_{feature_group}",
             self.get_w_shape(feature_group),
             dist.Normal,
-            dist_kwargs={"loc": torch.zeros(1), "scale": w_scale},
+            dist_kwargs={"loc": torch.zeros(1), "scale": self.sample_dict[f"tau_{feature_group}"] * lmbda},
         )
-
-    # def sample_w(self, site_name="w", feature_group=None):
-    #     return self._sample_site(
-    #         f"{site_name}_{feature_group}",
-    #         self.get_w_shape(feature_group),
-    #         Horseshoe,
-    #         dist_kwargs={"scale": torch.ones(1)},
-    #     )
 
 
 class LassoGenerative(Generative):
-    def __init__(self, n_samples: int, n_factors: int, feature_dict: dict, likelihoods, device=None, **kwargs):
+    def __init__(self, n_samples: int, n_factors: int, feature_dict: dict, likelihoods, lasso_scale=0.1, device=None, **kwargs):
         super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
 
-        self.model_scaling_lasso = kwargs.get("model_scaling_lasso", 0.1)
+        self.lasso_scale = lasso_scale
 
     def sample_w(self, site_name="w", feature_group=None):
         return self._sample_site(
             f"{site_name}_{feature_group}",
             self.get_w_shape(feature_group),
             dist.SoftLaplace,
-            dist_kwargs={"loc": torch.zeros(1), "scale": self.model_scaling_lasso * torch.ones(1)},
+            dist_kwargs={"loc": torch.zeros(1), "scale": torch.tensor(self.lasso_scale)},
         )
 
 
