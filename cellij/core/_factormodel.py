@@ -1,5 +1,6 @@
 import os
-from typing import Optional, Union
+import pickle
+from pathlib import Path
 from timeit import default_timer as timer
 from typing import List, Optional, Union
 
@@ -7,7 +8,6 @@ import anndata
 import muon
 import numpy as np
 import pandas
-import pickle
 import pyro
 import torch
 from pyro.infer import SVI
@@ -115,6 +115,14 @@ class FactorModel(PyroModule):
             self._guide = guide
         else:
             raise ValueError(f"Unknown guide: {guide}")
+        
+        self.model_kwargs = {k:v for k,v in kwargs.items() if k.startswith('model_')}
+        self.guide_kwargs = {k:v for k,v in kwargs.items() if k.startswith('guide_')}
+        # remove model_ and guide_ from kwargs
+        # for k in self.model_kwargs.keys():
+        #     del kwargs[k]
+        # for k in self.guide_kwargs.keys():
+        #     del kwargs[k]
 
     @property
     def model(self):
@@ -426,9 +434,9 @@ class FactorModel(PyroModule):
         else:
             earlystopper = None
 
-        # # Checks
-        # if self._data is None:
-        #     raise ValueError("No data set.")
+        # Checks
+        if self._data is None:
+            raise ValueError("No data set.")
 
         # if not isinstance(likelihoods, (str, dict)):
         #     raise ValueError(
@@ -482,8 +490,9 @@ class FactorModel(PyroModule):
             n_factors=self.n_factors,
             feature_dict=feature_dict,
             likelihoods=None,
+            **self.model_kwargs
         )
-        self._guide = self._guide(self._model)
+        self._guide = self._guide(self._model, **self.guide_kwargs)
 
         # We scale the gradients by the number of total samples to allow a better comparison across
         # models/datasets
@@ -539,8 +548,10 @@ class FactorModel(PyroModule):
 
         self._is_trained = True
         print("Training finished.")
+        
+        return self.losses
 
-    def save(self, filename: str):
+    def save(self, filename: str, overwrite : bool = True):
         if not self._is_trained:
             raise ValueError("Model must be trained before saving.")
 
@@ -552,8 +563,12 @@ class FactorModel(PyroModule):
 
         if file_ending == "":
             raise ValueError("No file ending provided. Please provide a file ending such as '.pkl'.")
+        
+        file_name = filename.replace(".pkl", ".state_dict")
+        if Path(file_name).exists() and not overwrite:
+            raise ValueError(f"File {filename} already exists. Set 'overwrite' to True to overwrite the file.")
 
         with open(filename, "wb") as f:
             pickle.dump(self, f)
 
-        torch.save(self.state_dict(), filename.replace(".pkl", ".state_dict"))
+        torch.save(self.state_dict(), file_name)

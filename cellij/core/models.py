@@ -24,7 +24,6 @@ class MOFA(FactorModel):
             
         mofa_defaults = {
             "model": prior,
-            # "model": MOFA_Model(n_factors=n_factors, sparsity_prior=sparsity_prior),
             "guide": guide,
             "trainer": "Adam",
         }
