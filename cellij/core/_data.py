@@ -9,8 +9,8 @@ import muon as mu
 import numpy as np
 import pandas as pd
 import torch
+
 import cellij
-from cellij._logging import logger
 
 
 class DataContainer:
@@ -257,3 +257,38 @@ class Importer:
         mdata.obs = mdata.obs.join(obs)
 
         return mdata
+
+    def load_MEFISTO(self) -> mu.MuData:
+        """Loads a synthetic data set with 4 views and a temporal covariate.
+
+        Data is generated as illustrated in the MEFISTO tutorial:
+        https://raw.githack.com/bioFAM/MEFISTO_tutorials/master/MEFISTO_temporal.html
+
+        The function returns a muon.MuData object with 4 modalities with
+        200 observations each:
+          - view1: 200 x 200
+          - view2: 200 x 200
+          - view3: 200 x 200
+          - view4: 200 x 200
+        These data have one covariate defining a timeline. The simulation is
+        based on 4 factors, two of which vary smoothly along the covariate (with
+        different lengthscales) and two are independent of the covariate.
+
+        Returns
+        -------
+        mu.MuData
+            A muon.MuData object with 4 modalities
+
+        """
+        modalities = {}
+        for ome in ["view1", "view2", "view3", "view4"]:
+            with resources.path("cellij.data", f"gp_{ome}.csv") as res_path:
+                modality = pd.read_csv(
+                    filepath_or_buffer=os.fspath(res_path),
+                    sep=",",
+                    index_col=0,
+                    encoding=self.encoding,
+                ).T
+                modalities[ome] = anndata.AnnData(X=modality, dtype="float32")
+
+        return mu.MuData(modalities)
