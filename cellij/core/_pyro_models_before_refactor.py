@@ -1,14 +1,10 @@
 import logging
-from functools import partial
 
 import pyro
 import pyro.distributions as dist
 import torch
 from pyro.distributions import constraints
-from pyro.infer import config_enumerate
 from pyro.nn import PyroModule
-
-from cellij.core.sparsity_priors import get_prior_function
 
 logger = logging.getLogger(__name__)
 
@@ -141,9 +137,7 @@ class MOFA_Model(PyroModule):
                 ).view(-1, self.n_feature_groups)
 
             with plates["features"], plates["factors"]:
-                w_scale = pyro.sample("w_scale", dist.HalfCauchy(torch.ones(1))).view(  # type: ignore
-                    shape
-                )
+                w_scale = pyro.sample("w_scale", dist.HalfCauchy(torch.ones(1))).view(shape)  # type: ignore
                 w_scale = torch.cat(
                     [
                         w_scale[..., self.feature_idx[view]]
@@ -352,7 +346,7 @@ class MOFA_Model(PyroModule):
                 if distr_name == "Normal":
                     params[mod_name]["scale"] = torch.sqrt(params[mod_name]["scale"])
 
-            for mod_name in self.distr_properties.keys():
+            for mod_name in self.distr_properties:
                 mod_data = data[..., self.feature_idx[mod_name]]
 
                 with pyro.poutine.mask(mask=~torch.isnan(mod_data)):

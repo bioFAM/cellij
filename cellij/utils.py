@@ -1,7 +1,8 @@
-import torch
 import os
 import pickle
+
 import numpy as np
+import torch
 from sklearn.impute import KNNImputer
 
 from cellij._logging import logger
@@ -23,7 +24,9 @@ def load_model(filename: str):
     try:
         model.load_state_dict(torch.load(state_dict_name))
     except FileNotFoundError as e:
-        logger.warning(f"No state_dict with name '{state_dict_name}' found, loading model without. {e}")
+        logger.warning(
+            f"No state_dict with name '{state_dict_name}' found, loading model without. {e}"
+        )
 
     return model
 
@@ -64,6 +67,8 @@ def impute_data(data, strategy: str, **kwargs):
     else:
         raise NotImplementedError("Unknown imputation strategy %s" % strategy)
 
-    logger.info(f"Found {np.isnan(data.values).sum()} missing values, imputed them using '{strategy}'.")
+    logger.info(
+        f"Found {np.isnan(data.values).sum()} missing values, imputed them using '{strategy}'."
+    )
 
     return result

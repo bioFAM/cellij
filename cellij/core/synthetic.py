@@ -235,7 +235,6 @@ class DataGenerator:
         ArrayLike
             A boolean array of groups times factors.
         """
-
         # n_groups = self.n_sample_groups
         if level == "features":
             n_groups = self.n_feature_groups
@@ -276,10 +275,9 @@ class DataGenerator:
                 factor_idx
                 < self.n_fully_shared_factors + self.n_partially_shared_factors
             ):
-                if n_groups > 2:
-                    exclude_group_subset_size = rng.integers(1, n_groups - 1)
-                else:
-                    exclude_group_subset_size = 0
+                exclude_group_subset_size = (
+                    rng.integers(1, n_groups - 1) if n_groups > 2 else 0
+                )
 
                 exclude_group_subset = rng.choice(
                     n_groups, exclude_group_subset_size, replace=False
@@ -307,7 +305,6 @@ class DataGenerator:
         with_std : bool, optional
             Whether to standardize the data, by default False
         """
-
         for m in range(self.n_feature_groups):
             if self.likelihoods[m] == "Normal":
                 y = np.array(self.ys[m], dtype=np.float32, copy=True)
@@ -567,7 +564,6 @@ class DataGenerator:
         Generator
             The numpy random generator that generated this data.
         """
-
         rng = np.random.default_rng()
 
         if seed is not None:
@@ -583,10 +579,11 @@ class DataGenerator:
 
         # partially missing samples
         for ms_idx in missing_sample_indices:
-            if self.n_feature_groups > 1:
-                exclude_view_subset_size = rng.integers(1, self.n_feature_groups)
-            else:
-                exclude_view_subset_size = 0
+            exclude_view_subset_size = (
+                rng.integers(1, self.n_feature_groups)
+                if self.n_feature_groups > 1
+                else 0
+            )
             exclude_view_subset = rng.choice(
                 self.n_feature_groups, exclude_view_subset_size, replace=False
             )

@@ -1,6 +1,6 @@
 from cellij.core._factormodel import FactorModel
-from cellij.core._pyro_models import LassoGenerative, HorseshoeGenerative
-from cellij.core._pyro_guides import LassoGuide, HorseshoeGuide
+from cellij.core._pyro_guides import HorseshoeGuide, LassoGuide
+from cellij.core._pyro_models import HorseshoeGenerative, LassoGenerative
 
 
 class MOFA(FactorModel):
@@ -21,7 +21,7 @@ class MOFA(FactorModel):
         elif sparsity_prior == "Horseshoe":
             prior = HorseshoeGenerative
             guide = HorseshoeGuide
-            
+
         mofa_defaults = {
             "model": prior,
             "guide": guide,

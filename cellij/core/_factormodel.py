@@ -115,9 +115,9 @@ class FactorModel(PyroModule):
             self._guide = guide
         else:
             raise ValueError(f"Unknown guide: {guide}")
-        
-        self.model_kwargs = {k:v for k,v in kwargs.items() if k.startswith('model_')}
-        self.guide_kwargs = {k:v for k,v in kwargs.items() if k.startswith('guide_')}
+
+        self.model_kwargs = {k: v for k, v in kwargs.items() if k.startswith("model_")}
+        self.guide_kwargs = {k: v for k, v in kwargs.items() if k.startswith("guide_")}
         # remove model_ and guide_ from kwargs
         # for k in self.model_kwargs.keys():
         #     del kwargs[k]
@@ -170,7 +170,9 @@ class FactorModel(PyroModule):
 
     @data.setter
     def data(self, *args):
-        raise AttributeError("Use `add_data()`, `set_data` or `remove_data()` to modify this property.")
+        raise AttributeError(
+            "Use `add_data()`, `set_data` or `remove_data()` to modify this property."
+        )
 
     @property
     def is_trained(self):
@@ -187,7 +189,8 @@ class FactorModel(PyroModule):
     @feature_groups.setter
     def feature_groups(self, *args):
         raise AttributeError(
-            "Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` " "to modify this property."
+            "Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` "
+            "to modify this property."
         )
 
     @property
@@ -196,7 +199,9 @@ class FactorModel(PyroModule):
 
     @obs_groups.setter
     def obs_groups(self, *args):
-        raise AttributeError("Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property.")
+        raise AttributeError(
+            "Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property."
+        )
 
     def add_data(
         self,
@@ -210,10 +215,14 @@ class FactorModel(PyroModule):
         metadata = None
 
         if not isinstance(data, valid_types):
-            raise TypeError(f"Expected data to be one of {valid_types}, got {type(data)}.")
+            raise TypeError(
+                f"Expected data to be one of {valid_types}, got {type(data)}."
+            )
 
         if not isinstance(data, muon.MuData) and not isinstance(name, str):
-            raise ValueError("When adding data that is not a MuData object, a name must be provided.")
+            raise ValueError(
+                "When adding data that is not a MuData object, a name must be provided."
+            )
 
         if isinstance(data, pandas.DataFrame):
             data = anndata.AnnData(
@@ -271,7 +280,7 @@ class FactorModel(PyroModule):
         self._remove_group(name=name, level="obs", **kwargs)
 
     def _add_group(self, name, group, level, **kwargs):
-        if name in self._feature_groups.keys() or name in self._obs_groups.keys():
+        if name in self._feature_groups or name in self._obs_groups:
             raise ValueError(f"A group with the name {name} already exists.")
 
         if level == "feature":
@@ -290,7 +299,10 @@ class FactorModel(PyroModule):
             raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
 
     def _remove_group(self, name, level, **kwargs):
-        if name not in self._feature_groups.keys() and name not in self._obs_groups.keys():
+        if (
+            name not in self._feature_groups.keys()
+            and name not in self._obs_groups.keys()
+        ):
             raise ValueError(f"No group with the name {name} exists.")
 
         if level == "feature":
@@ -325,7 +337,6 @@ class FactorModel(PyroModule):
         parameter : torch.Tensor or numpy.ndarray
             The parameter pulled from the pyro parameter storage.
         """
-
         if not isinstance(name, str):
             raise TypeError("Parameter 'name' must be of type str.")
 
@@ -342,17 +353,19 @@ class FactorModel(PyroModule):
             if not isinstance(views, (str, list)):
                 raise TypeError("Parameter 'views' must be of type str or list.")
 
-            if isinstance(views, list):
-                if not all([isinstance(view, str) for view in views]):
-                    raise TypeError("Parameter 'views' must be a list of strings.")
+            if isinstance(views, list) and not all(
+                [isinstance(view, str) for view in views]
+            ):
+                raise TypeError("Parameter 'views' must be a list of strings.")
 
         if groups is not None:
             if not isinstance(groups, (str, list)):
                 raise TypeError("Parameter 'groups' must be of type str or list.")
 
-            if isinstance(groups, list):
-                if not all([isinstance(view, str) for view in groups]):
-                    raise TypeError("Parameter 'groups' must be a list of strings.")
+            if isinstance(groups, list) and not all(
+                [isinstance(view, str) for view in groups]
+            ):
+                raise TypeError("Parameter 'groups' must be a list of strings.")
 
         if not isinstance(format, str):
             raise TypeError("Parameter 'format' must be of type str.")
@@ -375,13 +388,17 @@ class FactorModel(PyroModule):
             if views != "all":
                 if isinstance(views, str):
                     if views not in self.data._names:
-                        raise ValueError(f"Parameter 'views' must be in {list(self.data._names)}.")
+                        raise ValueError(
+                            f"Parameter 'views' must be in {list(self.data._names)}."
+                        )
 
                     result = data[..., self.data._feature_idx[views]]
 
                 elif isinstance(views, list):
                     if not all([view in self.data._names for view in views]):
-                        raise ValueError(f"All elements in 'views' must be in {list(self.data._names)}.")
+                        raise ValueError(
+                            f"All elements in 'views' must be in {list(self.data._names)}."
+                        )
 
                     result = {}
                     for view in views:
@@ -404,10 +421,14 @@ class FactorModel(PyroModule):
         return result.squeeze()
 
     def get_weights(self, views: Union[str, List[str]] = "all", format="numpy"):
-        return self._get_from_param_storage(name="w", param="locs", views=views, groups=None, format=format)
+        return self._get_from_param_storage(
+            name="w", param="locs", views=views, groups=None, format=format
+        )
 
     def get_factors(self, groups: Union[str, List[str]] = "all", format="numpy"):
-        return self._get_from_param_storage(name="z", param="locs", views=None, groups=groups, format=format)
+        return self._get_from_param_storage(
+            name="z", param="locs", views=None, groups=groups, format=format
+        )
 
     def fit(
         self,
@@ -430,7 +451,9 @@ class FactorModel(PyroModule):
         if early_stopping:
             if min_delta < 0:
                 raise ValueError("min_delta must be positive.")
-            earlystopper = EarlyStopper(patience=patience, min_delta=min_delta, percentage=percentage)
+            earlystopper = EarlyStopper(
+                patience=patience, min_delta=min_delta, percentage=percentage
+            )
         else:
             earlystopper = None
 
@@ -482,7 +505,9 @@ class FactorModel(PyroModule):
         data_dict = {}
         for m, (view_name, _) in enumerate(feature_dict.items()):
             # TODO: This works only for a sinlge group as of now
-            data_dict[view_name] = torch.Tensor(self._data._values[:, self._data._feature_idx[f"feature_group_{m}"]])  #.to(device)
+            data_dict[view_name] = torch.Tensor(
+                self._data._values[:, self._data._feature_idx[f"feature_group_{m}"]]
+            )  # .to(device)
 
         # Initialize class objects with correct data-related parameters
         self._model = self._model(
@@ -490,7 +515,7 @@ class FactorModel(PyroModule):
             n_factors=self.n_factors,
             feature_dict=feature_dict,
             likelihoods=None,
-            **self.model_kwargs
+            **self.model_kwargs,
         )
         self._guide = self._guide(self._model, **self.guide_kwargs)
 
@@ -531,10 +556,9 @@ class FactorModel(PyroModule):
             loss = svi.step(data=data)
             self.losses.append(loss)
 
-            if early_stopping:
-                if earlystopper.step(loss):
-                    print(f"Early stopping of training due to convergence at step {i}")
-                    break
+            if early_stopping and earlystopper.step(loss):
+                print(f"Early stopping of training due to convergence at step {i}")
+                break
 
             if i % verbose_epochs == 0:
                 log = f"Epoch {i:>6}: {loss:>14.2f} \t"
@@ -548,25 +572,31 @@ class FactorModel(PyroModule):
 
         self._is_trained = True
         print("Training finished.")
-        
+
         return self.losses
 
-    def save(self, filename: str, overwrite : bool = True):
+    def save(self, filename: str, overwrite: bool = True):
         if not self._is_trained:
             raise ValueError("Model must be trained before saving.")
 
         if not isinstance(filename, str):
-            raise ValueError(f"Parameter 'filename' must be a string, got {type(filename)}.")
+            raise ValueError(
+                f"Parameter 'filename' must be a string, got {type(filename)}."
+            )
 
         # Verify that the user used a file ending
         _, file_ending = os.path.splitext(filename)
 
         if file_ending == "":
-            raise ValueError("No file ending provided. Please provide a file ending such as '.pkl'.")
-        
+            raise ValueError(
+                "No file ending provided. Please provide a file ending such as '.pkl'."
+            )
+
         file_name = filename.replace(".pkl", ".state_dict")
         if Path(file_name).exists() and not overwrite:
-            raise ValueError(f"File {filename} already exists. Set 'overwrite' to True to overwrite the file.")
+            raise ValueError(
+                f"File {filename} already exists. Set 'overwrite' to True to overwrite the file."
+            )
 
         with open(filename, "wb") as f:
             pickle.dump(self, f)

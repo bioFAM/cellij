@@ -1,14 +1,9 @@
 import logging
-from functools import partial
 
 import pyro
 import pyro.distributions as dist
 import torch
-from pyro.distributions import constraints
-from pyro.infer import config_enumerate
 from pyro.nn import PyroModule
-
-from cellij.core._dist import Horseshoe
 
 logger = logging.getLogger(__name__)
 
@@ -43,20 +38,24 @@ class Generative(PyroModule):
         plates = {
             "obs": pyro.plate("obs", self.n_samples, dim=-3),
             "factors": pyro.plate("factors", self.n_factors, dim=-2),
-            "feature_groups": pyro.plate("feature_groups", self.n_feature_groups, dim=-1),
+            "feature_groups": pyro.plate(
+                "feature_groups", self.n_feature_groups, dim=-1
+            ),
         }
 
         for feature_group, n_features in self.feature_dict.items():
-            plates[f"features_{feature_group}"] = pyro.plate(feature_group, n_features, dim=-1)
+            plates[f"features_{feature_group}"] = pyro.plate(
+                feature_group, n_features, dim=-1
+            )
 
         return plates
 
     def get_w_shape(self, feature_group=None):
         return (-1, 1, self.n_factors, self.get_n_features(feature_group))
-    
+
     def get_lambda_shape(self, feature_group=None):
         return (-1, 1, self.n_factors, self.get_n_features(feature_group))
-    
+
     def get_tau_shape(self):
         return (-1, 1)
 
@@ -69,8 +68,12 @@ class Generative(PyroModule):
     def get_x_shape(self, feature_group):
         return (-1, self.n_samples, 1, self.get_n_features(feature_group))
 
-    def _sample_site(self, site_name, out_shape, dist, dist_kwargs={}, sample_kwargs={}):
-        samples = pyro.sample(site_name, dist(**dist_kwargs), **sample_kwargs).view(out_shape)
+    def _sample_site(
+        self, site_name, out_shape, dist, dist_kwargs={}, sample_kwargs={}
+    ):
+        samples = pyro.sample(site_name, dist(**dist_kwargs), **sample_kwargs).view(
+            out_shape
+        )
         self.sample_dict[site_name] = samples
         return samples
 
@@ -118,7 +121,9 @@ class Generative(PyroModule):
             with plates["obs"]:
                 data_view = None
                 if data is not None:
-                    data_view = data[feature_group].view(self.get_x_shape(feature_group))
+                    data_view = data[feature_group].view(
+                        self.get_x_shape(feature_group)
+                    )
                 self.sample_dict[f"x_{feature_group}"] = pyro.sample(
                     f"x_{feature_group}",
                     dist.Normal(
@@ -137,12 +142,20 @@ class Generative(PyroModule):
 
 
 class HorseshoeGenerative(Generative):
-    def __init__(self, n_samples: int, n_factors: int, feature_dict: dict, likelihoods, tau_scale=1.0, lambda_scale=1.0, device=None):
+    def __init__(
+        self,
+        n_samples: int,
+        n_factors: int,
+        feature_dict: dict,
+        likelihoods,
+        tau_scale=1.0,
+        lambda_scale=1.0,
+        device=None,
+    ):
         self.tau_scale = tau_scale
         self.lambda_scale = lambda_scale
         super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
-        
-    
+
     def sample_lambda(self, site_name="lambda", feature_group=None):
         return self._sample_site(
             f"{site_name}_{feature_group}",
@@ -158,12 +171,24 @@ class HorseshoeGenerative(Generative):
             f"{site_name}_{feature_group}",
             self.get_w_shape(feature_group),
             dist.Normal,
-            dist_kwargs={"loc": torch.zeros(1), "scale": self.sample_dict[f"tau_{feature_group}"] * lmbda},
+            dist_kwargs={
+                "loc": torch.zeros(1),
+                "scale": self.sample_dict[f"tau_{feature_group}"] * lmbda,
+            },
         )
 
 
 class LassoGenerative(Generative):
-    def __init__(self, n_samples: int, n_factors: int, feature_dict: dict, likelihoods, lasso_scale=0.1, device=None, **kwargs):
+    def __init__(
+        self,
+        n_samples: int,
+        n_factors: int,
+        feature_dict: dict,
+        likelihoods,
+        lasso_scale=0.1,
+        device=None,
+        **kwargs,
+    ):
         super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
 
         self.lasso_scale = lasso_scale
@@ -173,7 +198,10 @@ class LassoGenerative(Generative):
             f"{site_name}_{feature_group}",
             self.get_w_shape(feature_group),
             dist.SoftLaplace,
-            dist_kwargs={"loc": torch.zeros(1), "scale": torch.tensor(self.lasso_scale)},
+            dist_kwargs={
+                "loc": torch.zeros(1),
+                "scale": torch.tensor(self.lasso_scale),
+            },
         )
 
 

@@ -52,7 +52,6 @@ class Guide(PyroModule):
 
     def setup_shapes(self):
         """Setup parameters and sampling sites."""
-
         self.site_to_shape["z"] = self.model.get_z_shape()[1:]
 
         for feature_group, _ in self.model.feature_dict.items():
@@ -151,7 +150,7 @@ class Guide(PyroModule):
 
     def sample_w(self, site_name="w", feature_group=None):
         return self._sample_normal(f"{site_name}_{feature_group}")
-    
+
     def sample_tau(self, site_name="tau", feature_group=None):
         return None
 
@@ -163,7 +162,6 @@ class Guide(PyroModule):
         data: torch.Tensor,
     ):
         """Approximate posterior."""
-
         plates = self.model.get_plates()
 
         with plates["obs"], plates["factors"]:
@@ -198,10 +196,10 @@ class HorseshoeGuide(Guide):
 
     def sample_tau(self, site_name="tau", feature_group=None):
         self._sample_log_normal(f"{site_name}_{feature_group}")
-    
+
     def sample_lambda(self, site_name="lambda", feature_group=None):
         self._sample_log_normal(f"{site_name}_{feature_group}")
-    
+
     def sample_w(self, site_name="w", feature_group=None):
         self.sample_lambda(feature_group=feature_group)
         return super().sample_w(site_name, feature_group)

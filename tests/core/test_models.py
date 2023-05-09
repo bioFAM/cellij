@@ -1,7 +1,8 @@
 import unittest
 
-import cellij
 import torch
+
+import cellij
 
 torch.manual_seed(8)
 
