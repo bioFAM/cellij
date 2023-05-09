@@ -1,7 +1,8 @@
 import unittest
 
-import cellij
 import torch
+
+import cellij
 
 torch.manual_seed(8)
 
@@ -22,9 +23,7 @@ class core_TestClass(unittest.TestCase):
         model = cellij.core.models.MOFA(n_factors=self.n_factors)
         model.add_data(data=self.mdata, name="mrna")
         model.fit(
-            likelihoods={
-                "mrna": "Normal",
-            },
+            likelihoods="Normal",
             epochs=self.n_epochs,
         )
 
