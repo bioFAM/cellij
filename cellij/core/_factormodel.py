@@ -500,7 +500,7 @@ class FactorModel(PyroModule):
         if scale:
             # scaling_constant = 1.0 / self._data.values.shape[1]
             # TODO!! remove hardcoding
-            scaling_constant = 1.0 / 200
+            scaling_constant = 1.0 / self._data.values.shape[0]
 
         optim = pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)})
         if optimizer.lower() == "clipped":
