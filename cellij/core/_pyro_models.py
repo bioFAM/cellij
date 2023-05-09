@@ -156,6 +156,14 @@ class HorseshoeGenerative(Generative):
         self.lambda_scale = lambda_scale
         super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
 
+    def sample_tau(self, site_name="tau", feature_group=None):
+        return self._sample_site(
+            f"{site_name}_{feature_group}",
+            self.get_tau_shape(),
+            dist.HalfCauchy,
+            dist_kwargs={"scale": torch.tensor(self.tau_scale)},
+        )
+
     def sample_lambda(self, site_name="lambda", feature_group=None):
         return self._sample_site(
             f"{site_name}_{feature_group}",

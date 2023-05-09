@@ -186,9 +186,7 @@ class HorseshoeGuide(Guide):
 
     def setup_shapes(self):
         for feature_group, _ in self.model.feature_dict.items():
-            self.site_to_shape[f"tau_{feature_group}"] = self.model.get_tau_shape(
-                feature_group
-            )[1:]
+            self.site_to_shape[f"tau_{feature_group}"] = self.model.get_tau_shape()[1:]
             self.site_to_shape[f"lambda_{feature_group}"] = self.model.get_lambda_shape(
                 feature_group
             )[1:]
