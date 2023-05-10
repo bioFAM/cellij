@@ -321,6 +321,12 @@ class Importer:
                 - division_scaled: 'division' but scaled to [0.0, 1.0]
                 - label: tissue label, secondary differentiation axis (str)
 
+        References
+        ----------
+        [1] Guo, G., Huss, M., Tong, G.Q., Wang, C., Li Sun, L., Clarke, N.D.,
+            Robson, P., 2010. Resolution of cell fate decisions revealed by
+            single-cell gene expression analysis from zygote to blastocyst.
+            Dev. Cell 18, 675-685. https://doi.org/10.1016/j.devcel.2010.02.012
         """
         modalities = {}
         with resources.path("cellij.data", "guo2010_qpcr.csv") as res_path:
