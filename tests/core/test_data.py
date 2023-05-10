@@ -103,3 +103,12 @@ class core_TestClass(unittest.TestCase):
         assert isinstance(data, mu.MuData)
         assert data.n_obs == 200
         assert data.n_vars == 800
+
+    def test_Importer_can_load_Guo2010_data(self):
+        imp = cellij.core.Importer()
+        data = imp.load_Guo2010()
+
+        assert isinstance(data, mu.MuData)
+        assert data.n_obs == 437
+        assert data.n_vars == 48
+        assert all([col in data.obs.columns for col in ["n_cells", "division", "division_scaled", "label"]])
