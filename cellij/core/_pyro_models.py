@@ -53,9 +53,6 @@ class Generative(PyroModule):
     def get_w_shape(self, feature_group=None):
         return (-1, 1, self.n_factors, self.get_n_features(feature_group))
 
-    def get_lambda_shape(self, feature_group=None):
-        return (-1, 1, self.n_factors, self.get_n_features(feature_group))
-
     def get_tau_shape(self):
         return (-1, 1, 1, 1)
 
@@ -88,6 +85,9 @@ class Generative(PyroModule):
     def sample_tau(self, site_name="tau", feature_group=None):
         return None
 
+    def sample_theta(self, site_name="theta", feature_group=None):
+        return None
+
     def sample_w(self, site_name="w", feature_group=None):
         return self._sample_site(
             f"{site_name}_{feature_group}",
@@ -112,8 +112,10 @@ class Generative(PyroModule):
 
         for feature_group, _ in self.feature_dict.items():
             self.sample_tau(feature_group=feature_group)
-            with plates["factors"], plates[f"features_{feature_group}"]:
-                self.sample_w(feature_group=feature_group)
+            with plates["factors"]:
+                self.sample_theta(feature_group=feature_group)
+                with plates[f"features_{feature_group}"]:
+                    self.sample_w(feature_group=feature_group)
 
             with plates[f"features_{feature_group}"]:
                 self.sample_sigma(feature_group=feature_group)
@@ -167,7 +169,7 @@ class HorseshoeGenerative(Generative):
     def sample_lambda(self, site_name="lambda", feature_group=None):
         return self._sample_site(
             f"{site_name}_{feature_group}",
-            self.get_lambda_shape(feature_group),
+            self.get_w_shape(feature_group),
             dist.HalfCauchy,
             dist_kwargs={"scale": torch.tensor(self.lambda_scale)},
         )
@@ -209,6 +211,39 @@ class LassoGenerative(Generative):
             dist_kwargs={
                 "loc": torch.zeros(1),
                 "scale": torch.tensor(self.lasso_scale),
+            },
+        )
+
+
+class SpikeNSlabGenerative(Generative):
+    def __init__(
+        self,
+        n_samples: int,
+        n_factors: int,
+        feature_dict: dict,
+        likelihoods,
+        device=None,
+    ):
+        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
+
+    def sample_lambda(self, site_name="lambda", feature_group=None):
+        return self._sample_site(
+            f"{site_name}_{feature_group}",
+            self.get_w_shape(feature_group),
+            dist.ContinuousBernoulli,
+            dist_kwargs={"probs": torch.tensor(0.5)},
+        )
+
+    def sample_w(self, site_name="w", feature_group=None):
+        lmbda = self.sample_lambda(feature_group=feature_group)
+
+        return self._sample_site(
+            f"{site_name}_{feature_group}",
+            self.get_w_shape(feature_group),
+            dist.Normal,
+            dist_kwargs={
+                "loc": torch.zeros(1),
+                "scale": lmbda,
             },
         )
 
