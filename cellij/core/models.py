@@ -1,5 +1,5 @@
 from cellij.core._factormodel import FactorModel
-from cellij.core._pyro_guides import HorseshoeGuide, LassoGuide, SpikeNSlabGuide
+from cellij.core._pyro_guides import HorseshoeGuide, LassoGuide
 from cellij.core._pyro_models import (
     HorseshoeGenerative,
     LassoGenerative,

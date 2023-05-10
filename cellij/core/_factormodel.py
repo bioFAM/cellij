@@ -116,8 +116,13 @@ class FactorModel(PyroModule):
         else:
             raise ValueError(f"Unknown guide: {guide}")
 
-        self.model_kwargs = {k: v for k, v in kwargs.items() if k.startswith("model_")}
-        self.guide_kwargs = {k: v for k, v in kwargs.items() if k.startswith("guide_")}
+        self.model_kwargs = {}
+        self.guide_kwargs = {}
+        for k, v in kwargs.items():
+            if k.startswith("model_"):
+                self.model_kwargs[k[len("model_") :]] = v
+            if k.startswith("guide_"):
+                self.guide_kwargs[k[len("guide_") :]] = v
         # remove model_ and guide_ from kwargs
         # for k in self.model_kwargs.keys():
         #     del kwargs[k]

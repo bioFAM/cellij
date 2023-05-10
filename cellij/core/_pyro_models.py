@@ -85,9 +85,6 @@ class Generative(PyroModule):
     def sample_tau(self, site_name="tau", feature_group=None):
         return None
 
-    def sample_theta(self, site_name="theta", feature_group=None):
-        return None
-
     def sample_w(self, site_name="w", feature_group=None):
         return self._sample_site(
             f"{site_name}_{feature_group}",
@@ -113,7 +110,6 @@ class Generative(PyroModule):
         for feature_group, _ in self.feature_dict.items():
             self.sample_tau(feature_group=feature_group)
             with plates["factors"]:
-                self.sample_theta(feature_group=feature_group)
                 with plates[f"features_{feature_group}"]:
                     self.sample_w(feature_group=feature_group)
 
@@ -222,19 +218,42 @@ class SpikeNSlabGenerative(Generative):
         n_factors: int,
         feature_dict: dict,
         likelihoods,
+        relaxed_bernoulli=True,
+        temperature=0.1,
         device=None,
     ):
         super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
 
-    def sample_lambda(self, site_name="lambda", feature_group=None):
+        self.relaxed_bernoulli = relaxed_bernoulli
+        self.bernoulli_dist = dist.ContinuousBernoulli
+        if relaxed_bernoulli:
+            self.bernoulli_dist = dist.RelaxedBernoulliStraightThrough
+        self.temperature = temperature
+
+    def sample_theta(self, site_name="theta", feature_group=None):
         return self._sample_site(
             f"{site_name}_{feature_group}",
             self.get_w_shape(feature_group),
-            dist.ContinuousBernoulli,
-            dist_kwargs={"probs": torch.tensor(0.5)},
+            dist.Beta,
+            dist_kwargs={
+                "concentration1": torch.tensor(0.5),
+                "concentration0": torch.tensor(0.5),
+            },
+        )
+
+    def sample_lambda(self, site_name="lambda", feature_group=None):
+        dist_kwargs = {"probs": self.sample_dict[f"theta_{feature_group}"]}
+        if self.relaxed_bernoulli:
+            dist_kwargs["temperature"] = torch.tensor(self.temperature)
+        return self._sample_site(
+            f"{site_name}_{feature_group}",
+            self.get_w_shape(feature_group),
+            self.bernoulli_dist,
+            dist_kwargs=dist_kwargs,
         )
 
     def sample_w(self, site_name="w", feature_group=None):
+        self.sample_theta(feature_group=feature_group)
         lmbda = self.sample_lambda(feature_group=feature_group)
 
         return self._sample_site(
