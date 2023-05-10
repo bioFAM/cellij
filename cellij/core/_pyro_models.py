@@ -57,7 +57,7 @@ class Generative(PyroModule):
         return (-1, 1, self.n_factors, self.get_n_features(feature_group))
 
     def get_tau_shape(self):
-        return (-1, 1)
+        return (-1, 1, 1, 1)
 
     def get_z_shape(self):
         return (-1, self.n_samples, self.n_factors, 1)
