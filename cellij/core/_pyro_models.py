@@ -1,14 +1,12 @@
 import logging
-from functools import partial
 
 import pyro
 import pyro.distributions as dist
 import torch
 from pyro.distributions import constraints
-from pyro.infer import config_enumerate
 from pyro.nn import PyroModule
 
-from cellij.core.sparsity_priors import get_prior_function
+import cellij
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +33,14 @@ class MOFA_Model(PyroModule):
         if self.sparsity_prior not in valid_priors:
             logger.warning("No prior for inference selected.")
 
-    def _setup(self, data, likelihoods):
+    def _setup(
+        self,
+        data,
+        likelihoods,
+        center_features: bool,
+        scale_features: bool,
+        scale_views: bool,
+    ):
         # TODO: at some point replace n_obs with obs_offsets
         self.values = torch.Tensor(data.values)
         self.n_obs = data.n_obs
@@ -47,15 +52,25 @@ class MOFA_Model(PyroModule):
         self.likelihoods = likelihoods
         self.data_dict = {i: j for j, i in enumerate(data.names)}
 
+        for fg_name, llh in self.likelihoods.items():
+            idx = self.feature_idx[fg_name]
+            if llh.__name__ != "Bernoulli":
+                if center_features:
+                    self.values[:, idx] = self.values[:, idx] - torch.nanmean(self.values[:, idx], dim=0)
+                if scale_features:
+                    self.values[:, idx] = self.values[:, idx] / cellij.nanstd(self.values[:, idx], dim=0)
+                if scale_views:
+                    self.values[:, idx] = self.values[:, idx] / cellij.nanstd(self.values[:, idx])
+
         # Create a dict of
         #   modality name : constraints of parameters
         # TODO: Remove the llh name in the Tuple
         self.distr_properties = {}
-        for name, llh in likelihoods.items():
+        for fg_name, llh in likelihoods.items():
             # For some distributions you can pass one (!) out of multiple arguments, e.g., probs or logits
             # but you must not pass both.
             # - For probs vs. logits, we stick to logits, because it's simpler
-            self.distr_properties[name] = (
+            self.distr_properties[fg_name] = (
                 llh.__name__,
                 {
                     k: v
@@ -88,9 +103,7 @@ class MOFA_Model(PyroModule):
                         ).view(-1, 1, 1, len(self.feature_idx[mod_name]))
 
         with plates["obs"], plates["factors"]:
-            z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(
-                -1, self.n_obs, self.n_factors, 1
-            )
+            z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(-1, self.n_obs, self.n_factors, 1)
 
         # Priors
 
@@ -107,13 +120,10 @@ class MOFA_Model(PyroModule):
 
             with plates["features"], plates["factors"]:
                 if self.sparsity_prior == "Horseshoe":
-                    w_scale = pyro.sample("w_scale", dist.HalfCauchy(torch.ones(1))).view(  # type: ignore
-                        shape
-                    )
+                    w_scale = pyro.sample("w_scale", dist.HalfCauchy(torch.ones(1))).view(shape)  # type: ignore
                     w_scale = torch.cat(
                         [
-                            w_scale[..., self.feature_idx[view]]
-                            * feature_group_scale[..., idx : idx + 1]
+                            w_scale[..., self.feature_idx[view]] * feature_group_scale[..., idx : idx + 1]
                             for idx, view in enumerate(self.feature_group_names)
                         ],
                         dim=-1,
@@ -254,16 +264,12 @@ class MOFA_Model(PyroModule):
 
             elif self.sparsity_prior == "Nonnegative":
                 with plates["features"], plates["factors"]:
-                    w = pyro.sample(
-                        "w", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))
-                    ).view(shape)
+                    w = pyro.sample("w", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))).view(shape)
                     w = torch.nn.Softplus()(w)
 
             else:
                 with plates["features"], plates["factors"]:
-                    w = pyro.sample(
-                        "w", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))
-                    ).view(shape)
+                    w = pyro.sample("w", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))).view(shape)
 
         with plates["obs"]:
             # We assume that the first parameter of each distribution is modelled as the product of
@@ -292,7 +298,7 @@ class MOFA_Model(PyroModule):
                 if distr_name == "Normal":
                     params[mod_name]["scale"] = torch.sqrt(params[mod_name]["scale"])
 
-            for mod_name in self.distr_properties.keys():
+            for mod_name in self.distr_properties:
                 mod_data = data[..., self.feature_idx[mod_name]]
 
                 with pyro.poutine.mask(mask=torch.isnan(mod_data) == 0):
@@ -313,12 +319,8 @@ class MOFA_Model(PyroModule):
             "obs": pyro.plate("obs", self.n_obs, dim=-3),
             "factors": pyro.plate("factors", self.n_factors, dim=-2),
             "features": pyro.plate("features", self.n_features, dim=-1),
-            "feature_groups": pyro.plate(
-                "feature_groups", self.n_feature_groups, dim=-1
-            ),
-            "feature_groups3": pyro.plate(
-                "feature_groups3", self.n_feature_groups, dim=-3
-            ),
+            "feature_groups": pyro.plate("feature_groups", self.n_feature_groups, dim=-1),
+            "feature_groups3": pyro.plate("feature_groups3", self.n_feature_groups, dim=-3),
         }
         # Add one feature plate for each group
         for i, feature_set in enumerate(self.feature_idx.values()):

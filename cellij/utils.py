@@ -1,10 +1,30 @@
-import torch
 import os
 import pickle
+from typing import Optional
+
 import numpy as np
+import torch
 from sklearn.impute import KNNImputer
 
 from cellij._logging import logger
+
+
+def nanstd(data, dim: Optional[int] = None):
+    """Torch doesn't have a torch.nonstd() method so here it is."""
+    if dim is None:
+        flattened_data = data.flatten()
+        mean_tensor = torch.mean(flattened_data)
+        differences = flattened_data - mean_tensor
+        squared_diff = torch.square(differences)
+        mean_squared_diff = torch.mean(squared_diff)
+        std = torch.sqrt(mean_squared_diff)
+    else:
+        mean_tensor = torch.mean(data, dim=dim)
+        differences = data - mean_tensor.unsqueeze(dim)
+        squared_diff = torch.square(differences)
+        mean_squared_diff = torch.mean(squared_diff, dim=dim)
+        std = torch.sqrt(mean_squared_diff)
+    return std
 
 
 def load_model(filename: str):
