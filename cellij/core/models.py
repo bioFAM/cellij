@@ -1,9 +1,10 @@
 from cellij.core._factormodel import FactorModel
-from cellij.core._pyro_guides import HorseshoeGuide, LassoGuide
+from cellij.core._pyro_guides import HorseshoeGuide, LassoGuide, NonnegativityGuide
 from cellij.core._pyro_models import (
     HorseshoeGenerative,
     LassoGenerative,
     SpikeNSlabGenerative,
+    NonnegativityGenerative,
 )
 
 
@@ -28,6 +29,9 @@ class MOFA(FactorModel):
         elif sparsity_prior == "SpikeNSlab":
             prior = SpikeNSlabGenerative
             guide = "AutoNormal"
+        elif sparsity_prior == "Nonnegativity":
+            prior = NonnegativityGenerative
+            guide = NonnegativityGuide
 
         mofa_defaults = {
             "model": prior,

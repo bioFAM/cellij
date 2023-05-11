@@ -150,6 +150,9 @@ class Guide(PyroModule):
 
     def sample_w(self, site_name="w", feature_group=None):
         return self._sample_normal(f"{site_name}_{feature_group}")
+    
+    def sample_w_positive(self, site_name="w", feature_group=None):
+        return self._sample_log_normal(f"{site_name}_{feature_group}")
 
     def sample_tau(self, site_name="tau", feature_group=None):
         return None
@@ -229,3 +232,12 @@ class LassoGuide(Guide):
         self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
     ):
         super().__init__(model, init_loc, init_scale, device)
+
+class NonnegativityGuide(Guide):
+    def __init__(
+        self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
+    ):
+        super().__init__(model, init_loc, init_scale, device)
+
+    def sample_w(self, site_name="w", feature_group=None):
+        return super().sample_w_positive(site_name, feature_group)
