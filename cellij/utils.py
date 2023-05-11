@@ -1,6 +1,8 @@
 import os
 import pickle
 
+import pyro
+import random
 import numpy as np
 import torch
 from sklearn.impute import KNNImputer
@@ -72,3 +74,12 @@ def impute_data(data, strategy: str, **kwargs):
     )
 
     return result
+
+
+# random seed to use throughout the notebook
+def set_all_seeds(seed):
+    pyro.set_rng_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
