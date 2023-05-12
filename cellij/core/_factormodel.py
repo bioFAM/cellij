@@ -6,7 +6,7 @@ from typing import List, Optional, Union
 import anndata
 import muon
 import numpy as np
-import pandas
+import pandas as pd
 import pyro
 import torch
 from pyro.infer import SVI
@@ -90,6 +90,7 @@ class FactorModel(PyroModule):
         self._is_trained = False
         self._feature_groups = {}
         self._obs_groups = {}
+        self._covariates = {}
 
         # Setup
         if isinstance(guide, str):
@@ -199,15 +200,62 @@ class FactorModel(PyroModule):
     def obs_groups(self, *args):
         raise AttributeError("Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property.")
 
+    @property
+    def covariates(self):
+        return self._covariates
+
+    @covariates.setter
+    def covariates(self, *args):
+        raise AttributeError("Use `add_covariate()` or `remove_covariate()` to modify this property.")
+
+    def add_covariate(self, name: str, covariate: Union[pd.DataFrame, pd.Series]):
+        """Adds a covariate to the model which will be modelled as a GP.
+
+        Parameters
+        ----------
+        name : str
+            Name of the covariate.
+        covariate : pd.DataFrame
+            Covariate data, represented by a pandas DataFrame with exactly one column.
+            The index has to match the contained observation names. The values of the
+            column have to be numeric.
+        """
+        if len(self._data.merged_obs_names) == 0:
+            raise ValueError("No data has been added to the model.")
+        if not isinstance(name, str):
+            raise TypeError(f"Parameter 'name' must be a string, got {type(name)}.")
+        if not isinstance(covariate, (pd.DataFrame, pd.Series)):
+            raise TypeError(f"Parameter 'covariate' must be a pandas DataFrame, got {type(covariate)}.")
+        if name in self._covariates:
+            raise ValueError(f"Covariate {name} already exists.")
+        if isinstance(covariate, pd.DataFrame):
+            if len(covariate.columns) != 1:
+                raise ValueError("The covariate dataframe must have exactly one column.")
+        if not covariate.index.isin(self._data.merged_obs_names).all():
+            raise ValueError("Mismatch between the index of 'covariate' and the observation names in the data.")
+        self._covariates[name] = covariate
+
+    def remove_covariate(self, name: str):
+        """Removes a covariate from the model.
+
+        Parameters
+        ----------
+        name : str
+            Name of the covariate to remove.
+        """
+        if name not in self._covariates:
+            raise ValueError(f"Covariate '{name}' does not exist in the data.")
+        del self._covariates[name]
+
     def add_data(
         self,
-        data: Union[pandas.DataFrame, anndata.AnnData, muon.MuData],
+        data: Union[pd.DataFrame, anndata.AnnData, muon.MuData],
         name: Optional[str] = None,
         merge: bool = True,
         **kwargs,
     ):
         # TODO: Add a check that no name is "all"
-        valid_types = (pandas.DataFrame, anndata.AnnData, muon.MuData)
+        valid_types = (pd.DataFrame, anndata.AnnData, muon.MuData)
         metadata = None
 
         if not isinstance(data, valid_types):
@@ -216,11 +264,11 @@ class FactorModel(PyroModule):
         if not isinstance(data, muon.MuData) and not isinstance(name, str):
             raise ValueError("When adding data that is not a MuData object, a name must be provided.")
 
-        if isinstance(data, pandas.DataFrame):
+        if isinstance(data, pd.DataFrame):
             data = anndata.AnnData(
                 X=data.values,
-                obs=pandas.DataFrame(data.index),
-                var=pandas.DataFrame(data.columns),
+                obs=pd.DataFrame(data.index),
+                var=pd.DataFrame(data.columns),
                 dtype=self._dtype,  # type: ignore
             )
 
@@ -480,6 +528,7 @@ class FactorModel(PyroModule):
         self._model._setup(
             data=self._data,
             likelihoods=likelihoods,
+            covariates=self._covariates,
             center_features=center_features,
             scale_features=scale_features,
             scale_views=scale_views,
@@ -500,10 +549,11 @@ class FactorModel(PyroModule):
 
         # TOOD: Preprocess data
         data = self._model.values
-
+        self.train()
         self.losses = []
         time_start = timer()
         for i in range(epochs + 1):
+            self.zero_grad()
             loss = svi.step(data=data)
             self.losses.append(loss)
 

@@ -37,12 +37,14 @@ class MOFA_Model(PyroModule):
         self,
         data,
         likelihoods,
+        covariates,
         center_features: bool,
         scale_features: bool,
         scale_views: bool,
     ):
         # TODO: at some point replace n_obs with obs_offsets
         self.values = torch.Tensor(data.values)
+        self.covariates = covariates
         self.n_obs = data.n_obs
         self.n_features = data.n_features
         self.n_feature_groups = len(data.names)
@@ -79,10 +81,27 @@ class MOFA_Model(PyroModule):
                 },
             )
 
+        if self.sparsity_prior == "GP":
+            if len(self.covariates) == 1:
+                self.gp = cellij.core.PseudotimeGP(
+                    inducing_points=list(self.covariates.values())[0],
+                    n_factors=self.n_factors,
+                    smoothness=1.5,
+                    scale_param=True,
+                )
+                print(self.gp)
+
+            elif len(self.covariates) == 2:
+                raise NotImplementedError("Two covariates are not supported yet.")
+            else:
+                raise NotImplementedError("Only one or two covariates are supported.")
+
     def forward(self, data: torch.Tensor, **kwargs):
         """Generative model for MOFA+."""
         plates = self.get_plates()
-
+        
+        if self.sparsity_prior == "GP":
+            pyro.module("gp", self.gp)
         # We store all distributional parameters for the final likelihoods in a dict, called `params`.
         # Keys are the modalities, values are dictionaries with keys being the distributional parameter names
         # and the values the corresponding tensors
@@ -102,8 +121,19 @@ class MOFA_Model(PyroModule):
                             dist.InverseGamma(torch.tensor(3.0), torch.tensor(1.0)),
                         ).view(-1, 1, 1, len(self.feature_idx[mod_name]))
 
-        with plates["obs"], plates["factors"]:
-            z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(-1, self.n_obs, self.n_factors, 1)
+        if self.sparsity_prior == "GP":
+            print("GP mode")
+            with plates["obs"], plates["factors"]:
+                z = pyro.sample(
+                    name="f",
+                    fn=self.gp.pyro_model(data),
+                ).view(-1, self.n_obs, self.n_factors, 1)
+            # z = torch.nn.Softplus()(f)
+            print(f"{z.shape=}")
+
+        else:
+            with plates["obs"], plates["factors"]:
+                z = pyro.sample("z", dist.Normal(torch.zeros(1), torch.ones(1))).view(-1, self.n_obs, self.n_factors, 1)
 
         # Priors
 
@@ -267,6 +297,9 @@ class MOFA_Model(PyroModule):
                     w = pyro.sample("w", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))).view(shape)
                     w = torch.nn.Softplus()(w)
 
+            elif self.sparsity_prior == "GP":
+                with plates["features"], plates["factors"]:
+                    w = pyro.sample("w", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))).view(shape)
             else:
                 with plates["features"], plates["factors"]:
                     w = pyro.sample("w", dist.Normal(torch.tensor(0.0), torch.tensor(1.0))).view(shape)
@@ -275,7 +308,7 @@ class MOFA_Model(PyroModule):
             # We assume that the first parameter of each distribution is modelled as the product of
             # factor weights and loadings, aka z * w
             prod = torch.einsum("...ikj,...ikj->...ij", z, w).view(-1, self.n_obs, 1, self.n_features)
-
+            print(prod.shape)
             # Apply constraints to parameters if necessary
             # Loop over all modalities and all distributional parameters
             # Apply constraints if necessary
