@@ -602,6 +602,9 @@ class FactorModel(PyroModule):
             raise ValueError(
                 f"File {filename} already exists. Set 'overwrite' to True to overwrite the file."
             )
+            
+        # AnnData causes some issues with old Pytorch packages
+        self._data = None
 
         with open(filename, "wb") as f:
             pickle.dump(self, f)
