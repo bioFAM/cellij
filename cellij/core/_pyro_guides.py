@@ -233,6 +233,7 @@ class LassoGuide(Guide):
     ):
         super().__init__(model, init_loc, init_scale, device)
 
+
 class NonnegativityGuide(Guide):
     def __init__(
         self, model, init_loc: float = 0, init_scale: float = 0.1, device=None

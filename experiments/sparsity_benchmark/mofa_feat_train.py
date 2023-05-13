@@ -14,29 +14,27 @@ from cellij.utils import load_model, set_all_seeds
 if torch.cuda.is_available():
     torch.set_default_tensor_type("torch.cuda.FloatTensor")
     CUDA = torch.cuda.is_available()
-    torch.cuda.set_device(1)
+    torch.cuda.set_device(0)
     device = torch.device("cuda")
 else:
     torch.set_default_tensor_type("torch.FloatTensor")
     device = torch.device("cpu")
 
-# Measure time until convergence for each model
-perf_timer = Dict()
-
-N_SHARED_FACTORS = 20
+N_SHARED_FACTORS = 10
 N_PARTIAL_FACTORS = 0
 N_PRIVATE_FACTORS = 0
 N_SAMPLES = 200
 MISSINGS = 0.0
-N_FACTORS_ESTIMATED = 20
+N_FACTORS_ESTIMATED = 10
 OVERWRITE = False
 
-PATH = "/data/m015k/data/cellij/benchmark/benchmark_v1_features/"
+PATH_DGP = "/home/m015k/code/cellij/experiments/sparsity_benchmark/data/"
+PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v1_features/"
 
 for seed in [0, 1, 2, 3, 4]:
     set_all_seeds(seed)
 
-    for grid_features in [50, 100, 200, 400, 800, 1000, 2000, 3500, 5000]:
+    for grid_features in [50, 100, 200, 400, 800, 1000, 2000, 5000]:  # , 10000
         n_samples = N_SAMPLES
         n_features = [grid_features, grid_features, grid_features]
         n_views = len(n_features)
@@ -48,7 +46,7 @@ for seed in [0, 1, 2, 3, 4]:
         n_covariates = 0
 
         if not (
-            Path(PATH)
+            Path(PATH_DGP)
             .joinpath(
                 f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
             )
@@ -72,35 +70,35 @@ for seed in [0, 1, 2, 3, 4]:
             vlines = feature_offsets[1:-1]
             mdata = dg.to_mdata()
             mdata.write(
-                Path(PATH).joinpath(
+                Path(PATH_DGP).joinpath(
                     f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
                 )
             )
             print("Saved data...")
         else:
-            print("Loading data...")
+            print(f"Loading data from {PATH_DGP}...")
             mdata = mudata.read(
-                Path(PATH).joinpath(
+                Path(PATH_DGP).joinpath(
                     f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
                 )
             )
 
-        for lr in [0.1, 0.01, 0.001, 0.0001]:
+        for lr in [0.1, 0.01, 0.001]:  # , 0.0001
             for sparsity_prior, prior_params in [
                 ("Nonnegativity", {}),
-                ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
-                ("SpikeNSlab", {"relaxed_bernoulli": False}),
                 ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
                 ("Lasso", {"lasso_scale": 0.1}),
+                ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                ("SpikeNSlab", {"relaxed_bernoulli": False}),
             ]:
                 # Combine all parameters used for the prior into a string
                 # This allows to train model with the same prior but different parameters
                 s_params = (
                     "_".join([f"{k}={v}" for k, v in prior_params.items()])
                     if prior_params
-                    else ""
+                    else "None"
                 )
-                filename = Path(PATH).joinpath(
+                filename = Path(PATH_MODELS).joinpath(
                     f"model_v1_features_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{sparsity_prior}_{N_FACTORS_ESTIMATED}_{lr}_{seed}_{s_params}.pkl"
                 )
 
@@ -114,6 +112,7 @@ for seed in [0, 1, 2, 3, 4]:
                         **prior_params,
                     )
                     model.add_data(data=mdata, na_strategy=None)
+                    perf_timer = {}  # Measure time until convergence for each model
                     start = timer()
                     losses = model.fit(
                         likelihoods=mdata.uns["likelihoods"],
@@ -124,8 +123,10 @@ for seed in [0, 1, 2, 3, 4]:
                         min_delta=0.01,
                     )
                     end = timer()
-                    model.save(filename=str(filename), overwrite=True)
+                    model.save(filename=str(filename), overwrite=OVERWRITE)
                     perf_timer[str(filename).replace(".pkl", "")] = end - start
 
-                    with open(Path(PATH).joinpath("perf_timer.json"), "w") as fp:
+                    with open(
+                        str(filename).replace(".pkl", "_perf_timer.json"), "w"
+                    ) as fp:
                         json.dump(perf_timer, fp)
