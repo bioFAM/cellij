@@ -25,16 +25,16 @@ N_PARTIAL_FACTORS = 0
 N_PRIVATE_FACTORS = 0
 N_SAMPLES = 200
 MISSINGS = 0.0
-N_FACTORS_ESTIMATED = 10
+N_FACTORS_ESTIMATED = 20
 OVERWRITE = False
 
 PATH_DGP = "/home/m015k/code/cellij/experiments/sparsity_benchmark/data/"
 PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v1_features/"
 
-for seed in [0, 1, 2, 3, 4]:
+for seed in [0, 1]:  #  2, 3, 4
     set_all_seeds(seed)
 
-    for grid_features in [50, 100, 200, 400, 800, 1000, 2000, 5000]:  # , 10000
+    for grid_features in [50, 100, 200, 400, 800, 1000, 2000, 5000, 10000]:  # 50, 100, 200, 400, 800, 1000, 2000, 5000, 10000
         n_samples = N_SAMPLES
         n_features = [grid_features, grid_features, grid_features]
         n_views = len(n_features)
@@ -85,11 +85,13 @@ for seed in [0, 1, 2, 3, 4]:
 
         for lr in [0.1, 0.01, 0.001]:  # , 0.0001
             for sparsity_prior, prior_params in [
-                ("Nonnegativity", {}),
-                ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
-                ("Lasso", {"lasso_scale": 0.1}),
-                ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
-                ("SpikeNSlab", {"relaxed_bernoulli": False}),
+                (None, {}),
+                # ("Nonnegativity", {}),
+                # ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
+                # ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
+                # ("Lasso", {"lasso_scale": 0.1}),
+                # ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                # ("SpikeNSlab", {"relaxed_bernoulli": False}),
             ]:
                 # Combine all parameters used for the prior into a string
                 # This allows to train model with the same prior but different parameters
