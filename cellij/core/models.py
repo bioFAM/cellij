@@ -5,6 +5,7 @@ from cellij.core._pyro_models import (
     LassoGenerative,
     SpikeNSlabGenerative,
     NonnegativityGenerative,
+    NormalGenerative,
 )
 
 
@@ -32,6 +33,9 @@ class MOFA(FactorModel):
         elif sparsity_prior == "Nonnegativity":
             prior = NonnegativityGenerative
             guide = NonnegativityGuide
+        elif sparsity_prior is None:
+            prior = NormalGenerative
+            guide = "AutoNormal"
 
         mofa_defaults = {
             "model": prior,
