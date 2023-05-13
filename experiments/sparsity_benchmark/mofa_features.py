@@ -21,10 +21,6 @@ else:
     torch.set_default_tensor_type("torch.FloatTensor")
     device = torch.device("cpu")
 
-perf_r2 = Dict()
-perf_precision = Dict()
-perf_f1 = Dict()
-perf_recall = Dict()
 perf_timer = Dict()
 
 N_SHARED_FACTORS = 20
@@ -89,15 +85,21 @@ for seed in [0, 1, 2, 3, 4]:
                 )
             )
 
-        for lr in [0.1, 0.05, 0.01, 0.005, 0.001, 0.0005]:
-            for sparsity_prior in [
-                "Nonnegativity",
-                "SpikeNSlab",
-                # "Horseshoe",
-                # "Lasso",
+        for lr in [0.1, 0.01, 0.001, 0.0001]:
+            for sparsity_prior, prior_params in [
+                # ("Nonnegativity", {}),
+                # ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                ("SpikeNSlab", {"relaxed_bernoulli": False}),
+                ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
+                ("Lasso", {"lasso_scale": 0.1}),
             ]:
+                s_params = (
+                    "_".join([f"{k}={v}" for k, v in prior_params.items()])
+                    if prior_params
+                    else ""
+                )
                 filename = Path(PATH).joinpath(
-                    f"benchmark_v1_features_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{sparsity_prior}_{N_FACTORS_ESTIMATED}_{lr}_{seed}.pkl"
+                    f"model_v1_features_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{sparsity_prior}_{N_FACTORS_ESTIMATED}_{lr}_{seed}_{s_params}.pkl"
                 )
 
                 if Path(filename).exists() and not OVERWRITE:
@@ -105,7 +107,9 @@ for seed in [0, 1, 2, 3, 4]:
                     model = load_model(str(filename))
                 else:
                     model = MOFA(
-                        n_factors=N_FACTORS_ESTIMATED, sparsity_prior=sparsity_prior
+                        n_factors=N_FACTORS_ESTIMATED,
+                        sparsity_prior=sparsity_prior,
+                        **prior_params,
                     )
                     model.add_data(data=mdata, na_strategy=None)
                     start = timer()
@@ -119,9 +123,7 @@ for seed in [0, 1, 2, 3, 4]:
                     )
                     end = timer()
                     model.save(filename=str(filename), overwrite=True)
-                    perf_timer[
-                        f"benchmark_v1_features_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{sparsity_prior}_{N_FACTORS_ESTIMATED}_{lr}_{seed}"
-                    ] = (end - start)
+                    perf_timer[str(filename).replace(".pkl", "")] = end - start
 
                     with open(Path(PATH).joinpath("perf_timer.json"), "w") as fp:
                         json.dump(perf_timer, fp)
