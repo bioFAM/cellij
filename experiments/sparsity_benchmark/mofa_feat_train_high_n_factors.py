@@ -2,33 +2,34 @@ import json
 from pathlib import Path
 from timeit import default_timer as timer
 
+import mudata
 import numpy as np
 import torch
 from addict import Dict
-import mudata
 
 from cellij.core.models import MOFA
 from cellij.core.synthetic import DataGenerator
 from cellij.utils import load_model, set_all_seeds
 
-OVERWRITE = False
 if torch.cuda.is_available():
     torch.set_default_tensor_type("torch.cuda.FloatTensor")
     CUDA = torch.cuda.is_available()
-    torch.cuda.set_device(1)
+    torch.cuda.set_device(0)
     device = torch.device("cuda")
 else:
     torch.set_default_tensor_type("torch.FloatTensor")
     device = torch.device("cpu")
 
+# Measure time until convergence for each model
 perf_timer = Dict()
 
-N_SHARED_FACTORS = 20
+N_SHARED_FACTORS = 10
 N_PARTIAL_FACTORS = 0
 N_PRIVATE_FACTORS = 0
 N_SAMPLES = 200
 MISSINGS = 0.0
 N_FACTORS_ESTIMATED = 20
+OVERWRITE = False
 
 PATH = "/data/m015k/data/cellij/benchmark/benchmark_v1_features/"
 
@@ -44,7 +45,6 @@ for seed in [0, 1, 2, 3, 4]:
         n_fully_shared_factors = N_SHARED_FACTORS
         n_partially_shared_factors = N_PARTIAL_FACTORS
         n_private_factors = N_PRIVATE_FACTORS
-
         n_covariates = 0
 
         if not (
@@ -87,12 +87,14 @@ for seed in [0, 1, 2, 3, 4]:
 
         for lr in [0.1, 0.01, 0.001, 0.0001]:
             for sparsity_prior, prior_params in [
-                # ("Nonnegativity", {}),
-                # ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                ("Nonnegativity", {}),
+                ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
                 ("SpikeNSlab", {"relaxed_bernoulli": False}),
                 ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
                 ("Lasso", {"lasso_scale": 0.1}),
             ]:
+                # Combine all parameters used for the prior into a string
+                # This allows to train model with the same prior but different parameters
                 s_params = (
                     "_".join([f"{k}={v}" for k, v in prior_params.items()])
                     if prior_params

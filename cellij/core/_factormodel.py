@@ -115,7 +115,7 @@ class FactorModel(PyroModule):
             self._guide = guide
         else:
             raise ValueError(f"Unknown guide: {guide}")
-        
+
         # Save kwargs for later
         self._kwargs = kwargs
 
@@ -574,7 +574,7 @@ class FactorModel(PyroModule):
 
         return self.losses
 
-    def save(self, filename: str, overwrite: bool = True):
+    def save(self, filename: str, overwrite: bool = False):
         if not self._is_trained:
             raise ValueError("Model must be trained before saving.")
 
@@ -596,8 +596,8 @@ class FactorModel(PyroModule):
             raise ValueError(
                 f"File {filename} already exists. Set 'overwrite' to True to overwrite the file."
             )
-            
-        # AnnData causes some issues with old Pytorch packages
+
+        # AnnData causes some issues with old Pytorch versions
         self._data = None
 
         with open(filename, "wb") as f:
