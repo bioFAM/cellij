@@ -186,6 +186,43 @@ class HorseshoeGenerative(Generative):
         )
 
 
+class HorseshoeDeltaTauGenerative(Generative):
+    def __init__(
+        self,
+        n_samples: int,
+        n_factors: int,
+        feature_dict: dict,
+        likelihoods,
+        tau_scale=1.0,
+        lambda_scale=1.0,
+        device=None,
+    ):
+        self.tau_scale = tau_scale
+        self.lambda_scale = lambda_scale
+        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
+
+    def sample_lambda(self, site_name="lambda", feature_group=None):
+        return self._sample_site(
+            f"{site_name}_{feature_group}",
+            self.get_w_shape(feature_group),
+            dist.HalfCauchy,
+            dist_kwargs={"scale": torch.tensor(self.lambda_scale)},
+        )
+
+    def sample_w(self, site_name="w", feature_group=None):
+        lmbda = self.sample_lambda(feature_group=feature_group)
+
+        return self._sample_site(
+            f"{site_name}_{feature_group}",
+            self.get_w_shape(feature_group),
+            dist.Normal,
+            dist_kwargs={
+                "loc": torch.zeros(1),
+                "scale": self.tau_scale * lmbda,
+            },
+        )
+
+
 class NormalGenerative(Generative):
     def __init__(
         self,
