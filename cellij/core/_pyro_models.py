@@ -252,9 +252,10 @@ class SpikeNSlabGenerative(Generative):
         super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
 
         self.relaxed_bernoulli = relaxed_bernoulli
-        self.bernoulli_dist = dist.ContinuousBernoulli
-        if relaxed_bernoulli:
+        if self.relaxed_bernoulli:
             self.bernoulli_dist = dist.RelaxedBernoulliStraightThrough
+        else:
+            self.bernoulli_dist = dist.ContinuousBernoulli
         self.temperature = temperature
 
     def sample_theta(self, site_name="theta", feature_group=None):

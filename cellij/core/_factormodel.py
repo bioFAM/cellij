@@ -115,19 +115,9 @@ class FactorModel(PyroModule):
             self._guide = guide
         else:
             raise ValueError(f"Unknown guide: {guide}")
-
-        self.model_kwargs = {}
-        self.guide_kwargs = {}
-        for k, v in kwargs.items():
-            if k.startswith("model_"):
-                self.model_kwargs[k[len("model_") :]] = v
-            if k.startswith("guide_"):
-                self.guide_kwargs[k[len("guide_") :]] = v
-        # remove model_ and guide_ from kwargs
-        # for k in self.model_kwargs.keys():
-        #     del kwargs[k]
-        # for k in self.guide_kwargs.keys():
-        #     del kwargs[k]
+        
+        # Save kwargs for later
+        self._kwargs = kwargs
 
     @property
     def model(self):
@@ -520,9 +510,13 @@ class FactorModel(PyroModule):
             n_factors=self.n_factors,
             feature_dict=feature_dict,
             likelihoods=None,
-            **self.model_kwargs,
+            **self._kwargs,
         )
-        self._guide = self._guide(self._model, **self.guide_kwargs)
+        guide_kwargs = {}
+        for key, value in self._kwargs.items():
+            if key in ["init_loc", "init_scale"]:
+                guide_kwargs[key] = value
+        self._guide = self._guide(self._model, **guide_kwargs)
 
         # We scale the gradients by the number of total samples to allow a better comparison across
         # models/datasets
