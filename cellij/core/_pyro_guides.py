@@ -220,27 +220,6 @@ class HorseshoeGuide(Guide):
         return super().sample_w(site_name, feature_group)
 
 
-class SpikeNSlabGuide(Guide):
-    def __init__(
-        self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
-    ):
-        super().__init__(model, init_loc, init_scale, device)
-
-    def setup_shapes(self):
-        for feature_group, _ in self.model.feature_dict.items():
-            self.site_to_shape[f"lambda_{feature_group}"] = self.model.get_w_shape(
-                feature_group
-            )[1:]
-        return super().setup_shapes()
-
-    def sample_lambda(self, site_name="lambda", feature_group=None):
-        self._sample_log_normal(f"{site_name}_{feature_group}")
-
-    def sample_w(self, site_name="w", feature_group=None):
-        self.sample_lambda(feature_group=feature_group)
-        return super().sample_w(site_name, feature_group)
-
-
 class LassoGuide(Guide):
     def __init__(
         self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
