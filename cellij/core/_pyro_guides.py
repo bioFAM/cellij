@@ -150,7 +150,7 @@ class Guide(PyroModule):
 
     def sample_w(self, site_name="w", feature_group=None):
         return self._sample_normal(f"{site_name}_{feature_group}")
-    
+
     def sample_w_positive(self, site_name="w", feature_group=None):
         return self._sample_log_normal(f"{site_name}_{feature_group}")
 
@@ -190,12 +190,20 @@ class HorseshoeGuide(Guide):
     def setup_shapes(self):
         for feature_group, _ in self.model.feature_dict.items():
             self.site_to_shape[f"tau_{feature_group}"] = self.model.get_tau_shape()[1:]
+            self.site_to_shape[f"caux_{feature_group}"] = self.model.get_w_shape(
+                feature_group
+            )[1:]
             self.site_to_shape[f"lambda_{feature_group}"] = self.model.get_w_shape(
                 feature_group
             )[1:]
         return super().setup_shapes()
 
     def sample_tau(self, site_name="tau", feature_group=None):
+        if self.model.delta_tau:
+            return None
+        self._sample_log_normal(f"{site_name}_{feature_group}")
+
+    def sample_caux(self, site_name="caux", feature_group=None):
         self._sample_log_normal(f"{site_name}_{feature_group}")
 
     def sample_lambda(self, site_name="lambda", feature_group=None):
@@ -203,28 +211,10 @@ class HorseshoeGuide(Guide):
 
     def sample_w(self, site_name="w", feature_group=None):
         self.sample_lambda(feature_group=feature_group)
+        if self.model.regularized:
+            self.sample_caux(feature_group=feature_group)
         return super().sample_w(site_name, feature_group)
 
-
-class HorseshoeDeltaTauGuide(Guide):
-    def __init__(
-        self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
-    ):
-        super().__init__(model, init_loc, init_scale, device)
-
-    def setup_shapes(self):
-        for feature_group, _ in self.model.feature_dict.items():
-            self.site_to_shape[f"lambda_{feature_group}"] = self.model.get_w_shape(
-                feature_group
-            )[1:]
-        return super().setup_shapes()
-
-    def sample_lambda(self, site_name="lambda", feature_group=None):
-        self._sample_log_normal(f"{site_name}_{feature_group}")
-
-    def sample_w(self, site_name="w", feature_group=None):
-        self.sample_lambda(feature_group=feature_group)
-        return super().sample_w(site_name, feature_group)
 
 class SpikeNSlabGuide(Guide):
     def __init__(

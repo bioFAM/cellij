@@ -1,9 +1,9 @@
 import os
 import pickle
-
-import pyro
 import random
+
 import numpy as np
+import pyro
 import torch
 from sklearn.impute import KNNImputer
 

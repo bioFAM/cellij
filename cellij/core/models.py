@@ -3,7 +3,6 @@ from cellij.core._pyro_guides import (
     HorseshoeGuide,
     LassoGuide,
     NonnegativityGuide,
-    HorseshoeDeltaTauGuide,
 )
 from cellij.core._pyro_models import (
     HorseshoeGenerative,
@@ -11,7 +10,7 @@ from cellij.core._pyro_models import (
     NonnegativityGenerative,
     NormalGenerative,
     SpikeNSlabGenerative,
-    HorseshoeDeltaTauGenerative,
+    SpikeNSlabLassoGenerative,
 )
 
 
@@ -32,11 +31,11 @@ class MOFA(FactorModel):
         elif sparsity_prior == "Horseshoe":
             prior = HorseshoeGenerative
             guide = HorseshoeGuide
-        elif sparsity_prior == "HorseshoeDeltaTau":
-            prior = HorseshoeDeltaTauGenerative
-            guide = HorseshoeDeltaTauGuide
         elif sparsity_prior == "SpikeNSlab":
             prior = SpikeNSlabGenerative
+            guide = "AutoNormal"
+        elif sparsity_prior == "SpikeNSlabLasso":
+            prior = SpikeNSlabLassoGenerative
             guide = "AutoNormal"
         elif sparsity_prior == "Nonnegativity":
             prior = NonnegativityGenerative

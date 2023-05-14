@@ -111,9 +111,8 @@ class Generative(PyroModule):
 
         for feature_group, _ in self.feature_dict.items():
             self.sample_tau(feature_group=feature_group)
-            with plates["factors"]:
-                with plates[f"features_{feature_group}"]:
-                    self.sample_w(feature_group=feature_group)
+            with plates["factors"], plates[f"features_{feature_group}"]:
+                self.sample_w(feature_group=feature_group)
 
             with plates[f"features_{feature_group}"]:
                 self.sample_sigma(feature_group=feature_group)
@@ -150,19 +149,30 @@ class HorseshoeGenerative(Generative):
         likelihoods,
         tau_scale=1.0,
         lambda_scale=1.0,
+        delta_tau=False,
+        regularized=False,
         device=None,
     ):
+        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
         self.tau_scale = tau_scale
         self.lambda_scale = lambda_scale
-        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
+        self.delta_tau = delta_tau
+        self.regularized = regularized
 
     def sample_tau(self, site_name="tau", feature_group=None):
-        return self._sample_site(
-            f"{site_name}_{feature_group}",
-            self.get_tau_shape(),
-            dist.HalfCauchy,
-            dist_kwargs={"scale": torch.tensor(self.tau_scale)},
-        )
+        site_name = f"{site_name}_{feature_group}"
+        if self.delta_tau:
+            self.sample_dict[site_name] = pyro.deterministic(
+                site_name, torch.tensor(self.tau_scale)
+            )
+        else:
+            self._sample_site(
+                site_name,
+                self.get_tau_shape(),
+                dist.HalfCauchy,
+                dist_kwargs={"scale": torch.tensor(self.tau_scale)},
+            )
+        return self.sample_dict[site_name]
 
     def sample_lambda(self, site_name="lambda", feature_group=None):
         return self._sample_site(
@@ -172,8 +182,19 @@ class HorseshoeGenerative(Generative):
             dist_kwargs={"scale": torch.tensor(self.lambda_scale)},
         )
 
+    def sample_caux(self, site_name="caux", feature_group=None):
+        return self._sample_site(
+            f"{site_name}_{feature_group}",
+            self.get_w_shape(feature_group),
+            dist.InverseGamma,
+            dist_kwargs={"concentration": torch.tensor(0.5), "rate": torch.tensor(0.5)},
+        )
+
     def sample_w(self, site_name="w", feature_group=None):
         lmbda = self.sample_lambda(feature_group=feature_group)
+        if self.regularized:
+            caux = self.sample_caux(feature_group=feature_group)
+            lmbda = (torch.sqrt(caux) * lmbda) / torch.sqrt(caux + lmbda**2)
 
         return self._sample_site(
             f"{site_name}_{feature_group}",
@@ -182,43 +203,6 @@ class HorseshoeGenerative(Generative):
             dist_kwargs={
                 "loc": torch.zeros(1),
                 "scale": self.sample_dict[f"tau_{feature_group}"] * lmbda,
-            },
-        )
-
-
-class HorseshoeDeltaTauGenerative(Generative):
-    def __init__(
-        self,
-        n_samples: int,
-        n_factors: int,
-        feature_dict: dict,
-        likelihoods,
-        tau_scale=1.0,
-        lambda_scale=1.0,
-        device=None,
-    ):
-        self.tau_scale = tau_scale
-        self.lambda_scale = lambda_scale
-        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
-
-    def sample_lambda(self, site_name="lambda", feature_group=None):
-        return self._sample_site(
-            f"{site_name}_{feature_group}",
-            self.get_w_shape(feature_group),
-            dist.HalfCauchy,
-            dist_kwargs={"scale": torch.tensor(self.lambda_scale)},
-        )
-
-    def sample_w(self, site_name="w", feature_group=None):
-        lmbda = self.sample_lambda(feature_group=feature_group)
-
-        return self._sample_site(
-            f"{site_name}_{feature_group}",
-            self.get_w_shape(feature_group),
-            dist.Normal,
-            dist_kwargs={
-                "loc": torch.zeros(1),
-                "scale": self.tau_scale * lmbda,
             },
         )
 
@@ -234,17 +218,6 @@ class NormalGenerative(Generative):
         **kwargs,
     ):
         super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
-
-    def sample_w(self, site_name="w", feature_group=None):
-        return self._sample_site(
-            f"{site_name}_{feature_group}",
-            self.get_w_shape(feature_group),
-            dist.Normal,
-            dist_kwargs={
-                "loc": torch.zeros(1),
-                "scale": torch.ones(1),
-            },
-        )
 
 
 class LassoGenerative(Generative):
@@ -354,6 +327,55 @@ class SpikeNSlabGenerative(Generative):
                 "scale": lmbda,
             },
         )
+
+
+class SpikeNSlabLassoGenerative(SpikeNSlabGenerative):
+    def __init__(
+        self,
+        n_samples: int,
+        n_factors: int,
+        feature_dict: dict,
+        likelihoods,
+        lambda_spike=20.0,
+        lambda_slab=1.0,
+        relaxed_bernoulli=True,
+        temperature=0.1,
+        device=None,
+    ):
+        super().__init__(
+            n_samples,
+            n_factors,
+            feature_dict,
+            likelihoods,
+            relaxed_bernoulli,
+            temperature,
+            device,
+        )
+        self.lambda_spike = lambda_spike
+        self.lambda_slab = lambda_slab
+
+    def sample_laplace(self, site_name="lambda", feature_group=None, is_spike=True):
+        spike_name = "spike" if is_spike else "slab"
+        scale = self.lambda_spike if is_spike else self.lambda_slab
+        return self._sample_site(
+            f"{site_name}_{spike_name}_{feature_group}",
+            self.get_w_shape(feature_group),
+            dist.Laplace,
+            dist_kwargs={
+                "loc": torch.zeros(1),
+                "scale": torch.tensor(scale),
+            },
+        )
+
+    def sample_w(self, site_name="w", feature_group=None):
+        self.sample_theta(feature_group=feature_group)
+        lmbda = self.sample_lambda(feature_group=feature_group)
+        lmbda_spike = self.sample_laplace(feature_group=feature_group, is_spike=True)
+        lmbda_slab = self.sample_laplace(feature_group=feature_group, is_spike=False)
+
+        w = (1 - lmbda) * lmbda_spike + lmbda * lmbda_slab
+        self.sample_dict[f"{site_name}_{feature_group}"] = w
+        return w
 
 
 if __name__ == "__main__":
