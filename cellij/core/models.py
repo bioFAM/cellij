@@ -1,5 +1,6 @@
 from cellij.core._factormodel import FactorModel
 from cellij.core._pyro_guides import (
+    NormalGuide,
     HorseshoeGuide,
     LassoGuide,
     NonnegativityGuide,
@@ -42,7 +43,7 @@ class MOFA(FactorModel):
             guide = NonnegativityGuide
         elif sparsity_prior is None:
             prior = NormalGenerative
-            guide = "AutoNormal"
+            guide = NormalGuide
 
         mofa_defaults = {
             "model": prior,

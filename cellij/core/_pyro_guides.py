@@ -181,6 +181,10 @@ class Guide(PyroModule):
         return self.sample_dict
 
 
+class NormalGuide(Guide):
+    def __init__(self, model, init_loc: float = 0, init_scale: float = 0.1, device=None):
+        super().__init__(model, init_loc, init_scale, device)
+
 class HorseshoeGuide(Guide):
     def __init__(
         self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
