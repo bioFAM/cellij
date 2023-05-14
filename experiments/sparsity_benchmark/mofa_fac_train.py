@@ -14,7 +14,7 @@ from cellij.utils import load_model, set_all_seeds
 if torch.cuda.is_available():
     torch.set_default_tensor_type("torch.cuda.FloatTensor")
     CUDA = torch.cuda.is_available()
-    torch.cuda.set_device(1)
+    torch.cuda.set_device(0)
     device = torch.device("cuda")
 else:
     torch.set_default_tensor_type("torch.FloatTensor")
@@ -29,73 +29,74 @@ MISSINGS = 0.0
 OVERWRITE = False
 
 PATH_DGP = "/home/m015k/code/cellij/experiments/sparsity_benchmark/data/"
-PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v1_features/"
+PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v1_factors/"
 
-for seed in [0, 1, 2, 3, 4]:  #  2, 3, 4
+for seed in [0, 1, 2]:  #  2, 3, 4
     set_all_seeds(seed)
 
-    for N_FACTORS_ESTIMATED in [50, 25, 20, 15, 10, 5, 3, 2]:
-        for N_SAMPLES in [200, 500]:
-            for grid_features in [300, 1000]:
-                n_samples = N_SAMPLES
-                n_features = [grid_features, grid_features, grid_features]
-                n_views = len(n_features)
-                likelihoods = ["Normal" for _ in range(n_views)]
+    for N_SAMPLES in [100, 200, 500]:
+        for grid_features in [300, 1000, 5000]:
+            n_samples = N_SAMPLES
+            n_features = [grid_features, grid_features, grid_features]
+            n_views = len(n_features)
+            likelihoods = ["Normal" for _ in range(n_views)]
 
-                n_fully_shared_factors = N_SHARED_FACTORS
-                n_partially_shared_factors = N_PARTIAL_FACTORS
-                n_private_factors = N_PRIVATE_FACTORS
-                n_covariates = 0
+            n_fully_shared_factors = N_SHARED_FACTORS
+            n_partially_shared_factors = N_PARTIAL_FACTORS
+            n_private_factors = N_PRIVATE_FACTORS
+            n_covariates = 0
 
-                if not (
-                    Path(PATH_DGP)
-                    .joinpath(
+            if not (
+                Path(PATH_DGP)
+                .joinpath(
+                    f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
+                )
+                .exists()
+            ):
+                print("Creating data...")
+
+                dg = DataGenerator(
+                    n_samples,
+                    n_features,
+                    likelihoods,
+                    n_fully_shared_factors,
+                    n_partially_shared_factors,
+                    n_private_factors,
+                    n_covariates=n_covariates,
+                )
+
+                rng = dg.generate(seed=seed)
+                dg.normalize(with_std=False)
+                feature_offsets = [0] + np.cumsum(n_features).tolist()
+                vlines = feature_offsets[1:-1]
+                mdata = dg.to_mdata()
+                mdata.write(
+                    Path(PATH_DGP).joinpath(
                         f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
                     )
-                    .exists()
-                ):
-                    print("Creating data...")
+                )
 
-                    dg = DataGenerator(
-                        n_samples,
-                        n_features,
-                        likelihoods,
-                        n_fully_shared_factors,
-                        n_partially_shared_factors,
-                        n_private_factors,
-                        n_covariates=n_covariates,
+                print("Saved data...")
+            else:
+                print(f"Loading data from {PATH_DGP}...")
+                mdata = mudata.read(
+                    Path(PATH_DGP).joinpath(
+                        f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
                     )
+                )
 
-                    rng = dg.generate(seed=seed)
-                    dg.normalize(with_std=False)
-                    feature_offsets = [0] + np.cumsum(n_features).tolist()
-                    vlines = feature_offsets[1:-1]
-                    mdata = dg.to_mdata()
-                    mdata.write(
-                        Path(PATH_DGP).joinpath(
-                            f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
-                        )
-                    )
-
-                    print("Saved data...")
-                else:
-                    print(f"Loading data from {PATH_DGP}...")
-                    mdata = mudata.read(
-                        Path(PATH_DGP).joinpath(
-                            f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
-                        )
-                    )
-
-                for lr in [0.1, 0.01, 0.001]:  # , 0.0001
+            for lr in [0.1, 0.01, 0.001]:  # , 0.0001
+                for N_FACTORS_ESTIMATED in [50, 60]:  #  5, 10, 15, 20, 25, 40, 50, 60
                     for sparsity_prior, prior_params in [
                         (None, {}),
                         ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
-                        ("Nonnegativity", {}),
                         ("SpikeNSlab", {"relaxed_bernoulli": False}),
-                        ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
-                        ("Lasso", {"lasso_scale": 0.1}),
-                        ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
-                        ("HorseshoeDeltaTau", {"tau_scale": 0.1, "lambda_scale": 1.0}),
+                        # ("Lasso", {"lasso_scale": 0.1}),
+                        # ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
+                        # ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
+                        # ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True}),
+                        # ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True}),
+                        # ("Nonnegativity", {}),
                     ]:
                         # Combine all parameters used for the prior into a string
                         # This allows to train model with the same prior but different parameters

@@ -14,7 +14,7 @@ from cellij.utils import load_model, set_all_seeds
 if torch.cuda.is_available():
     torch.set_default_tensor_type("torch.cuda.FloatTensor")
     CUDA = torch.cuda.is_available()
-    torch.cuda.set_device(1)
+    torch.cuda.set_device(0)
     device = torch.device("cuda")
 else:
     torch.set_default_tensor_type("torch.FloatTensor")
@@ -23,8 +23,9 @@ else:
 N_SHARED_FACTORS = 10
 N_PARTIAL_FACTORS = 0
 N_PRIVATE_FACTORS = 0
-N_SAMPLES = 200
+# N_SAMPLES = 200
 MISSINGS = 0.0
+N_FEATURES = 1000
 # N_FACTORS_ESTIMATED = 20
 OVERWRITE = False
 
@@ -35,19 +36,18 @@ for seed in [0, 1, 2]:  #  2, 3, 4
     set_all_seeds(seed)
 
     for N_FACTORS_ESTIMATED in [20, 10]:
-        for grid_features in [
+        for N_SAMPLES in [
+            25,
             50,
             100,
             200,
             400,
             800,
             1000,
-            2000,
-            5000,
-            # 10000,
+            2000
         ]:
             n_samples = N_SAMPLES
-            n_features = [grid_features, grid_features, grid_features]
+            n_features = [N_FEATURES, N_FEATURES, N_FEATURES]
             n_views = len(n_features)
             likelihoods = ["Normal" for _ in range(n_views)]
 
@@ -59,7 +59,7 @@ for seed in [0, 1, 2]:  #  2, 3, 4
             if not (
                 Path(PATH_DGP)
                 .joinpath(
-                    f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
+                    f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{N_FEATURES}_{MISSINGS}_{seed}.h5mu"
                 )
                 .exists()
             ):
@@ -82,7 +82,7 @@ for seed in [0, 1, 2]:  #  2, 3, 4
                 mdata = dg.to_mdata()
                 mdata.write(
                     Path(PATH_DGP).joinpath(
-                        f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
+                        f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{N_FEATURES}_{MISSINGS}_{seed}.h5mu"
                     )
                 )
                 print("Saved data...")
@@ -90,19 +90,19 @@ for seed in [0, 1, 2]:  #  2, 3, 4
                 print(f"Loading data from {PATH_DGP}...")
                 mdata = mudata.read(
                     Path(PATH_DGP).joinpath(
-                        f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
+                        f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{N_FEATURES}_{MISSINGS}_{seed}.h5mu"
                     )
                 )
 
-            for lr in [0.1, 0.01, 0.001]:  # , 0.0001
+            for lr in [0.01]:  # 0.1, 0.01, 0.001, 0.0001
                 for sparsity_prior, prior_params in [
-                    # (None, {}),
-                    # ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
-                    # ("SpikeNSlab", {"relaxed_bernoulli": False}),
-                    # ("Lasso", {"lasso_scale": 0.1}),
-                    # ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
-                    # ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
-                    # ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True}),
+                    (None, {}),
+                    ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                    ("SpikeNSlab", {"relaxed_bernoulli": False}),
+                    ("Lasso", {"lasso_scale": 0.1}),
+                    ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
+                    ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
+                    ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True}),
                     ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True}),
                     # ("Nonnegativity", {}),
                 ]:
@@ -114,7 +114,7 @@ for seed in [0, 1, 2]:  #  2, 3, 4
                         else "None"
                     )
                     filename = Path(PATH_MODELS).joinpath(
-                        f"model_v1_features_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{sparsity_prior}_{N_FACTORS_ESTIMATED}_{lr}_{seed}_{s_params}.pkl"
+                        f"model_v1_features_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{N_FEATURES}_{MISSINGS}_{sparsity_prior}_{N_FACTORS_ESTIMATED}_{lr}_{seed}_{s_params}.pkl"
                     )
 
                     if Path(filename).exists() and not OVERWRITE:

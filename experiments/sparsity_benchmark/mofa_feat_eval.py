@@ -17,6 +17,7 @@ from cellij.core.synthetic import DataGenerator
 from cellij.tools.evaluation import compute_factor_correlation
 from cellij.utils import load_model, set_all_seeds
 
+
 if torch.cuda.is_available():
     torch.set_default_tensor_type("torch.cuda.FloatTensor")
     CUDA = torch.cuda.is_available()
@@ -25,6 +26,7 @@ if torch.cuda.is_available():
 else:
     torch.set_default_tensor_type("torch.FloatTensor")
     device = torch.device("cpu")
+
 
 N_SHARED_FACTORS = 10
 N_PARTIAL_FACTORS = 0
@@ -53,10 +55,10 @@ def compute_r2(y_true, y_predicted):
     return r2_score, sse, tse
 
 
-for seed in [0, 1]:  # 2, 3, 4
+for seed in [0, 1, 2]:  # 2, 3, 4
     set_all_seeds(seed)
 
-    for grid_features in tqdm([50, 100, 200, 400, 800, 1000, 2000, 5000, 10000]):
+    for grid_features in tqdm([50, 100, 200, 400, 800, 1000, 2000, 5000]):  # 10000
         n_samples = N_SAMPLES
         n_features = [grid_features, grid_features, grid_features]
         n_views = len(n_features)
@@ -88,12 +90,13 @@ for seed in [0, 1]:  # 2, 3, 4
             for sparsity_prior, prior_params in [
                 (None, {}),
                 ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
-                ("Nonnegativity", {}),
                 ("SpikeNSlab", {"relaxed_bernoulli": False}),
-                ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
                 ("Lasso", {"lasso_scale": 0.1}),
+                ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
                 ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
-                ("HorseshoeDeltaTau", {"tau_scale": 0.1, "lambda_scale": 1.0}),
+                ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True}),
+                ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True}),
+                # ("Nonnegativity", {}),
             ]:
                 # Combine all parameters used for the prior into a string
                 # This allows to train model with the same prior but different parameters
@@ -122,6 +125,8 @@ for seed in [0, 1]:  # 2, 3, 4
 
                 if sparsity_prior is None:
                     sparsity_prior = "Normal"
+                else:
+                    sparsity_prior = sparsity_prior + "_" + s_params
 
                 # Measure R2
                 if hasattr(model._guide, "mode"):
@@ -180,11 +185,12 @@ for seed in [0, 1]:  # 2, 3, 4
                         x_hat_from_single_k = x_hat_from_single_k.T
                         perf_w_activations_ve[seed][grid_features][lr][sparsity_prior][
                             m
-                        ][k] = compute_r2(
-                            mdata["feature_group_0"].X, x_hat_from_single_k
-                        )[
-                            0
-                        ]
+                        ][k] = (
+                            compute_r2(mdata["feature_group_0"].X, x_hat_from_single_k)[
+                                0
+                            ]
+                            / mdata["feature_group_0"].X.size
+                        )
 
 
 #
@@ -228,49 +234,170 @@ df = df.melt(
 df_time = nested_dict_to_df(perf_time.to_dict()).reset_index()
 # Assign columns names from 1 to n
 df_time.columns = [f"{x}" for x in range(1, len(df_time.columns) + 1)]
-df_idx = df_time.iloc[:, :4]
+df_time_idx = df_time.iloc[:, :4]
 # Coalesce all rows
-df_idx = df_idx.assign(time=np.nansum(df_time.iloc[:, 4:].to_numpy(), axis=1))
-df_idx.columns = ["seed", "grid_features", "lr", "sparsity_prior", "time"]
+df_time_idx = df_time_idx.assign(time=np.nansum(df_time.iloc[:, 4:].to_numpy(), axis=1))
+df_time_idx.columns = ["seed", "grid_features", "lr", "sparsity_prior", "time"]
+
+
+# Sort all rows independelty in descending order
+# Define a function to sort each row
+def sort_row_normalized(row):
+    return pd.Series(sorted(row, reverse=True), index=row.index) / np.abs(max(row))
+
+
+def sort_row(row):
+    return pd.Series(sorted(row, reverse=True), index=row.index)
+
+
+# Apply the function to each row using apply with axis=1
+df_w_act_l1 = nested_dict_to_df(perf_w_activations_l1.to_dict()).reset_index()
+df_w_act_l1_idx = df_w_act_l1.iloc[:, :5]
+df_w_act_l1 = df_w_act_l1.iloc[:, 5:]
+df_w_act_l1 = df_w_act_l1.apply(sort_row_normalized, axis=1)
+df_w_act_l1 = pd.concat([df_w_act_l1_idx, df_w_act_l1], axis=1)
+df_w_act_l1.columns = ["seed", "grid_features", "lr", "sparsity_prior", "view"] + [
+    f"factor_{x}" for x in range(1, N_FACTORS_ESTIMATED + 1)
+]
+
+df_w_act_l2 = nested_dict_to_df(perf_w_activations_l2.to_dict()).reset_index()
+df_w_act_l2_idx = df_w_act_l2.iloc[:, :5]
+df_w_act_l2 = df_w_act_l2.iloc[:, 5:]
+df_w_act_l2 = df_w_act_l2.apply(sort_row_normalized, axis=1)
+df_w_act_l2 = pd.concat([df_w_act_l2_idx, df_w_act_l2], axis=1)
+df_w_act_l2.columns = ["seed", "grid_features", "lr", "sparsity_prior", "view"] + [
+    f"factor_{x}" for x in range(1, N_FACTORS_ESTIMATED + 1)
+]
+
+
+df_w_act_ve = nested_dict_to_df(perf_w_activations_ve.to_dict()).reset_index()
+df_w_act_ve_idx = df_w_act_ve.iloc[:, :5]
+df_w_act_ve = df_w_act_ve.iloc[:, 5:]
+df_w_act_ve = df_w_act_ve.apply(sort_row, axis=1)
+df_w_act_ve = pd.concat([df_w_act_ve_idx, df_w_act_ve], axis=1)
+df_w_act_ve.columns = ["seed", "grid_features", "lr", "sparsity_prior", "view"] + [
+    f"factor_{x}" for x in range(1, N_FACTORS_ESTIMATED + 1)
+]
 
 
 #
 # Plot R2 of average factor reconstruction with respect to features
 #
+# Use font with serif family
 sns.set_theme(style="whitegrid")
+fig, ax = plt.subplots(1, 1, figsize=(6, 4), tight_layout=True)
 g = sns.boxplot(
     data=df,
     x="grid_features",
     y="r2",
     hue="sparsity_prior",
 ).set(xlabel="Number of Features", ylabel="Avg. R2 of Factors")
+# Place location below plot
+plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=3)
+plt.grid(True)
 plt.show()
 
 #
 # Plot Runtime with respect to features
 #
 sns.set_theme(style="whitegrid")
+fig, ax = plt.subplots(1, 1, figsize=(6, 4), tight_layout=True)
 g = sns.boxplot(
-    data=df_idx,
+    data=df_time_idx,
     x="grid_features",
     y="time",
     hue="sparsity_prior",
 ).set(xlabel="Number of Features", ylabel="Time [s]")
+plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=3)
+plt.grid(True)
 plt.show()
 
-# # Split w_hat into three equally sized parts along axis=1
-# w_hats = np.split(w_hat, 3, axis=1)
-# w_activations = Dict()
-# for m in range(3):
-#     for k in range(w_hats[m].shape[0]):
-#         w_activations[m][k] = np.sum(np.abs(w_hats[m][k]))
 
-# df_activation = pd.DataFrame(w_activations)
-# df_activation.columns = ["w_view_0", "w_view_1", "w_view_2"]
-# for col in df_activation.columns:
-#     print(col)
-#     df_activation[col] = df_activation[col].sort_values(
-#         ignore_index=True, ascending=False
-#     )
+#
+# Plot #Active columns reconstruction with respect to features
+#
+BASE_DATA = df_w_act_l2
 
-# df_activation.plot()
+sns.set_theme(style="whitegrid")
+sns.set_context("paper")
+sns.set_palette(sns.color_palette("colorblind", 3))
+
+# plt.style.use('default')
+# plt.rcParams['mathtext.fontset'] = 'stix'
+# plt.rcParams['font.family'] = 'STIXGeneral'
+# from tueplots import bundles
+
+# def _from_base_in(*, base_width_in, rel_width, height_to_width_ratio, nrows, ncols):
+#     width_in = base_width_in * rel_width
+#     subplot_width_in = width_in / ncols
+#     subplot_height_in = height_to_width_ratio * subplot_width_in
+#     height_in = subplot_height_in * nrows
+#     return width_in, height_in
+
+# figsize = _from_base_in(
+#     base_width_in=6.75,
+#     rel_width=1.0,
+#     height_to_width_ratio=(5.0**0.5 - 1.0) / 2.0,
+#     nrows=1,
+#     ncols=2,
+# )
+
+# plt.rcParams["figure.family"] = "sans-serif"
+# plt.rcParams["figure.figsize"] = figsize
+plt.rcParams["figure.constrained_layout.use"] = True
+plt.rcParams["figure.autolayout"] = False
+plt.rcParams["savefig.bbox"] = "tight"
+plt.rcParams["savefig.pad_inches"] = 0.015
+
+# bundles.icml2022()
+
+BASE_DATA_melt = BASE_DATA.melt(
+    id_vars=["seed", "grid_features", "lr", "sparsity_prior", "view"],
+    var_name="factor",
+    value_name="L1 Norm",
+)
+# Replace factor names with numbers and convert to int
+BASE_DATA_melt["factor"] = (
+    BASE_DATA_melt["factor"].str.replace("factor_", "").astype(int)
+)
+# Plot L1 norms of W for each sparsity prior separately
+fig, ax = plt.subplots(
+    BASE_DATA_melt["sparsity_prior"].nunique(),
+    1,
+    figsize=(6.75, 20),
+    sharex=False,
+    sharey=False,
+    tight_layout=True,
+)
+for idx, sparsity_prior in enumerate(BASE_DATA_melt["sparsity_prior"].unique()):
+    # Draw a vertical line at N_FACTORS_TRUE
+    ax[idx].axvline(x=N_SHARED_FACTORS + 0.5, color="gray", linestyle="--", linewidth=2)
+
+    BASE_DATA_melt_sp = BASE_DATA_melt[
+        BASE_DATA_melt["sparsity_prior"] == sparsity_prior
+    ]
+    # Make grid features a categorical variable using .loc
+    BASE_DATA_melt_sp.loc[:, "grid_features"] = BASE_DATA_melt_sp[
+        "grid_features"
+    ].astype("str")
+    # Use colorpalette with 3 colors
+    sns.lineplot(
+        data=BASE_DATA_melt_sp,
+        x="factor",
+        y="L1 Norm",
+        hue="grid_features",
+        ax=ax[idx],
+        legend=False if idx < BASE_DATA_melt["sparsity_prior"].nunique() - 1 else True,
+    )
+    # Add title to each subplot with name of sparse prior
+    ax[idx].set_title(f"Sparsity Prior: {sparsity_prior}")
+    # Show only integer ticks on x axis from 1 to N_FACTORS_ESTIMATED
+    ax[idx].set_xticks(range(1, N_FACTORS_ESTIMATED + 1))
+
+# Set x and y labels
+plt.xlabel("Factor")
+plt.ylabel("L1 Norm of Factor")
+# Place location below plot
+plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=4)
+plt.grid(True)
+plt.show()
