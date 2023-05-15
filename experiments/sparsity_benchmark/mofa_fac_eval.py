@@ -91,7 +91,7 @@ for seed in [0, 1, 2]:  #  2, 3, 4
                         ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
                         ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True}),
                         ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True}),
-                        # ("Nonnegativity", {}),
+                        ("SpikeNSlabLasso", {"lambda_spike": 20.0, "lambda_slab": 1.0, "relaxed_bernoulli": True, "temperature": 0.1}),
                     ]:
                         # Combine all parameters used for the prior into a string
                         # This allows to train model with the same prior but different parameters
@@ -107,6 +107,9 @@ for seed in [0, 1, 2]:  #  2, 3, 4
                         if Path(filename).exists():
                             print(f"Loading {filename}")
                             model = load_model(str(filename))
+                            
+                            # model.add_data(mdata)
+                            # data_shuffled = model._data.values
 
                             # Load json file
                             with open(

@@ -33,7 +33,7 @@ N_PARTIAL_FACTORS = 0
 N_PRIVATE_FACTORS = 0
 N_SAMPLES = 200
 MISSINGS = 0.0
-N_FACTORS_ESTIMATED = 20
+N_FACTORS_ESTIMATED = 10
 OVERWRITE = False
 
 perf_r2_factors_all = Dict()
@@ -94,9 +94,23 @@ for seed in [0, 1, 2]:  # 2, 3, 4
                 ("Lasso", {"lasso_scale": 0.1}),
                 ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
                 ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
-                ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True}),
-                ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True}),
-                # ("Nonnegativity", {}),
+                (
+                    "Horseshoe",
+                    {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True},
+                ),
+                (
+                    "Horseshoe",
+                    {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True},
+                ),
+                (
+                    "SpikeNSlabLasso",
+                    {
+                        "lambda_spike": 20.0,
+                        "lambda_slab": 1.0,
+                        "relaxed_bernoulli": True,
+                        "temperature": 0.1,
+                    },
+                ),
             ]:
                 # Combine all parameters used for the prior into a string
                 # This allows to train model with the same prior but different parameters
@@ -123,13 +137,22 @@ for seed in [0, 1, 2]:  # 2, 3, 4
                     print("Model not found")
                     continue
 
-                if sparsity_prior is None:
-                    sparsity_prior = "Normal"
-                else:
-                    sparsity_prior = sparsity_prior + "_" + s_params
+                if sparsity_prior == "SpikeNSlabLasso":
+                    z_hat = model._guide.median()["z"]
+                    w_hat = torch.cat(
+                        [
+                            (
+                                (1 - model._guide.median()[f"lambda_view_{m}"])
+                                * model._guide.median()[f"lambda_spike_view_{m}"]
+                                + model._guide.median()[f"lambda_view_{m}"]
+                                * model._guide.median()[f"lambda_slab_view_{m}"]
+                            ).squeeze()
+                            for m in range(n_views)
+                        ],
+                        dim=1,
+                    )
 
-                # Measure R2
-                if hasattr(model._guide, "mode"):
+                elif hasattr(model._guide, "mode"):
                     z_hat = model._guide.mode("z")
                     w_hat = torch.cat(
                         [
@@ -150,6 +173,25 @@ for seed in [0, 1, 2]:  # 2, 3, 4
 
                 z_hat = z_hat.detach().cpu().numpy().squeeze()
                 w_hat = w_hat.detach().cpu().numpy().squeeze()
+
+                if sparsity_prior is None:
+                    sparsity_prior = "Normal"
+                else:
+                    sparsity_prior = sparsity_prior + "_" + s_params
+
+                legend_names = {
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0": "HS (0.1, 1.0)",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_delta_tau=True": "HS-TauConst (0.1, 1.0)",
+                    "Horseshoe_tau_scale=1.0_lambda_scale=1.0": "HS (1.0, 1.0)",
+                    "Horseshoe_tau_scale=1.0_lambda_scale=1.0_regularized=True": "Reg. HS (1.0, 1.0)",
+                    "Lasso_lasso_scale=0.1": "Laplace(0,0.1)",
+                    "Normal": "Normal",
+                    "SpikeNSlabLasso_lambda_spike=20.0_lambda_slab=1.0_relaxed_bernoulli=True_temperature=0.1": "SnS-Lasso RBSTG (20.0, 1.0, 0.1)",
+                    "SpikeNSlab_relaxed_bernoulli=False": "SnS CB (20.0, 1.0)",
+                    "SpikeNSlab_relaxed_bernoulli=True_temperature=0.1": "SnS RBSTG (20.0, 1.0, 0.1)",
+                }
+                if sparsity_prior in legend_names:
+                    sparsity_prior = legend_names[sparsity_prior]
 
                 # Reconstruction
                 # x_hat = np.matmul(z_hat, w_hat)
@@ -279,29 +321,44 @@ df_w_act_ve.columns = ["seed", "grid_features", "lr", "sparsity_prior", "view"] 
     f"factor_{x}" for x in range(1, N_FACTORS_ESTIMATED + 1)
 ]
 
+sns.set_theme(style="whitegrid")
+sns.set_context("paper")
+sns.set_palette(sns.color_palette("colorblind", 9))
+plt.rcParams["figure.constrained_layout.use"] = False
+plt.rcParams["figure.autolayout"] = False
+# plt.rcParams["savefig.bbox"] = "tight"
+plt.rcParams["savefig.pad_inches"] = 0.015
 
 #
 # Plot R2 of average factor reconstruction with respect to features
 #
 # Use font with serif family
-sns.set_theme(style="whitegrid")
-fig, ax = plt.subplots(1, 1, figsize=(6, 4), tight_layout=True)
+# plt.style.use('default')
+plt.rcParams["mathtext.fontset"] = "stix"
+plt.rcParams["font.family"] = "STIXGeneral"
+fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
 g = sns.boxplot(
     data=df,
     x="grid_features",
     y="r2",
     hue="sparsity_prior",
-).set(xlabel="Number of Features", ylabel="Avg. R2 of Factors")
+).set(xlabel="Number of Features", ylabel="Correlation of Factors")
 # Place location below plot
 plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=3)
 plt.grid(True)
+# Set y range to 0 to 1
+plt.ylim(0.2, 1.05)
+# Save plot as pdf and png
+plt.tight_layout()
+plt.savefig("plots/r2.pdf")
+plt.savefig("plots/r2.png")
 plt.show()
 
 #
 # Plot Runtime with respect to features
 #
 sns.set_theme(style="whitegrid")
-fig, ax = plt.subplots(1, 1, figsize=(6, 4), tight_layout=True)
+fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
 g = sns.boxplot(
     data=df_time_idx,
     x="grid_features",
@@ -309,6 +366,7 @@ g = sns.boxplot(
     hue="sparsity_prior",
 ).set(xlabel="Number of Features", ylabel="Time [s]")
 plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=3)
+plt.tight_layout()
 plt.grid(True)
 plt.show()
 
@@ -318,13 +376,9 @@ plt.show()
 #
 BASE_DATA = df_w_act_l2
 
-sns.set_theme(style="whitegrid")
-sns.set_context("paper")
-sns.set_palette(sns.color_palette("colorblind", 3))
-
 # plt.style.use('default')
-# plt.rcParams['mathtext.fontset'] = 'stix'
-# plt.rcParams['font.family'] = 'STIXGeneral'
+plt.rcParams['mathtext.fontset'] = 'stix'
+plt.rcParams['font.family'] = 'STIXGeneral'
 # from tueplots import bundles
 
 # def _from_base_in(*, base_width_in, rel_width, height_to_width_ratio, nrows, ncols):
@@ -344,34 +398,87 @@ sns.set_palette(sns.color_palette("colorblind", 3))
 
 # plt.rcParams["figure.family"] = "sans-serif"
 # plt.rcParams["figure.figsize"] = figsize
-plt.rcParams["figure.constrained_layout.use"] = True
-plt.rcParams["figure.autolayout"] = False
-plt.rcParams["savefig.bbox"] = "tight"
-plt.rcParams["savefig.pad_inches"] = 0.015
-
 # bundles.icml2022()
+
+# BASE_DATA_melt = BASE_DATA.melt(
+#     id_vars=["seed", "grid_features", "lr", "sparsity_prior", "view"],
+#     var_name="factor",
+#     value_name="L2 Norm",
+# )
+# # Replace factor names with numbers and convert to int
+# BASE_DATA_melt["factor"] = (
+#     BASE_DATA_melt["factor"].str.replace("factor_", "").astype(int)
+# )
+# # Plot L1 norms of W for each sparsity prior separately
+# fig, ax = plt.subplots(
+#     BASE_DATA_melt["sparsity_prior"].nunique(),
+#     1,
+#     figsize=(6.75, 20),
+#     sharex=False,
+#     sharey=False,
+#     tight_layout=False,
+# )
+# for idx, sparsity_prior in enumerate(BASE_DATA_melt["sparsity_prior"].unique()):
+#     # Draw a vertical line at N_FACTORS_TRUE
+#     ax[idx].axvline(x=N_SHARED_FACTORS + 0.5, color="gray", linestyle="--", linewidth=2)
+
+#     BASE_DATA_melt_sp = BASE_DATA_melt[
+#         BASE_DATA_melt["sparsity_prior"] == sparsity_prior
+#     ]
+#     # Make grid features a categorical variable using .loc
+#     BASE_DATA_melt_sp.loc[:, "grid_features"] = BASE_DATA_melt_sp[
+#         "grid_features"
+#     ].astype("str")
+#     # Use colorpalette with 3 colors
+#     sns.lineplot(
+#         data=BASE_DATA_melt_sp,
+#         x="factor",
+#         y="L2 Norm",
+#         hue="grid_features",
+#         ax=ax[idx],
+#         legend=False if idx < BASE_DATA_melt["sparsity_prior"].nunique() - 1 else True,
+#     )
+#     # Add title to each subplot with name of sparse prior
+#     ax[idx].set_title(f"Sparsity Prior: {sparsity_prior}")
+#     # Show only integer ticks on x axis from 1 to N_FACTORS_ESTIMATED
+#     ax[idx].set_xticks(range(1, N_FACTORS_ESTIMATED + 1))
+
+# # Set x and y labels
+# plt.xlabel("Factor")
+# plt.ylabel("L2 Norm of Factor")
+# # Place location below plot
+# plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=4)
+# plt.grid(True)
+# # do not show ax[5,1] since it is empty
+# plt.show()
+
 
 BASE_DATA_melt = BASE_DATA.melt(
     id_vars=["seed", "grid_features", "lr", "sparsity_prior", "view"],
     var_name="factor",
-    value_name="L1 Norm",
+    value_name="L2 Norm",
 )
 # Replace factor names with numbers and convert to int
 BASE_DATA_melt["factor"] = (
     BASE_DATA_melt["factor"].str.replace("factor_", "").astype(int)
 )
 # Plot L1 norms of W for each sparsity prior separately
+# Create a figure with two columns
+Ns = BASE_DATA_melt["sparsity_prior"].nunique()
+nrows = int(np.ceil(BASE_DATA_melt["sparsity_prior"].nunique() / 3))
 fig, ax = plt.subplots(
-    BASE_DATA_melt["sparsity_prior"].nunique(),
-    1,
-    figsize=(6.75, 20),
+    nrows,
+    3,
+    figsize=(6.75, 10),
     sharex=False,
-    sharey=False,
-    tight_layout=True,
+    sharey=True,
+    tight_layout=False,
 )
 for idx, sparsity_prior in enumerate(BASE_DATA_melt["sparsity_prior"].unique()):
     # Draw a vertical line at N_FACTORS_TRUE
-    ax[idx].axvline(x=N_SHARED_FACTORS + 0.5, color="gray", linestyle="--", linewidth=2)
+    ax[idx - nrows * (idx // nrows), idx // nrows].axvline(
+        x=N_SHARED_FACTORS + 0.5, color="gray", linestyle="--", linewidth=2
+    )
 
     BASE_DATA_melt_sp = BASE_DATA_melt[
         BASE_DATA_melt["sparsity_prior"] == sparsity_prior
@@ -384,20 +491,44 @@ for idx, sparsity_prior in enumerate(BASE_DATA_melt["sparsity_prior"].unique()):
     sns.lineplot(
         data=BASE_DATA_melt_sp,
         x="factor",
-        y="L1 Norm",
+        y="L2 Norm",
         hue="grid_features",
-        ax=ax[idx],
-        legend=False if idx < BASE_DATA_melt["sparsity_prior"].nunique() - 1 else True,
+        ax=ax[idx - nrows * (idx // nrows), idx // nrows],
+        legend=False if idx != 5 else True,
     )
     # Add title to each subplot with name of sparse prior
-    ax[idx].set_title(f"Sparsity Prior: {sparsity_prior}")
+    ax[idx - nrows * (idx // nrows), idx // nrows].set_title(
+        f"{sparsity_prior}"
+    )
     # Show only integer ticks on x axis from 1 to N_FACTORS_ESTIMATED
-    ax[idx].set_xticks(range(1, N_FACTORS_ESTIMATED + 1))
+    ax[idx - nrows * (idx // nrows), idx // nrows].set_xticks(
+        range(1, N_FACTORS_ESTIMATED + 1)
+    )
+    # Set fontsize of x ticks
+    ax[idx - nrows * (idx // nrows), idx // nrows].tick_params(
+        axis="x", labelsize=6
+    )
+    # Set x and y labels
+    ax[idx - nrows * (idx // nrows), idx // nrows].set_xlabel("Factor")
+    ax[idx - nrows * (idx // nrows), idx // nrows].set_ylabel("L2 Norm of Factor")
 
-# Set x and y labels
-plt.xlabel("Factor")
-plt.ylabel("L1 Norm of Factor")
 # Place location below plot
-plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=4)
+ax[2,1].legend(
+    loc="upper center",
+    bbox_to_anchor=(0.5, -0.2),
+    ncol=2,
+    title="Features",
+    fancybox=True,
+    shadow=False,
+    fontsize=10,
+)
 plt.grid(True)
+plt.tight_layout()
+# ax[4, 1].axis("off")
+plt.savefig("plots/l2.pdf")
+plt.savefig("plots/l2.png")
+# plt.subplots_adjust(wspace=0, hspace=0)
+# lines_labels = [ax.get_legend_handles_labels() for ax in fig.axes]
+# lines, labels = [sum(lol, []) for lol in zip(*lines_labels)]
+# fig.legend(lines, labels)
 plt.show()

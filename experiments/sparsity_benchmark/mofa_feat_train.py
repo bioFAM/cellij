@@ -31,10 +31,10 @@ OVERWRITE = False
 PATH_DGP = "/home/m015k/code/cellij/experiments/sparsity_benchmark/data/"
 PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v1_features/"
 
-for seed in [0, 1, 2]:  #  2, 3, 4
+for seed in [0, 1, 2]:
     set_all_seeds(seed)
 
-    for N_FACTORS_ESTIMATED in [20, 10]:
+    for N_FACTORS_ESTIMATED in [20, 10, 15]:
         for grid_features in [
             50,
             100,
@@ -94,18 +94,45 @@ for seed in [0, 1, 2]:  #  2, 3, 4
                     )
                 )
 
-            for lr in [0.1, 0.01, 0.001]:  # , 0.0001
+            for lr in [0.1, 0.01, 0.001]:
                 for sparsity_prior, prior_params in [
                     # (None, {}),
                     # ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                    # ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.01}),
                     # ("SpikeNSlab", {"relaxed_bernoulli": False}),
                     # ("Lasso", {"lasso_scale": 0.1}),
                     # ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
                     # ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
-                    # ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True}),
-                    ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True}),
-                    # ("Nonnegativity", {}),
+                    # (
+                    #     "Horseshoe",
+                    #     {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True},
+                    # ),
+                    # (
+                    #     "Horseshoe",
+                    #     {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True},
+                    # ),
+                    (
+                        "SpikeNSlabLasso",
+                        {
+                            "lambda_spike": 20.0,
+                            "lambda_slab": 1.0,
+                            "relaxed_bernoulli": True,
+                            "temperature": 0.1,
+                        },
+                    ),
+                    (
+                        "SpikeNSlabLasso",
+                        {
+                            "lambda_spike": 20.0,
+                            "lambda_slab": 0.01,
+                            "relaxed_bernoulli": True,
+                            "temperature": 0.1,
+                        },
+                    ),
                 ]:
+                    print(
+                        f" - {sparsity_prior} | {prior_params} | {lr} | {grid_features} | {N_FACTORS_ESTIMATED} | {seed}"
+                    )
                     # Combine all parameters used for the prior into a string
                     # This allows to train model with the same prior but different parameters
                     s_params = (
