@@ -88,26 +88,24 @@ class Guide(PyroModule):
             self._setup_site(site_name, shape)
 
     @torch.no_grad()
-    def mode(self, site_name: str):
+    def mode(self):
         """Get the MAP estimates.
-
-        Parameters
-        ----------
-        site_name : str
-            Name of the sampling site
 
         Returns
         -------
         torch.Tensor
             MAP estimate
         """
-        loc, scale = self._get_loc_and_scale(site_name)
-        mode = loc
-        # if site_name not in ["z", "w"]:
-        # TODO! This is a hack, but it works for now
-        if "sigma" in site_name or "w_scale" in site_name:
-            mode = (loc - scale.pow(2)).exp()
-        return mode.clone()
+        modes = {}
+        for site_name, _ in self.site_to_shape.items():
+            mode, scale = self._get_loc_and_scale(site_name)
+            # TODO: This is a hack, but it works for now. Register
+            # sample sites with a log-normal distribution before and pull it here
+            if "sigma" in site_name or "w_scale" in site_name:
+                mode = (mode - scale.pow(2)).exp()
+            modes[site_name] = mode.clone()
+
+        return modes
 
     @torch.no_grad()
     def _get_map_estimate(self, param_name: str, as_list: bool):
@@ -242,7 +240,7 @@ class HorseshoePlusGuide(Guide):
 
     def sample_tau(self, site_name="tau", feature_group=None):
         return None
-    
+
     def sample_eta(self, site_name="eta", feature_group=None):
         self._sample_log_normal(f"{site_name}_{feature_group}")
 
