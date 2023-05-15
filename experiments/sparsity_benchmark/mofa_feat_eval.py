@@ -12,10 +12,10 @@ from addict import Dict
 from tqdm.notebook import tqdm
 from sklearn.metrics import r2_score
 
-from cellij.core.models import MOFA
 from cellij.core.synthetic import DataGenerator
 from cellij.tools.evaluation import compute_factor_correlation
 from cellij.utils import load_model, set_all_seeds
+from cellij.core.models import MOFA
 
 
 if torch.cuda.is_available():
@@ -33,11 +33,12 @@ N_PARTIAL_FACTORS = 0
 N_PRIVATE_FACTORS = 0
 N_SAMPLES = 200
 MISSINGS = 0.0
-N_FACTORS_ESTIMATED = 10
+N_FACTORS_ESTIMATED = 20
 OVERWRITE = False
 
-perf_r2_factors_all = Dict()
-perf_r2_factors = Dict()
+perf_corr_factor_all = Dict()
+perf_corr_factor = Dict()
+perf_r2_x = Dict()
 perf_time = Dict()
 perf_w_activations_l1 = Dict()
 perf_w_activations_l2 = Dict()
@@ -55,10 +56,12 @@ def compute_r2(y_true, y_predicted):
     return r2_score, sse, tse
 
 
-for seed in [0, 1, 2]:  # 2, 3, 4
+for seed in [0, 1]:  # 2, 3, 4
     set_all_seeds(seed)
 
-    for grid_features in tqdm([50, 100, 200, 400, 800, 1000, 2000, 5000]):  # 10000
+    for grid_features in tqdm(
+        [50, 100, 200, 400, 800, 1000, 2000, 5000]
+    ):  # 50, 100, 10000
         n_samples = N_SAMPLES
         n_features = [grid_features, grid_features, grid_features]
         n_views = len(n_features)
@@ -89,8 +92,6 @@ for seed in [0, 1, 2]:  # 2, 3, 4
         for lr in [0.1, 0.01, 0.001]:  # , 0.0001
             for sparsity_prior, prior_params in [
                 (None, {}),
-                ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
-                ("SpikeNSlab", {"relaxed_bernoulli": False}),
                 ("Lasso", {"lasso_scale": 0.1}),
                 ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
                 ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
@@ -102,6 +103,10 @@ for seed in [0, 1, 2]:  # 2, 3, 4
                     "Horseshoe",
                     {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True},
                 ),
+                ("HorseshoePlus", {"tau_const": 0.1, "eta_scale": 1.0}),
+                ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.01}),
+                ("SpikeNSlab", {"relaxed_bernoulli": False}),
                 (
                     "SpikeNSlabLasso",
                     {
@@ -111,7 +116,19 @@ for seed in [0, 1, 2]:  # 2, 3, 4
                         "temperature": 0.1,
                     },
                 ),
+                (
+                    "SpikeNSlabLasso",
+                    {
+                        "lambda_spike": 20.0,
+                        "lambda_slab": 0.01,
+                        "relaxed_bernoulli": True,
+                        "temperature": 0.1,
+                    },
+                ),
             ]:
+                print(
+                    f"{seed} | {grid_features} | {lr} | {sparsity_prior} | {prior_params}"
+                )
                 # Combine all parameters used for the prior into a string
                 # This allows to train model with the same prior but different parameters
                 s_params = (
@@ -137,7 +154,7 @@ for seed in [0, 1, 2]:  # 2, 3, 4
                     print("Model not found")
                     continue
 
-                if sparsity_prior == "SpikeNSlabLasso":
+                if sparsity_prior in ["SpikeNSlabLasso"]:
                     z_hat = model._guide.median()["z"]
                     w_hat = torch.cat(
                         [
@@ -153,23 +170,40 @@ for seed in [0, 1, 2]:  # 2, 3, 4
                     )
 
                 elif hasattr(model._guide, "mode"):
-                    z_hat = model._guide.mode("z")
+                    z_hat = model._guide.mode()["z"]
+                    d = model._guide.mode()
+                    if d.get("w_view_0") is not None:
+                        query_key = "w_view_"
+                    else:
+                        query_key = "w_feature_group_"
+
                     w_hat = torch.cat(
                         [
-                            model._guide.mode(f"w_view_{m}").squeeze()
+                            model._guide.mode()[f"{query_key}{m}"].squeeze()
                             for m in range(n_views)
                         ],
                         dim=1,
                     )
+
                 else:
                     z_hat = model._guide.median()["z"]
+                    d = model._guide.median()
+                    if d.get("w_view_0") is not None:
+                        query_key = "w_view_"
+                    else:
+                        query_key = "w_feature_group_"
+
                     w_hat = torch.cat(
                         [
-                            model._guide.median()[f"w_view_{m}"].squeeze()
+                            model._guide.median()[f"{query_key}{m}"].squeeze()
                             for m in range(n_views)
                         ],
                         dim=1,
                     )
+
+                temp_model = MOFA(n_factors=100, sparsity_prior="Horseshoe")
+                temp_model.add_data(data=mdata, na_strategy=None)
+                x_true = temp_model._data.values
 
                 z_hat = z_hat.detach().cpu().numpy().squeeze()
                 w_hat = w_hat.detach().cpu().numpy().squeeze()
@@ -180,30 +214,35 @@ for seed in [0, 1, 2]:  # 2, 3, 4
                     sparsity_prior = sparsity_prior + "_" + s_params
 
                 legend_names = {
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0": "HS (0.1, 1.0)",
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_delta_tau=True": "HS-TauConst (0.1, 1.0)",
-                    "Horseshoe_tau_scale=1.0_lambda_scale=1.0": "HS (1.0, 1.0)",
-                    "Horseshoe_tau_scale=1.0_lambda_scale=1.0_regularized=True": "Reg. HS (1.0, 1.0)",
-                    "Lasso_lasso_scale=0.1": "Laplace(0,0.1)",
                     "Normal": "Normal",
-                    "SpikeNSlabLasso_lambda_spike=20.0_lambda_slab=1.0_relaxed_bernoulli=True_temperature=0.1": "SnS-Lasso RBSTG (20.0, 1.0, 0.1)",
-                    "SpikeNSlab_relaxed_bernoulli=False": "SnS CB (20.0, 1.0)",
-                    "SpikeNSlab_relaxed_bernoulli=True_temperature=0.1": "SnS RBSTG (20.0, 1.0, 0.1)",
+                    "Lasso_lasso_scale=0.1": "Laplace(0,0.1)",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0": "HS (0.1, 1)",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_delta_tau=True": "HS Const. Tau (0.1, 1)",
+                    "Horseshoe_tau_scale=1.0_lambda_scale=1.0": "HS (1.0, 1)",
+                    "Horseshoe_tau_scale=1.0_lambda_scale=1.0_regularized=True": "HS Reg. (1, 1)",
+                    "HorseshoePlus_tau_const=0.1_eta_scale=1.0": "HS+ (0.1, 1)",
+                    "SpikeNSlab_relaxed_bernoulli=False": "SnS CB (20, 1)",
+                    "SpikeNSlab_relaxed_bernoulli=True_temperature=0.1": "SnS RB (0.1)",
+                    "SpikeNSlab_relaxed_bernoulli=True_temperature=0.01": "SnS RB (0.01)",
+                    "SpikeNSlabLasso_lambda_spike=20.0_lambda_slab=1.0_relaxed_bernoulli=True_temperature=0.1": "SnS-L RB (20, 1.0, 0.1)",
+                    "SpikeNSlabLasso_lambda_spike=20.0_lambda_slab=0.01_relaxed_bernoulli=True_temperature=0.1": "SnS-L RB (20, 0.01, 0.1)",
                 }
                 if sparsity_prior in legend_names:
                     sparsity_prior = legend_names[sparsity_prior]
 
                 # Reconstruction
-                # x_hat = np.matmul(z_hat, w_hat)
-                # TODO: Compute reconstruction error
+                x_hat = np.matmul(z_hat, w_hat)
+                perf_r2_x[seed][grid_features][lr][sparsity_prior] = r2_score(
+                    x_true, x_hat
+                )
 
                 # R2 of factors
                 w_hats = np.split(w_hat, 3, axis=1)
                 for idx, m in enumerate(mdata.mod):
                     w_true = mdata.mod[m].varm["w"]
                     avg, all_k, _, _ = compute_factor_correlation(w_true, w_hats[idx].T)
-                    perf_r2_factors[seed][grid_features][lr][sparsity_prior] = avg
-                    perf_r2_factors_all[seed][grid_features][lr][
+                    perf_corr_factor[seed][grid_features][lr][sparsity_prior] = avg
+                    perf_corr_factor_all[seed][grid_features][lr][
                         sparsity_prior
                     ] = all_k  # TODO: Plot as well
 
@@ -213,6 +252,7 @@ for seed in [0, 1, 2]:  # 2, 3, 4
                 # W activation
                 # Split w_hat into three equally sized parts along axis=1
                 w_hats = np.split(w_hat, 3, axis=1)
+                x_true_splitted = np.split(x_true, 3, axis=1)
                 for m, name in enumerate(mdata.mod):
                     for k in range(w_hats[m].shape[0]):
                         perf_w_activations_l1[seed][grid_features][lr][sparsity_prior][
@@ -228,10 +268,8 @@ for seed in [0, 1, 2]:  # 2, 3, 4
                         perf_w_activations_ve[seed][grid_features][lr][sparsity_prior][
                             m
                         ][k] = (
-                            compute_r2(mdata["feature_group_0"].X, x_hat_from_single_k)[
-                                0
-                            ]
-                            / mdata["feature_group_0"].X.size
+                            compute_r2(x_true_splitted[m], x_hat_from_single_k)[0]
+                            / x_true_splitted[m].size
                         )
 
 
@@ -264,12 +302,12 @@ def nested_dict_to_df(values_dict):
 
 
 # Prepare dataframes for plotting
-df = nested_dict_to_df(perf_r2_factors.to_dict()).reset_index()
+df_r2 = nested_dict_to_df(perf_corr_factor.to_dict()).reset_index()
 for k, col_name in enumerate(["seed", "grid_features", "lr"]):
     # Rename kth columns
-    df = df.rename(columns={f"level_{k}": col_name})
+    df_r2 = df_r2.rename(columns={f"level_{k}": col_name})
 
-df = df.melt(
+df_r2 = df_r2.melt(
     id_vars=["seed", "grid_features", "lr"], var_name="sparsity_prior", value_name="r2"
 )
 
@@ -321,6 +359,7 @@ df_w_act_ve.columns = ["seed", "grid_features", "lr", "sparsity_prior", "view"] 
     f"factor_{x}" for x in range(1, N_FACTORS_ESTIMATED + 1)
 ]
 
+
 sns.set_theme(style="whitegrid")
 sns.set_context("paper")
 sns.set_palette(sns.color_palette("colorblind", 9))
@@ -332,13 +371,13 @@ plt.rcParams["savefig.pad_inches"] = 0.015
 #
 # Plot R2 of average factor reconstruction with respect to features
 #
-# Use font with serif family
-# plt.style.use('default')
 plt.rcParams["mathtext.fontset"] = "stix"
 plt.rcParams["font.family"] = "STIXGeneral"
+
+df_r2 = df_r2.sort_values(by=["sparsity_prior"])
 fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
 g = sns.boxplot(
-    data=df,
+    data=df_r2,
     x="grid_features",
     y="r2",
     hue="sparsity_prior",
@@ -350,9 +389,30 @@ plt.grid(True)
 plt.ylim(0.2, 1.05)
 # Save plot as pdf and png
 plt.tight_layout()
-plt.savefig("plots/r2.pdf")
-plt.savefig("plots/r2.png")
+plt.savefig("plots/r2_features.pdf")
+plt.savefig("plots/r2_features.png")
 plt.show()
+
+fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
+for feats in df_r2["grid_features"].unique():
+    df_r2_tmp = df_r2[df_r2["grid_features"] == feats]
+    g = sns.boxplot(
+        data=df_r2_tmp,
+        x="sparsity_prior",
+        y="r2",
+    ).set(xlabel="Sparsity Priors", ylabel="Correlation of Factors")
+    plt.title(f"Number of Features = {feats}")
+    plt.grid(True)
+    # Set y range to 0 to 1
+    plt.ylim(0.25, 1.05)
+    # Save plot as pdf and png
+    plt.tight_layout()
+    # Rotate x labels by 90 degrees
+    plt.xticks(rotation=90)
+    plt.savefig(f"plots/r2_general_{feats}.pdf")
+    plt.savefig(f"plots/r2_general_{feats}.png")
+    plt.show()
+
 
 #
 # Plot Runtime with respect to features
@@ -377,8 +437,8 @@ plt.show()
 BASE_DATA = df_w_act_l2
 
 # plt.style.use('default')
-plt.rcParams['mathtext.fontset'] = 'stix'
-plt.rcParams['font.family'] = 'STIXGeneral'
+plt.rcParams["mathtext.fontset"] = "stix"
+plt.rcParams["font.family"] = "STIXGeneral"
 # from tueplots import bundles
 
 # def _from_base_in(*, base_width_in, rel_width, height_to_width_ratio, nrows, ncols):
@@ -469,7 +529,7 @@ nrows = int(np.ceil(BASE_DATA_melt["sparsity_prior"].nunique() / 3))
 fig, ax = plt.subplots(
     nrows,
     3,
-    figsize=(6.75, 10),
+    figsize=(6.75, 12.5),
     sharex=False,
     sharey=True,
     tight_layout=False,
@@ -494,28 +554,24 @@ for idx, sparsity_prior in enumerate(BASE_DATA_melt["sparsity_prior"].unique()):
         y="L2 Norm",
         hue="grid_features",
         ax=ax[idx - nrows * (idx // nrows), idx // nrows],
-        legend=False if idx != 5 else True,
+        legend=False if idx != 7 else True,
     )
     # Add title to each subplot with name of sparse prior
-    ax[idx - nrows * (idx // nrows), idx // nrows].set_title(
-        f"{sparsity_prior}"
-    )
+    ax[idx - nrows * (idx // nrows), idx // nrows].set_title(f"{sparsity_prior}")
     # Show only integer ticks on x axis from 1 to N_FACTORS_ESTIMATED
     ax[idx - nrows * (idx // nrows), idx // nrows].set_xticks(
         range(1, N_FACTORS_ESTIMATED + 1)
     )
     # Set fontsize of x ticks
-    ax[idx - nrows * (idx // nrows), idx // nrows].tick_params(
-        axis="x", labelsize=6
-    )
+    ax[idx - nrows * (idx // nrows), idx // nrows].tick_params(axis="x", labelsize=6)
     # Set x and y labels
     ax[idx - nrows * (idx // nrows), idx // nrows].set_xlabel("Factor")
     ax[idx - nrows * (idx // nrows), idx // nrows].set_ylabel("L2 Norm of Factor")
 
 # Place location below plot
-ax[2,1].legend(
+ax[3, 1].legend(
     loc="upper center",
-    bbox_to_anchor=(0.5, -0.2),
+    bbox_to_anchor=(0.5, -0.3),
     ncol=2,
     title="Features",
     fancybox=True,
@@ -524,7 +580,7 @@ ax[2,1].legend(
 )
 plt.grid(True)
 plt.tight_layout()
-# ax[4, 1].axis("off")
+# ax[3, 2].axis("off")
 plt.savefig("plots/l2.pdf")
 plt.savefig("plots/l2.png")
 # plt.subplots_adjust(wspace=0, hspace=0)
