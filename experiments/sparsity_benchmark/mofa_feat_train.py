@@ -14,7 +14,7 @@ from cellij.utils import load_model, set_all_seeds
 if torch.cuda.is_available():
     torch.set_default_tensor_type("torch.cuda.FloatTensor")
     CUDA = torch.cuda.is_available()
-    torch.cuda.set_device(1)
+    torch.cuda.set_device(0)
     device = torch.device("cuda")
 else:
     torch.set_default_tensor_type("torch.FloatTensor")
@@ -35,66 +35,66 @@ for seed in [0, 1, 2]:
     set_all_seeds(seed)
 
     for N_FACTORS_ESTIMATED in [20, 10, 15]:
-        for grid_features in [
-            50,
-            100,
-            200,
-            400,
-            800,
-            1000,
-            2000,
-            5000,
-            # 10000,
-        ]:
-            n_samples = N_SAMPLES
-            n_features = [grid_features, grid_features, grid_features]
-            n_views = len(n_features)
-            likelihoods = ["Normal" for _ in range(n_views)]
+        for lr in [0.01, 0.1, 0.001]:  #
+            for grid_features in [
+                # 50,
+                # 100,
+                # 200,
+                # 400,
+                # 800,
+                # 1000,
+                2000,
+                5000,
+                # 10000,
+            ]:
+                n_samples = N_SAMPLES
+                n_features = [grid_features, grid_features, grid_features]
+                n_views = len(n_features)
+                likelihoods = ["Normal" for _ in range(n_views)]
 
-            n_fully_shared_factors = N_SHARED_FACTORS
-            n_partially_shared_factors = N_PARTIAL_FACTORS
-            n_private_factors = N_PRIVATE_FACTORS
-            n_covariates = 0
+                n_fully_shared_factors = N_SHARED_FACTORS
+                n_partially_shared_factors = N_PARTIAL_FACTORS
+                n_private_factors = N_PRIVATE_FACTORS
+                n_covariates = 0
 
-            if not (
-                Path(PATH_DGP)
-                .joinpath(
-                    f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
-                )
-                .exists()
-            ):
-                print("Creating data...")
-
-                dg = DataGenerator(
-                    n_samples,
-                    n_features,
-                    likelihoods,
-                    n_fully_shared_factors,
-                    n_partially_shared_factors,
-                    n_private_factors,
-                    n_covariates=n_covariates,
-                )
-
-                rng = dg.generate(seed=seed)
-                dg.normalize(with_std=False)
-                feature_offsets = [0] + np.cumsum(n_features).tolist()
-                vlines = feature_offsets[1:-1]
-                mdata = dg.to_mdata()
-                mdata.write(
-                    Path(PATH_DGP).joinpath(
+                if not (
+                    Path(PATH_DGP)
+                    .joinpath(
                         f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
                     )
-                )
-                print("Saved data...")
-            else:
-                print(f"Loading data from {PATH_DGP}...")
-                mdata = mudata.read(
-                    Path(PATH_DGP).joinpath(
-                        f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
-                    )
-                )
+                    .exists()
+                ):
+                    print("Creating data...")
 
-            for lr in [0.1, 0.01, 0.001]:
+                    dg = DataGenerator(
+                        n_samples,
+                        n_features,
+                        likelihoods,
+                        n_fully_shared_factors,
+                        n_partially_shared_factors,
+                        n_private_factors,
+                        n_covariates=n_covariates,
+                    )
+
+                    rng = dg.generate(seed=seed)
+                    dg.normalize(with_std=False)
+                    feature_offsets = [0] + np.cumsum(n_features).tolist()
+                    vlines = feature_offsets[1:-1]
+                    mdata = dg.to_mdata()
+                    mdata.write(
+                        Path(PATH_DGP).joinpath(
+                            f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
+                        )
+                    )
+                    print("Saved data...")
+                else:
+                    print(f"Loading data from {PATH_DGP}...")
+                    mdata = mudata.read(
+                        Path(PATH_DGP).joinpath(
+                            f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
+                        )
+                    )
+
                 for sparsity_prior, prior_params in [
                     # (None, {}),
                     # ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
@@ -103,6 +103,7 @@ for seed in [0, 1, 2]:
                     # ("Lasso", {"lasso_scale": 0.1}),
                     # ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
                     # ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
+                    ("HorseshoePlus", {"tau_const": 0.1, "eta_scale": 1.0}),
                     # (
                     #     "Horseshoe",
                     #     {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True},
@@ -111,24 +112,24 @@ for seed in [0, 1, 2]:
                     #     "Horseshoe",
                     #     {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True},
                     # ),
-                    (
-                        "SpikeNSlabLasso",
-                        {
-                            "lambda_spike": 20.0,
-                            "lambda_slab": 1.0,
-                            "relaxed_bernoulli": True,
-                            "temperature": 0.1,
-                        },
-                    ),
-                    (
-                        "SpikeNSlabLasso",
-                        {
-                            "lambda_spike": 20.0,
-                            "lambda_slab": 0.01,
-                            "relaxed_bernoulli": True,
-                            "temperature": 0.1,
-                        },
-                    ),
+                    # (
+                    #     "SpikeNSlabLasso",
+                    #     {
+                    #         "lambda_spike": 20.0,
+                    #         "lambda_slab": 1.0,
+                    #         "relaxed_bernoulli": True,
+                    #         "temperature": 0.1,
+                    #     },
+                    # ),
+                    # (
+                    #     "SpikeNSlabLasso",
+                    #     {
+                    #         "lambda_spike": 20.0,
+                    #         "lambda_slab": 0.01,
+                    #         "relaxed_bernoulli": True,
+                    #         "temperature": 0.1,
+                    #     },
+                    # ),
                 ]:
                     print(
                         f" - {sparsity_prior} | {prior_params} | {lr} | {grid_features} | {N_FACTORS_ESTIMATED} | {seed}"
