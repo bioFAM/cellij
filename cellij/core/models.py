@@ -1,9 +1,9 @@
 from cellij.core._factormodel import FactorModel
 from cellij.core._pyro_guides import (
-    NormalGuide,
     HorseshoeGuide,
     LassoGuide,
     NonnegativityGuide,
+    NormalGuide,
 )
 from cellij.core._pyro_models import (
     HorseshoeGenerative,

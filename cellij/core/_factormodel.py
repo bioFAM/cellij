@@ -492,17 +492,15 @@ class FactorModel(PyroModule):
         #         f"and {len(self._data.feature_groups)} data modalities."
         #     )
 
-        # # Provide data information to generative model
-        # self._model._setup(data=self._data, likelihoods=likelihoods)
-        n_views = len(self.data._feature_groups)
-        n_features = [len(x) for x in self.data._feature_idx.values()]
-        feature_dict = dict(zip([f"view_{m}" for m in range(n_views)], n_features))
-        data_dict = {}
-        for m, (view_name, _) in enumerate(feature_dict.items()):
-            # TODO: This works only for a sinlge group as of now
-            data_dict[view_name] = torch.Tensor(
-                self._data._values[:, self._data._feature_idx[f"feature_group_{m}"]]
-            )  # .to(device)
+        # Provide data information to generative model
+
+        feature_dict = {
+            k: len(feature_idx) for k, feature_idx in self._data._feature_idx.items()
+        }
+        data_dict = {
+            k: torch.Tensor(self._data._values[:, feature_idx])
+            for k, feature_idx in self._data._feature_idx.items()
+        }
 
         # Initialize class objects with correct data-related parameters
         self._model = self._model(
