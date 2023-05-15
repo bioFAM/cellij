@@ -4,7 +4,7 @@ from cellij.core._pyro_guides import (
     LassoGuide,
     NonnegativityGuide,
     NormalGuide,
-    HorseshoePlusGuide
+    HorseshoePlusGuide,
 )
 from cellij.core._pyro_models import (
     HorseshoeGenerative,
@@ -13,7 +13,7 @@ from cellij.core._pyro_models import (
     NormalGenerative,
     SpikeNSlabGenerative,
     SpikeNSlabLassoGenerative,
-    HorseshoePlusGenerative
+    HorseshoePlusGenerative,
 )
 
 
