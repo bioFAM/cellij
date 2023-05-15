@@ -207,6 +207,61 @@ class HorseshoeGenerative(Generative):
         )
 
 
+class HorseshoePlusGenerative(Generative):
+    def __init__(
+        self,
+        n_samples: int,
+        n_factors: int,
+        feature_dict: dict,
+        likelihoods,
+        tau_const=1.0,
+        eta_scale=1.0,
+        device=None,
+    ):
+        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
+        self.tau_const = tau_const
+        self.eta_scale = eta_scale
+
+    def sample_tau(self, site_name="tau", feature_group=None):
+        site_name = f"{site_name}_{feature_group}"
+        self.sample_dict[site_name] = pyro.deterministic(
+            site_name, torch.tensor(self.tau_const)
+        )
+        return self.sample_dict[site_name]
+
+    def sample_eta(self, site_name="eta", feature_group=None):
+        return self._sample_site(
+            f"{site_name}_{feature_group}",
+            self.get_w_shape(feature_group),
+            dist.HalfCauchy,
+            dist_kwargs={"scale": torch.tensor(self.eta_scale)},
+        )
+
+    def sample_lambda(self, site_name="lambda", feature_group=None):
+        eta = self.sample_eta(feature_group=feature_group)
+        return self._sample_site(
+            f"{site_name}_{feature_group}",
+            self.get_w_shape(feature_group),
+            dist.HalfCauchy,
+            dist_kwargs={
+                "scale": eta * self.sample_dict[f"tau_{feature_group}"]
+            },
+        )
+
+    def sample_w(self, site_name="w", feature_group=None):
+        lmbda = self.sample_lambda(feature_group=feature_group)
+        
+        return self._sample_site(
+            f"{site_name}_{feature_group}",
+            self.get_w_shape(feature_group),
+            dist.Normal,
+            dist_kwargs={
+                "loc": torch.zeros(1),
+                "scale": lmbda,
+            },
+        )
+
+
 class NormalGenerative(Generative):
     def __init__(
         self,

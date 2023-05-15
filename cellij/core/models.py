@@ -4,6 +4,7 @@ from cellij.core._pyro_guides import (
     LassoGuide,
     NonnegativityGuide,
     NormalGuide,
+    HorseshoePlusGuide
 )
 from cellij.core._pyro_models import (
     HorseshoeGenerative,
@@ -12,6 +13,7 @@ from cellij.core._pyro_models import (
     NormalGenerative,
     SpikeNSlabGenerative,
     SpikeNSlabLassoGenerative,
+    HorseshoePlusGenerative
 )
 
 
@@ -44,6 +46,9 @@ class MOFA(FactorModel):
         elif sparsity_prior is None:
             prior = NormalGenerative
             guide = NormalGuide
+        elif sparsity_prior == "HorseshoePlus":
+            prior = HorseshoePlusGenerative
+            guide = HorseshoePlusGuide
 
         mofa_defaults = {
             "model": prior,
