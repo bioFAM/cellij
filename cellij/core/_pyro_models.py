@@ -123,19 +123,26 @@ class Generative(PyroModule):
                     data_view = data[feature_group].view(
                         self.get_x_shape(feature_group)
                     )
-                self.sample_dict[f"x_{feature_group}"] = pyro.sample(
-                    f"x_{feature_group}",
-                    dist.Normal(
-                        torch.einsum(
-                            "...ikj,...ikj->...ij",
-                            self.sample_dict["z"],
-                            self.sample_dict[f"w_{feature_group}"],
-                        ).view(self.get_x_shape(feature_group)),
-                        torch.sqrt(self.sample_dict[f"sigma_{feature_group}"]),
-                    ),
-                    obs=data_view,
-                    infer={"is_auxiliary": True},
-                )
+
+                with pyro.poutine.mask(mask=torch.isnan(data_view) == 0):
+                    # https://forum.pyro.ai/t/poutine-nan-mask-not-working/3489
+                    # Assign temporary values to the missing data, not used
+                    # anyway due to masking.
+                    masked_data = torch.nan_to_num(data_view, nan=1.0)
+
+                    self.sample_dict[f"x_{feature_group}"] = pyro.sample(
+                        f"x_{feature_group}",
+                        dist.Normal(
+                            torch.einsum(
+                                "...ikj,...ikj->...ij",
+                                self.sample_dict["z"],
+                                self.sample_dict[f"w_{feature_group}"],
+                            ).view(self.get_x_shape(feature_group)),
+                            torch.sqrt(self.sample_dict[f"sigma_{feature_group}"]),
+                        ),
+                        obs=masked_data,
+                        infer={"is_auxiliary": True},
+                    )
 
         return self.sample_dict
 
