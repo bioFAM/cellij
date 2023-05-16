@@ -14,7 +14,7 @@ from cellij.utils import load_model, set_all_seeds
 if torch.cuda.is_available():
     torch.set_default_tensor_type("torch.cuda.FloatTensor")
     CUDA = torch.cuda.is_available()
-    torch.cuda.set_device(0)
+    torch.cuda.set_device(1)
     device = torch.device("cuda")
 else:
     torch.set_default_tensor_type("torch.FloatTensor")
@@ -28,25 +28,28 @@ MISSINGS = 0.0
 # N_FACTORS_ESTIMATED = 20
 OVERWRITE = False
 
+# 20 Factors estimated for full grid  @ 200 samples
+# 60 - 5 factors estimated for 400 and 1000 features @ 200 samples
+
 PATH_DGP = "/home/m015k/code/cellij/experiments/sparsity_benchmark/data/"
 PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v1_features/"
 
 for seed in [0, 1, 2]:
     set_all_seeds(seed)
 
-    for N_FACTORS_ESTIMATED in [20, 10, 15]:
-        for lr in [0.01, 0.1, 0.001]:  #
-            for grid_features in [
-                # 50,
-                # 100,
-                # 200,
-                # 400,
-                # 800,
-                # 1000,
-                2000,
-                5000,
-                # 10000,
-            ]:
+    for lr in [0.01, 0.1, 0.001]:
+        for grid_features in [
+            # 50,
+            # 100,
+            # 200,
+            400,
+            # 800,
+            1000,
+            # 2000,
+            # 5000,
+            # 10000,
+        ]:
+            for N_FACTORS_ESTIMATED in [20, 15, 10, 5]:  # 60, 50, 40, 30, 20, 15, 10, 5
                 n_samples = N_SAMPLES
                 n_features = [grid_features, grid_features, grid_features]
                 n_views = len(n_features)
@@ -96,40 +99,40 @@ for seed in [0, 1, 2]:
                     )
 
                 for sparsity_prior, prior_params in [
-                    # (None, {}),
-                    # ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
-                    # ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.01}),
-                    # ("SpikeNSlab", {"relaxed_bernoulli": False}),
-                    # ("Lasso", {"lasso_scale": 0.1}),
-                    # ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
-                    # ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
+                    (None, {}),
+                    ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                    ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.01}),
+                    ("SpikeNSlab", {"relaxed_bernoulli": False}),
+                    ("Lasso", {"lasso_scale": 0.1}),
+                    ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
+                    ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
                     ("HorseshoePlus", {"tau_const": 0.1, "eta_scale": 1.0}),
-                    # (
-                    #     "Horseshoe",
-                    #     {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True},
-                    # ),
-                    # (
-                    #     "Horseshoe",
-                    #     {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True},
-                    # ),
-                    # (
-                    #     "SpikeNSlabLasso",
-                    #     {
-                    #         "lambda_spike": 20.0,
-                    #         "lambda_slab": 1.0,
-                    #         "relaxed_bernoulli": True,
-                    #         "temperature": 0.1,
-                    #     },
-                    # ),
-                    # (
-                    #     "SpikeNSlabLasso",
-                    #     {
-                    #         "lambda_spike": 20.0,
-                    #         "lambda_slab": 0.01,
-                    #         "relaxed_bernoulli": True,
-                    #         "temperature": 0.1,
-                    #     },
-                    # ),
+                    (
+                        "Horseshoe",
+                        {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True},
+                    ),
+                    (
+                        "Horseshoe",
+                        {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True},
+                    ),
+                    (
+                        "SpikeNSlabLasso",
+                        {
+                            "lambda_spike": 20.0,
+                            "lambda_slab": 1.0,
+                            "relaxed_bernoulli": True,
+                            "temperature": 0.1,
+                        },
+                    ),
+                    (
+                        "SpikeNSlabLasso",
+                        {
+                            "lambda_spike": 20.0,
+                            "lambda_slab": 0.01,
+                            "relaxed_bernoulli": True,
+                            "temperature": 0.1,
+                        },
+                    ),
                 ]:
                     print(
                         f" - {sparsity_prior} | {prior_params} | {lr} | {grid_features} | {N_FACTORS_ESTIMATED} | {seed}"
