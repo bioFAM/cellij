@@ -1,19 +1,12 @@
 from cellij.core._factormodel import FactorModel
-from cellij.core._pyro_guides import (
-    HorseshoeGuide,
-    LassoGuide,
-    NonnegativityGuide,
-    NormalGuide,
-    HorseshoePlusGuide,
-)
 from cellij.core._pyro_models import (
     HorseshoeGenerative,
+    # HorseshoePlusGenerative,
     LassoGenerative,
-    NonnegativityGenerative,
+    NonnegativeGenerative,
     NormalGenerative,
-    SpikeNSlabGenerative,
-    SpikeNSlabLassoGenerative,
-    HorseshoePlusGenerative,
+    SpikeAndSlabGenerative,
+    # SpikeNSlabLassoGenerative,
 )
 
 
@@ -27,32 +20,26 @@ class MOFA(FactorModel):
         by Argelaguet, R. et al. (2020)
     """
 
-    def __init__(self, n_factors, sparsity_prior="Spikeandslab-Beta", **kwargs):
+    def __init__(self, n_factors, sparsity_prior="SpikeNSlab", **kwargs):
+        prior = NormalGenerative
+        # guide = NormalGuide
         if sparsity_prior == "Lasso":
             prior = LassoGenerative
-            guide = LassoGuide
-        elif sparsity_prior == "Horseshoe":
+        if sparsity_prior == "Horseshoe":
             prior = HorseshoeGenerative
-            guide = HorseshoeGuide
-        elif sparsity_prior == "SpikeNSlab":
-            prior = SpikeNSlabGenerative
-            guide = "AutoNormal"
-        elif sparsity_prior == "SpikeNSlabLasso":
-            prior = SpikeNSlabLassoGenerative
-            guide = "AutoNormal"
-        elif sparsity_prior == "Nonnegativity":
-            prior = NonnegativityGenerative
-            guide = NonnegativityGuide
-        elif sparsity_prior is None:
-            prior = NormalGenerative
-            guide = NormalGuide
-        elif sparsity_prior == "HorseshoePlus":
-            prior = HorseshoePlusGenerative
-            guide = HorseshoePlusGuide
+        if sparsity_prior == "SpikeNSlab":
+            prior = SpikeAndSlabGenerative
+        # if sparsity_prior == "SpikeNSlabLasso":
+        #     prior = SpikeNSlabLassoGenerative
+        if sparsity_prior == "Nonnegative":
+            prior = NonnegativeGenerative
+        # if sparsity_prior == "HorseshoePlus":
+        #     prior = HorseshoePlusGenerative
 
         mofa_defaults = {
             "model": prior,
-            "guide": guide,
+            # TODO: guides not implemented yet
+            "guide": "AutoNormal",
         }
 
         kwargs = {**mofa_defaults, **kwargs}
