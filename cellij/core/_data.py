@@ -271,3 +271,97 @@ class Importer:
         mdata.obs = mdata.obs.join(obs)
 
         return mdata
+
+    def load_MEFISTO(self) -> mu.MuData:
+        """Loads a synthetic data set with 4 views and a temporal covariate.
+
+        Data is generated as illustrated in the MEFISTO tutorial:
+        https://raw.githack.com/bioFAM/MEFISTO_tutorials/master/MEFISTO_temporal.html
+
+        The function returns a muon.MuData object with 4 modalities with
+        200 observations each:
+          - view1: 200 x 200
+          - view2: 200 x 200
+          - view3: 200 x 200
+          - view4: 200 x 200
+        These data have one covariate defining a timeline. The simulation is
+        based on 4 factors, two of which vary smoothly along the covariate (with
+        different lengthscales) and two are independent of the covariate.
+
+        Returns
+        -------
+        mu.MuData
+            A muon.MuData object with 4 modalities
+
+        """
+        modalities = {}
+        for ome in ["view1", "view2", "view3", "view4"]:
+            with resources.path("cellij.data", f"gp_{ome}.csv") as res_path:
+                modality = pd.read_csv(
+                    filepath_or_buffer=os.fspath(res_path),
+                    sep=",",
+                    index_col=0,
+                    encoding=self.encoding,
+                ).T
+                modalities[ome] = anndata.AnnData(X=modality, dtype="float32")
+
+        return mu.MuData(modalities)
+
+    def load_Guo2010(self) -> mu.MuData:
+        """Loads a real data set with qPCR data (48 genes) on cell differentiation.
+
+        Modified from https://pyro.ai/examples/gplvm.html:
+        The data consists of single-cell qPCR data for 48 genes obtained from
+        mice (Guo et al., 2010 [1]). This data is available at the Open Data
+        Science repository. The data contains 48 columns, with each column
+        corresponding to (normalized) measurements of each gene. Cells
+        differentiate during their development and these data were obtained at
+        various stages of development. The various stages are labelled from the
+        1-cell stage to the 64-cell stage. For the 32-cell stage, the data is
+        further differentiated into 'trophectoderm' (TE) and 'inner cell mass'
+        (ICM). ICM further differentiates into 'epiblast' (EPI) and 'primitive
+        endoderm' (PE) at the 64-cell stage. Each of the rows in the dataset is
+        labelled with one of these stages.
+
+        Returns
+        -------
+        mu.MuData
+            A muon.MuData object with 1 modality and associated metadata
+            - 437 observations
+            - 48 features
+            - metadata:
+                - n_cells: number of cells in sample (int)
+                - division: division stage, primary differentiation axis (int)
+                - division_scaled: 'division' but scaled to [0.0, 1.0]
+                - label: tissue label, secondary differentiation axis (str)
+
+        References
+        ----------
+        [1] Guo, G., Huss, M., Tong, G.Q., Wang, C., Li Sun, L., Clarke, N.D.,
+            Robson, P., 2010. Resolution of cell fate decisions revealed by
+            single-cell gene expression analysis from zygote to blastocyst.
+            Dev. Cell 18, 675-685. https://doi.org/10.1016/j.devcel.2010.02.012
+        """
+        modalities = {}
+        with resources.path("cellij.data", "guo2010_qpcr.csv") as res_path:
+            modality = pd.read_csv(
+                filepath_or_buffer=os.fspath(res_path),
+                sep=",",
+                index_col=0,
+                encoding=self.encoding,
+            )
+            cell_labels = modality.index.values.tolist()
+            modality.index = [i.replace(" ", "_") for i in modality.index.values.tolist()]
+            modality.index = [f"obs{idx}_{name}" for name, idx in zip(modality.index, range(len(modality.index)))]
+            modalities["qPCR"] = anndata.AnnData(X=modality, dtype="float32")
+
+            mdata = mu.MuData(modalities)
+            metadata = pd.DataFrame()
+            metadata["n_cells"] = [int(label.split(" ")[0]) for label in cell_labels]
+            metadata["label"] = [label.split(" ")[1] if len(label.split(" ")) == 2 else None for label in cell_labels]
+            metadata["division"] = np.log2(metadata["n_cells"]).astype(int)
+            metadata["division_scaled"] = metadata["division"] / 6
+            metadata.index = mdata.obs.index
+            mdata.obs = mdata.obs.join(metadata)
+
+        return mdata

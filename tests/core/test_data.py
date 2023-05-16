@@ -1,6 +1,7 @@
 import unittest
 
 import anndata
+import muon as mu
 import numpy as np
 import pandas as pd
 import torch
@@ -102,4 +103,39 @@ class core_TestClass(unittest.TestCase):
 
         np.testing.assert_almost_equal(
             np.round(self.model.data.values[0, 1], 4), 0.3667
+        )
+
+    def test_can_create_Importer(self):
+        imp = cellij.core.Importer()
+
+        assert isinstance(imp, cellij.core.Importer)
+
+    def test_Importer_can_load_CLL_data(self):
+        imp = cellij.core.Importer()
+        data = imp.load_CLL()
+
+        assert isinstance(data, mu.MuData)
+        assert data.n_obs == 200
+        assert data.n_vars == 9627
+
+    def test_Importer_can_load_MEFISTO_data(self):
+        imp = cellij.core.Importer()
+        data = imp.load_MEFISTO()
+
+        assert isinstance(data, mu.MuData)
+        assert data.n_obs == 200
+        assert data.n_vars == 800
+
+    def test_Importer_can_load_Guo2010_data(self):
+        imp = cellij.core.Importer()
+        data = imp.load_Guo2010()
+
+        assert isinstance(data, mu.MuData)
+        assert data.n_obs == 437
+        assert data.n_vars == 48
+        assert all(
+            [
+                col in data.obs.columns
+                for col in ["n_cells", "division", "division_scaled", "label"]
+            ]
         )

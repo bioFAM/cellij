@@ -243,14 +243,12 @@ class HorseshoePlusGenerative(Generative):
             f"{site_name}_{feature_group}",
             self.get_w_shape(feature_group),
             dist.HalfCauchy,
-            dist_kwargs={
-                "scale": eta * self.sample_dict[f"tau_{feature_group}"]
-            },
+            dist_kwargs={"scale": eta * self.sample_dict[f"tau_{feature_group}"]},
         )
 
     def sample_w(self, site_name="w", feature_group=None):
         lmbda = self.sample_lambda(feature_group=feature_group)
-        
+
         return self._sample_site(
             f"{site_name}_{feature_group}",
             self.get_w_shape(feature_group),

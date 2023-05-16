@@ -437,7 +437,10 @@ class FactorModel(PyroModule):
         patience: int = 500,
         min_delta: float = 0.1,
         percentage: bool = True,
-        scale: bool = True,
+        scale_gradients: bool = True,
+        center_features: bool = True,
+        scale_features: bool = False,
+        scale_views: bool = False,
     ):
         # Clear pyro param
         pyro.clear_param_store()
@@ -456,44 +459,62 @@ class FactorModel(PyroModule):
         if self._data is None:
             raise ValueError("No data set.")
 
-        # if not isinstance(likelihoods, (str, dict)):
-        #     raise ValueError(
-        #         f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
-        #     )
+        if not isinstance(likelihoods, (str, dict)):
+            raise ValueError(
+                f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
+            )
 
-        # # Prepare likelihoods
-        # # TODO: If string is passed, check if string corresponds to a valid pyro distribution
-        # # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
+        for arg_name, arg in zip(
+            [
+                "early_stopping",
+                "scale_gradients",
+                "center_features",
+                "scale_features",
+                "scale_views",
+            ],
+            [
+                early_stopping,
+                scale_gradients,
+                center_features,
+                scale_features,
+                scale_views,
+            ],
+        ):
+            if not isinstance(arg, bool):
+                raise TypeError(f"Parameter '{arg_name}' must be of type bool.")
 
-        # # If user passed strings, replace the likelihood strings with the actual distributions
-        # if isinstance(likelihoods, str):
-        #     likelihoods = {
-        #         modality: likelihoods for modality in self._data.feature_groups
-        #     }
+        # Prepare likelihoods
+        # TODO: If string is passed, check if string corresponds to a valid pyro distribution
+        # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
 
-        # for name, distribution in likelihoods.items():
-        #     if isinstance(distribution, str):
-        #         # Replace likelihood string with common synonyms and correct for align with Pyro
-        #         distribution = distribution.title()
-        #         if distribution == "Gaussian":
-        #             distribution = "Normal"
+        # If user passed strings, replace the likelihood strings with the actual distributions
+        if isinstance(likelihoods, str):
+            likelihoods = {
+                modality: likelihoods for modality in self._data.feature_groups
+            }
 
-        #         try:
-        #             likelihoods[name] = getattr(pyro.distributions, distribution)  # type: ignore
-        #         except AttributeError:
-        #             raise AttributeError(
-        #                 f"Could not find valid Pyro distribution for {distribution}."
-        #             )
+        for name, distribution in likelihoods.items():
+            if isinstance(distribution, str):
+                # Replace likelihood string with common synonyms and correct for align with Pyro
+                distribution = distribution.title()
+                if distribution == "Gaussian":
+                    distribution = "Normal"
 
-        # # Raise error if likelihoods are not set for all modalities
-        # if len(likelihoods.keys()) != len(self._data.feature_groups):
-        #     raise ValueError(
-        #         f"Likelihoods must be set for all modalities. Got {len(likelihoods.keys())} likelihood "
-        #         f"and {len(self._data.feature_groups)} data modalities."
-        #     )
+                try:
+                    likelihoods[name] = getattr(pyro.distributions, distribution)  # type: ignore
+                except AttributeError:
+                    raise AttributeError(
+                        f"Could not find valid Pyro distribution for {distribution}."
+                    )
+
+        # Raise error if likelihoods are not set for all modalities
+        if len(likelihoods.keys()) != len(self._data.feature_groups):
+            raise ValueError(
+                f"Likelihoods must be set for all modalities. Got {len(likelihoods.keys())} likelihood "
+                f"and {len(self._data.feature_groups)} data modalities."
+            )
 
         # Provide data information to generative model
-
         feature_dict = {
             k: len(feature_idx) for k, feature_idx in self._data._feature_idx.items()
         }
@@ -510,19 +531,36 @@ class FactorModel(PyroModule):
             likelihoods=None,
             **self._kwargs,
         )
+
         guide_kwargs = {}
         for key, value in self._kwargs.items():
             if key in ["init_loc", "init_scale"]:
                 guide_kwargs[key] = value
+
         self._guide = self._guide(self._model, **guide_kwargs)
+        if not isinstance(likelihoods, (str, dict)):
+            raise ValueError(
+                f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
+            )
+
+        # # Provide data information to generative model
+        # self._model._setup(
+        #     data=self._data,
+        #     likelihoods=likelihoods,
+        #     center_features=center_features,
+        #     scale_features=scale_features,
+        #     scale_views=scale_views,
+        # )
+
+        # Prepare likelihoods
+        # TODO: If string is passed, check if string corresponds to a valid pyro distribution
+        # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
 
         # We scale the gradients by the number of total samples to allow a better comparison across
         # models/datasets
         scaling_constant = 1.0
-        if scale:
-            # scaling_constant = 1.0 / self._data.values.shape[1]
-            # TODO!! remove hardcoding
-            scaling_constant = 1.0 / self._data.values.shape[0]
+        if scale_gradients:
+            scaling_constant = 1.0 / self._data.values.shape[1]
 
         optim = pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)})
         if optimizer.lower() == "clipped":
@@ -601,4 +639,4 @@ class FactorModel(PyroModule):
         with open(filename, "wb") as f:
             pickle.dump(self, f)
 
-        torch.save(self.state_dict(), file_name)
+        torch.save(self.state_dict(), filename.replace(".pkl", ".state_dict"))
