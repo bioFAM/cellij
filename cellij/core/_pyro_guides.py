@@ -91,14 +91,17 @@ class Guide(PyroModule):
             mode, scale = self._get_loc_and_scale(site_name)
             # TODO: This is a hack, but it works for now. Register
             # sample sites with a log-normal distribution before and pull it here
-            if "sigma" in site_name or "w_scale" in site_name:
+            not_z = site_name != "z"
+            not_w = "w_" not in site_name
+            not_nonnegative = isinstance(self, NonnegativeGuide)
+            if not_w and not_z and not_nonnegative:
                 mode = (mode - scale.pow(2)).exp()
             modes[site_name] = mode.clone()
 
         return modes
 
     @torch.no_grad()
-    def _get_map_estimate(self, param_name: str, as_list: bool):
+    def _get_map_estimate(self, param_name: str):
         param = self.mode(param_name)
         param = param.cpu().detach().numpy()
         if param_name == "sigma":
@@ -158,7 +161,7 @@ class Guide(PyroModule):
         with plates["sample"], plates["factor"]:
             self.sample_latent()
 
-        for feature_group, _ in self.feature_dict.items():
+        for feature_group, _ in self.model.feature_dict.items():
             self.sample_feature_group(feature_group=feature_group)
             with plates["factor"]:
                 self.sample_feature_group_factor(feature_group=feature_group)
@@ -179,13 +182,13 @@ class NormalGuide(Guide):
 
     def setup_shapes(self):
         """Setup parameters and sampling sites."""
-        self.site_to_shape["z"] = self.model.get_z_shape()[1:]
+        self.site_to_shape["z"] = self.model.get_latent_shape()[1:]
 
         for feature_group, _ in self.model.feature_dict.items():
-            self.site_to_shape[f"w_{feature_group}"] = self.model.get_w_shape(
+            self.site_to_shape[f"w_{feature_group}"] = self.model.get_weight_shape(
                 feature_group
             )[1:]
-            self.site_to_shape[f"sigma_{feature_group}"] = self.model.get_sigma_shape(
+            self.site_to_shape[f"sigma_{feature_group}"] = self.model.get_feature_shape(
                 feature_group
             )[1:]
 
@@ -218,11 +221,16 @@ class HorseshoeGuide(NormalGuide):
 
     def setup_shapes(self):
         for feature_group, _ in self.model.feature_dict.items():
-            self.site_to_shape[f"tau_{feature_group}"] = self.model.get_tau_shape()[1:]
-            self.site_to_shape[f"caux_{feature_group}"] = self.model.get_w_shape(
+            self.site_to_shape[
+                f"tau_{feature_group}"
+            ] = self.model.get_feature_group_shape()[1:]
+            self.site_to_shape[
+                f"theta_{feature_group}"
+            ] = self.model.get_factor_shape()[1:]
+            self.site_to_shape[f"caux_{feature_group}"] = self.model.get_weight_shape(
                 feature_group
             )[1:]
-            self.site_to_shape[f"lambda_{feature_group}"] = self.model.get_w_shape(
+            self.site_to_shape[f"lambda_{feature_group}"] = self.model.get_weight_shape(
                 feature_group
             )[1:]
         return super().setup_shapes()

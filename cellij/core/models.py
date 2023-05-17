@@ -1,12 +1,12 @@
 from cellij.core._factormodel import FactorModel
+from cellij.core._pyro_guides import HorseshoeGuide, NormalGuide
 from cellij.core._pyro_models import (
     HorseshoeGenerative,
-    # HorseshoePlusGenerative,
     LassoGenerative,
     NonnegativeGenerative,
     NormalGenerative,
     SpikeAndSlabGenerative,
-    # SpikeNSlabLassoGenerative,
+    SpikeAndSlabLassoGenerative,
 )
 
 
@@ -22,15 +22,17 @@ class MOFA(FactorModel):
 
     def __init__(self, n_factors, sparsity_prior="SpikeNSlab", **kwargs):
         prior = NormalGenerative
-        # guide = NormalGuide
+        guide = "AutoNormal"
         if sparsity_prior == "Lasso":
             prior = LassoGenerative
+            guide = NormalGuide
         if sparsity_prior == "Horseshoe":
             prior = HorseshoeGenerative
+            guide = HorseshoeGuide
         if sparsity_prior == "SpikeNSlab":
             prior = SpikeAndSlabGenerative
-        # if sparsity_prior == "SpikeNSlabLasso":
-        #     prior = SpikeNSlabLassoGenerative
+        if sparsity_prior == "SpikeAndSlabLasso":
+            prior = SpikeAndSlabLassoGenerative
         if sparsity_prior == "Nonnegative":
             prior = NonnegativeGenerative
         # if sparsity_prior == "HorseshoePlus":
@@ -38,8 +40,7 @@ class MOFA(FactorModel):
 
         mofa_defaults = {
             "model": prior,
-            # TODO: guides not implemented yet
-            "guide": "AutoNormal",
+            "guide": guide,
         }
 
         kwargs = {**mofa_defaults, **kwargs}
