@@ -52,16 +52,6 @@ class Guide(PyroModule):
 
     def setup_shapes(self):
         """Setup parameters and sampling sites."""
-        self.site_to_shape["z"] = self.model.get_z_shape()[1:]
-
-        for feature_group, _ in self.model.feature_dict.items():
-            self.site_to_shape[f"w_{feature_group}"] = self.model.get_w_shape(
-                feature_group
-            )[1:]
-            self.site_to_shape[f"sigma_{feature_group}"] = self.model.get_sigma_shape(
-                feature_group
-            )[1:]
-
         return self.site_to_shape
 
     def _setup_site(self, site_name, shape):
@@ -143,20 +133,20 @@ class Guide(PyroModule):
     def _sample_log_normal(self, site_name: str):
         return self._sample_site(site_name, dist.LogNormal)
 
-    def sample_z(self, site_name="z"):
-        return self._sample_normal(site_name)
-
-    def sample_w(self, site_name="w", feature_group=None):
-        return self._sample_normal(f"{site_name}_{feature_group}")
-
-    def sample_w_positive(self, site_name="w", feature_group=None):
-        return self._sample_log_normal(f"{site_name}_{feature_group}")
-
-    def sample_tau(self, site_name="tau", feature_group=None):
+    def sample_latent(self):
         return None
 
-    def sample_sigma(self, site_name="sigma", feature_group=None):
-        return self._sample_log_normal(f"{site_name}_{feature_group}")
+    def sample_feature_group(self, feature_group: str = None):
+        return None
+
+    def sample_feature_group_factor(self, feature_group: str = None):
+        return None
+
+    def sample_weight(self, feature_group: str = None):
+        return None
+
+    def sample_feature(self, feature_group: str = None):
+        return None
 
     def forward(
         self,
@@ -165,16 +155,18 @@ class Guide(PyroModule):
         """Approximate posterior."""
         plates = self.model.get_plates()
 
-        with plates["obs"], plates["factors"]:
-            self.sample_z()
+        with plates["sample"], plates["factor"]:
+            self.sample_latent()
 
-        for feature_group, _ in self.model.feature_dict.items():
-            self.sample_tau(feature_group=feature_group)
-            with plates["factors"], plates[f"features_{feature_group}"]:
-                self.sample_w(feature_group=feature_group)
+        for feature_group, _ in self.feature_dict.items():
+            self.sample_feature_group(feature_group=feature_group)
+            with plates["factor"]:
+                self.sample_feature_group_factor(feature_group=feature_group)
+                with plates[f"feature_{feature_group}"]:
+                    self.sample_weight(feature_group=feature_group)
 
-            with plates[f"features_{feature_group}"]:
-                self.sample_sigma(feature_group=feature_group)
+            with plates[f"feature_{feature_group}"]:
+                self.sample_feature(feature_group=feature_group)
 
         return self.sample_dict
 
@@ -185,8 +177,40 @@ class NormalGuide(Guide):
     ):
         super().__init__(model, init_loc, init_scale, device)
 
+    def setup_shapes(self):
+        """Setup parameters and sampling sites."""
+        self.site_to_shape["z"] = self.model.get_z_shape()[1:]
 
-class HorseshoeGuide(Guide):
+        for feature_group, _ in self.model.feature_dict.items():
+            self.site_to_shape[f"w_{feature_group}"] = self.model.get_w_shape(
+                feature_group
+            )[1:]
+            self.site_to_shape[f"sigma_{feature_group}"] = self.model.get_sigma_shape(
+                feature_group
+            )[1:]
+
+        return super().setup_shapes()
+
+    def sample_z(self):
+        return self._sample_normal("z")
+
+    def sample_w(self, feature_group=None):
+        return self._sample_normal(f"w_{feature_group}")
+
+    def sample_sigma(self, feature_group=None):
+        return self._sample_log_normal(f"sigma_{feature_group}")
+
+    def sample_latent(self):
+        return self.sample_z()
+
+    def sample_weight(self, feature_group: str = None):
+        return self.sample_w(feature_group=feature_group)
+
+    def sample_feature(self, feature_group: str = None):
+        return self.sample_sigma(feature_group=feature_group)
+
+
+class HorseshoeGuide(NormalGuide):
     def __init__(
         self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
     ):
@@ -203,68 +227,40 @@ class HorseshoeGuide(Guide):
             )[1:]
         return super().setup_shapes()
 
-    def sample_tau(self, site_name="tau", feature_group=None):
+    def sample_tau(self, feature_group=None):
         if self.model.delta_tau:
             return None
-        self._sample_log_normal(f"{site_name}_{feature_group}")
+        self._sample_log_normal(f"tau_{feature_group}")
 
-    def sample_caux(self, site_name="caux", feature_group=None):
-        self._sample_log_normal(f"{site_name}_{feature_group}")
+    def sample_theta(self, feature_group=None):
+        self._sample_log_normal(f"theta_{feature_group}")
 
-    def sample_lambda(self, site_name="lambda", feature_group=None):
-        self._sample_log_normal(f"{site_name}_{feature_group}")
+    def sample_caux(self, feature_group=None):
+        self._sample_log_normal(f"caux_{feature_group}")
 
-    def sample_w(self, site_name="w", feature_group=None):
+    def sample_lambda(self, feature_group=None):
+        self._sample_log_normal(f"lambda_{feature_group}")
+
+    def sample_feature_group(self, feature_group: str = None):
+        return self.sample_tau(feature_group=feature_group)
+
+    def sample_feature_group_factor(self, feature_group: str = None):
+        if self.model.ard:
+            return self.sample_theta(feature_group=feature_group)
+        return super().sample_feature_group_factor(feature_group=feature_group)
+
+    def sample_weight(self, feature_group: str = None):
         self.sample_lambda(feature_group=feature_group)
         if self.model.regularized:
             self.sample_caux(feature_group=feature_group)
-        return super().sample_w(site_name, feature_group)
+        return super().sample_weight(feature_group=feature_group)
 
 
-class HorseshoePlusGuide(Guide):
+class NonnegativeGuide(NormalGuide):
     def __init__(
         self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
     ):
         super().__init__(model, init_loc, init_scale, device)
 
-    def setup_shapes(self):
-        for feature_group, _ in self.model.feature_dict.items():
-            self.site_to_shape[f"tau_{feature_group}"] = self.model.get_tau_shape()[1:]
-            self.site_to_shape[f"eta_{feature_group}"] = self.model.get_w_shape(
-                feature_group
-            )[1:]
-            self.site_to_shape[f"lambda_{feature_group}"] = self.model.get_w_shape(
-                feature_group
-            )[1:]
-        return super().setup_shapes()
-
-    def sample_tau(self, site_name="tau", feature_group=None):
-        return None
-
-    def sample_eta(self, site_name="eta", feature_group=None):
-        self._sample_log_normal(f"{site_name}_{feature_group}")
-
-    def sample_lambda(self, site_name="lambda", feature_group=None):
-        self._sample_log_normal(f"{site_name}_{feature_group}")
-
-    def sample_w(self, site_name="w", feature_group=None):
-        self.sample_eta(feature_group=feature_group)
-        self.sample_lambda(feature_group=feature_group)
-        return super().sample_w(site_name, feature_group)
-
-
-class LassoGuide(Guide):
-    def __init__(
-        self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
-    ):
-        super().__init__(model, init_loc, init_scale, device)
-
-
-class NonnegativityGuide(Guide):
-    def __init__(
-        self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
-    ):
-        super().__init__(model, init_loc, init_scale, device)
-
-    def sample_w(self, site_name="w", feature_group=None):
-        return super().sample_w_positive(site_name, feature_group)
+    def sample_w(self, feature_group=None):
+        return self._sample_log_normal(f"w_{feature_group}")

@@ -398,6 +398,64 @@ class SpikeAndSlabGenerative(NormalGenerative):
         return w * lmbda
 
 
+class SpikeAndSlabLassoGenerative(SpikeAndSlabGenerative):
+    def __init__(
+        self,
+        n_samples: int,
+        n_factors: int,
+        feature_dict: Dict[str, int],
+        likelihoods: Dict[str, str],
+        lambda_spike: float = 20,
+        lambda_slab: float = 0.1,
+        relaxed_bernoulli: bool = True,
+        temperature: float = 0.1,
+        device: str = None,
+    ):
+        super().__init__(
+            n_samples,
+            n_factors,
+            feature_dict,
+            likelihoods,
+            relaxed_bernoulli,
+            temperature,
+            device,
+        )
+        self.lambda_spike = lambda_spike
+        self.lambda_slab = lambda_slab
+
+    def sample_w(self, feature_group: str = None):
+        self._sample_site(
+            f"w_spike_{feature_group}",
+            dist.SoftLaplace,
+            dist_kwargs={
+                "loc": torch.zeros(1),
+                "scale": torch.tensor(self.lambda_spike),
+            },
+            out_shape=self.get_weight_shape(feature_group=feature_group),
+        )
+
+        self._sample_site(
+            f"w_slab_{feature_group}",
+            dist.SoftLaplace,
+            dist_kwargs={
+                "loc": torch.zeros(1),
+                "scale": torch.tensor(self.lambda_slab),
+            },
+            out_shape=self.get_weight_shape(feature_group=feature_group),
+        )
+
+    def sample_feature_group_factor(self, feature_group: str = None):
+        self.sample_theta(feature_group=feature_group)
+
+    def sample_weight(self, feature_group: str = None):
+        lmbda = self.sample_lambda(feature_group=feature_group)
+        self.sample_w(feature_group=feature_group)
+        w = (1 - lmbda) * self.sample_dict[
+            f"w_spike_{feature_group}"
+        ] + lmbda * self.sample_dict[f"w_slab_{feature_group}"]
+        self.sample_dict[f"w_{feature_group}"] = w
+        return w
+
 
 # class SpikeNSlabLassoGenerative(SpikeNSlabGenerative):
 #     def __init__(
