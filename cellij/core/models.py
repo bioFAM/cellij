@@ -29,7 +29,7 @@ class MOFA(FactorModel):
         if sparsity_prior == "Horseshoe":
             prior = HorseshoeGenerative
             guide = HorseshoeGuide
-        if sparsity_prior == "SpikeNSlab":
+        if sparsity_prior == "SpikeAndSlab":
             prior = SpikeAndSlabGenerative
         if sparsity_prior == "SpikeAndSlabLasso":
             prior = SpikeAndSlabLassoGenerative
