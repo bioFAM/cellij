@@ -25,31 +25,29 @@ N_PARTIAL_FACTORS = 0
 N_PRIVATE_FACTORS = 0
 N_SAMPLES = 200
 MISSINGS = 0.0
-# N_FACTORS_ESTIMATED = 20
 OVERWRITE = False
 
 # 20 Factors estimated for full grid  @ 200 samples
 # 60 - 5 factors estimated for 400 and 1000 features @ 200 samples
 
 PATH_DGP = "/home/m015k/code/cellij/experiments/sparsity_benchmark/data/"
-PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v1_features/"
+PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v2_features/"
 
 for seed in [0, 1, 2]:
     set_all_seeds(seed)
 
     for lr in [0.01, 0.1, 0.001]:
         for grid_features in [
-            # 50,
-            # 100,
-            # 200,
+            50,
+            100,
+            200,
             400,
-            # 800,
+            800,
             1000,
-            # 2000,
-            # 5000,
-            # 10000,
+            2000,
+            5000,
         ]:
-            for N_FACTORS_ESTIMATED in [20, 15, 10, 5]:  # 60, 50, 40, 30, 20, 15, 10, 5
+            for n_factors_estimated in [20]:
                 n_samples = N_SAMPLES
                 n_features = [grid_features, grid_features, grid_features]
                 n_views = len(n_features)
@@ -99,29 +97,75 @@ for seed in [0, 1, 2]:
                     )
 
                 for sparsity_prior, prior_params in [
+                    # ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.01}),
+                    # ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
+                    # (
+                    #     "SpikeNSlabLasso",
+                    #     {
+                    #         "lambda_spike": 20.0,
+                    #         "lambda_slab": 1.0,
+                    #         "relaxed_bernoulli": True,
+                    #         "temperature": 0.1,
+                    #     },
+                    # ),
+                    # ("HorseshoePlus", {"tau_const": 0.1, "eta_scale": 1.0}),
                     (None, {}),
-                    ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
-                    ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.01}),
-                    ("SpikeNSlab", {"relaxed_bernoulli": False}),
                     ("Lasso", {"lasso_scale": 0.1}),
-                    ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
-                    ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
-                    ("HorseshoePlus", {"tau_const": 0.1, "eta_scale": 1.0}),
+                    ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                    ("SpikeNSlab", {"relaxed_bernoulli": False}),
                     (
                         "Horseshoe",
-                        {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True},
-                    ),
-                    (
-                        "Horseshoe",
-                        {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True},
-                    ),
-                    (
-                        "SpikeNSlabLasso",
                         {
-                            "lambda_spike": 20.0,
-                            "lambda_slab": 1.0,
-                            "relaxed_bernoulli": True,
-                            "temperature": 0.1,
+                            "tau_scale": 0.1,
+                            "lambda_scale": 1.0,
+                            "theta_scale": 1.0,
+                            "delta_tau": False,
+                            "regularized": False,
+                            "ard": False,
+                        },
+                    ),
+                    (
+                        "Horseshoe",
+                        {
+                            "tau_scale": 0.1,
+                            "lambda_scale": 1.0,
+                            "theta_scale": 1.0,
+                            "delta_tau": True,
+                            "regularized": False,
+                            "ard": False,
+                        },
+                    ),
+                    (
+                        "Horseshoe",
+                        {
+                            "tau_scale": 0.1,
+                            "lambda_scale": 1.0,
+                            "theta_scale": 1.0,
+                            "delta_tau": False,
+                            "regularized": True,
+                            "ard": False,
+                        },
+                    ),
+                    (
+                        "Horseshoe",
+                        {
+                            "tau_scale": 0.1,
+                            "lambda_scale": 1.0,
+                            "theta_scale": 1.0,
+                            "delta_tau": False,
+                            "regularized": False,
+                            "ard": True,
+                        },
+                    ),
+                    (
+                        "Horseshoe",
+                        {
+                            "tau_scale": 0.1,
+                            "lambda_scale": 1.0,
+                            "theta_scale": 1.0,
+                            "delta_tau": False,
+                            "regularized": True,
+                            "ard": True,
                         },
                     ),
                     (
@@ -135,7 +179,7 @@ for seed in [0, 1, 2]:
                     ),
                 ]:
                     print(
-                        f" - {sparsity_prior} | {prior_params} | {lr} | {grid_features} | {N_FACTORS_ESTIMATED} | {seed}"
+                        f" - {sparsity_prior} | {prior_params} | {lr} | {grid_features} | {n_factors_estimated} | {seed}"
                     )
                     # Combine all parameters used for the prior into a string
                     # This allows to train model with the same prior but different parameters
@@ -145,7 +189,7 @@ for seed in [0, 1, 2]:
                         else "None"
                     )
                     filename = Path(PATH_MODELS).joinpath(
-                        f"model_v1_features_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{sparsity_prior}_{N_FACTORS_ESTIMATED}_{lr}_{seed}_{s_params}.pkl"
+                        f"model_v1_features_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{sparsity_prior}_{n_factors_estimated}_{lr}_{seed}_{s_params}.pkl"
                     )
 
                     if Path(filename).exists() and not OVERWRITE:
@@ -153,7 +197,7 @@ for seed in [0, 1, 2]:
                         model = load_model(str(filename))
                     else:
                         model = MOFA(
-                            n_factors=N_FACTORS_ESTIMATED,
+                            n_factors=n_factors_estimated,
                             sparsity_prior=sparsity_prior,
                             **prior_params,
                         )
@@ -162,7 +206,7 @@ for seed in [0, 1, 2]:
                         start = timer()
                         losses = model.fit(
                             likelihoods=mdata.uns["likelihoods"],
-                            epochs=25_000,
+                            epochs=30_000,
                             num_particles=20,
                             learning_rate=lr,
                             verbose_epochs=500,
