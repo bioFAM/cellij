@@ -45,7 +45,7 @@ perf_w_activations_l2 = Dict()
 perf_w_activations_ve = Dict()
 
 PATH_DGP = "/home/m015k/code/cellij/experiments/sparsity_benchmark/data/"
-PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v1_features/"
+PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v2_features/"
 
 
 def compute_r2(y_true, y_predicted):
@@ -56,12 +56,10 @@ def compute_r2(y_true, y_predicted):
     return r2_score, sse, tse
 
 
-for seed in [0, 1]:  # 2, 3, 4
+for seed in [0, 1, 2]:
     set_all_seeds(seed)
 
-    for grid_features in tqdm(
-        [50, 100, 200, 400, 800, 1000, 2000, 5000]
-    ):  # 50, 100, 10000
+    for grid_features in tqdm([50, 100, 200, 500, 1000, 2000, 5000]):
         n_samples = N_SAMPLES
         n_features = [grid_features, grid_features, grid_features]
         n_views = len(n_features)
@@ -89,35 +87,69 @@ for seed in [0, 1]:  # 2, 3, 4
             )
             y = np.concatenate([mdata[m].X for m in mdata.mod], axis=1)
 
-        for lr in [0.1, 0.01, 0.001]:  # , 0.0001
+        for lr in [0.1, 0.01, 0.001]:
             for sparsity_prior, prior_params in [
                 (None, {}),
                 ("Lasso", {"lasso_scale": 0.1}),
-                ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
-                ("Horseshoe", {"tau_scale": 0.1, "lambda_scale": 1.0}),
                 (
                     "Horseshoe",
-                    {"tau_scale": 0.1, "lambda_scale": 1.0, "delta_tau": True},
-                ),
-                (
-                    "Horseshoe",
-                    {"tau_scale": 1.0, "lambda_scale": 1.0, "regularized": True},
-                ),
-                ("HorseshoePlus", {"tau_const": 0.1, "eta_scale": 1.0}),
-                ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
-                ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.01}),
-                ("SpikeNSlab", {"relaxed_bernoulli": False}),
-                (
-                    "SpikeNSlabLasso",
                     {
-                        "lambda_spike": 20.0,
-                        "lambda_slab": 1.0,
-                        "relaxed_bernoulli": True,
-                        "temperature": 0.1,
+                        "tau_scale": 0.1,
+                        "lambda_scale": 1.0,
+                        "theta_scale": 1.0,
+                        "delta_tau": False,
+                        "regularized": False,
+                        "ard": False,
                     },
                 ),
                 (
-                    "SpikeNSlabLasso",
+                    "Horseshoe",
+                    {
+                        "tau_scale": 0.1,
+                        "lambda_scale": 1.0,
+                        "theta_scale": 1.0,
+                        "delta_tau": True,
+                        "regularized": False,
+                        "ard": False,
+                    },
+                ),
+                (
+                    "Horseshoe",
+                    {
+                        "tau_scale": 0.1,
+                        "lambda_scale": 1.0,
+                        "theta_scale": 1.0,
+                        "delta_tau": False,
+                        "regularized": True,
+                        "ard": False,
+                    },
+                ),
+                (
+                    "Horseshoe",
+                    {
+                        "tau_scale": 0.1,
+                        "lambda_scale": 1.0,
+                        "theta_scale": 1.0,
+                        "delta_tau": False,
+                        "regularized": False,
+                        "ard": True,
+                    },
+                ),
+                (
+                    "Horseshoe",
+                    {
+                        "tau_scale": 0.1,
+                        "lambda_scale": 1.0,
+                        "theta_scale": 1.0,
+                        "delta_tau": False,
+                        "regularized": True,
+                        "ard": True,
+                    },
+                ),
+                ("SpikeAndSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                ("SpikeAndSlab", {"relaxed_bernoulli": False}),
+                (
+                    "SpikeAndSlabLasso",
                     {
                         "lambda_spike": 20.0,
                         "lambda_slab": 0.01,
@@ -154,25 +186,18 @@ for seed in [0, 1]:  # 2, 3, 4
                     print("Model not found")
                     continue
 
-                d = (
-                    model._guide.median()
-                    if hasattr(model._guide, "median")
-                    else model._guide.mode()
-                )
-                if any(["_view_" in x for x in d]):
-                    query_key = "_view_"
-                else:
-                    query_key = "_feature_group_"
+                query_key = "_feature_group_"
 
-                if sparsity_prior in ["SpikeNSlabLasso"]:
+                if sparsity_prior in ["SpikeAndSlabLasso"]:
+                    print(model._guide.median().keys())
                     z_hat = model._guide.median()["z"]
                     w_hat = torch.cat(
                         [
                             (
                                 (1 - model._guide.median()[f"lambda{query_key}{m}"])
-                                * model._guide.median()[f"lambda_spike{query_key}{m}"]
+                                * model._guide.median()[f"w_spike{query_key}{m}"]
                                 + model._guide.median()[f"lambda{query_key}{m}"]
-                                * model._guide.median()[f"lambda_slab{query_key}{m}"]
+                                * model._guide.median()[f"w_slab{query_key}{m}"]
                             ).squeeze()
                             for m in range(n_views)
                         ],
@@ -212,18 +237,16 @@ for seed in [0, 1]:  # 2, 3, 4
                     sparsity_prior = sparsity_prior + "_" + s_params
 
                 legend_names = {
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=False_ard=False": "HS(0.1, 1.0, 1.0)",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=False_ard=True": "HS(0.1, 1.0, 1.0)+ARD",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=True_ard=False": "HS Reg(0.1, 1.0, 1.0)",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=True_ard=True": "HS Reg(0.1, 1.0, 1.0)+ARD",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=True_regularized=False_ard=False": "HS ConstTau(0.1, 1.0, 1.0)",
+                    "Lasso_lasso_scale=0.1": "Lap(0,0.1)",
                     "Normal": "Normal",
-                    "Lasso_lasso_scale=0.1": "Laplace(0,0.1)",
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0": "HS (0.1, 1)",
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_delta_tau=True": "HS Const. Tau (0.1, 1)",
-                    "Horseshoe_tau_scale=1.0_lambda_scale=1.0": "HS (1.0, 1)",
-                    "Horseshoe_tau_scale=1.0_lambda_scale=1.0_regularized=True": "HS Reg. (1, 1)",
-                    "HorseshoePlus_tau_const=0.1_eta_scale=1.0": "HS+ (0.1, 1)",
-                    "SpikeNSlab_relaxed_bernoulli=False": "SnS CB",
-                    "SpikeNSlab_relaxed_bernoulli=True_temperature=0.1": "SnS RB (0.1)",
-                    "SpikeNSlab_relaxed_bernoulli=True_temperature=0.01": "SnS RB (0.01)",
-                    "SpikeNSlabLasso_lambda_spike=20.0_lambda_slab=1.0_relaxed_bernoulli=True_temperature=0.1": "SnS-L RB (20, 1.0, 0.1)",
-                    "SpikeNSlabLasso_lambda_spike=20.0_lambda_slab=0.01_relaxed_bernoulli=True_temperature=0.1": "SnS-L RB (20, 0.01, 0.1)",
+                    "SpikeAndSlabLasso_lambda_spike=20.0_lambda_slab=0.01_relaxed_bernoulli=True_temperature=0.1": "SnSLasso RB(20.0, 0.01, 0.1)",
+                    "SpikeAndSlab_relaxed_bernoulli=False": "SnS CB",
+                    "SpikeAndSlab_relaxed_bernoulli=True_temperature=0.1": "SnS RB(0.1)",
                 }
                 if sparsity_prior in legend_names:
                     sparsity_prior = legend_names[sparsity_prior]
@@ -429,161 +452,88 @@ plt.tight_layout()
 plt.grid(True)
 plt.show()
 
+plt.rcParams["mathtext.fontset"] = "stix"
+plt.rcParams["font.family"] = "STIXGeneral"
 
 #
 # Plot #Active columns reconstruction with respect to features
 #
-BASE_DATA = df_w_act_l2
-
-plt.rcParams["mathtext.fontset"] = "stix"
-plt.rcParams["font.family"] = "STIXGeneral"
-
-BASE_DATA_melt = BASE_DATA.melt(
-    id_vars=["seed", "grid_features", "lr", "sparsity_prior", "view"],
-    var_name="factor",
-    value_name="L2 Norm",
-)
-# Replace factor names with numbers and convert to int
-BASE_DATA_melt["factor"] = (
-    BASE_DATA_melt["factor"].str.replace("factor_", "").astype(int)
-)
-# Plot L1 norms of W for each sparsity prior separately
-# Create a figure with two columns
-Ns = BASE_DATA_melt["sparsity_prior"].nunique()
-nrows = int(np.ceil(BASE_DATA_melt["sparsity_prior"].nunique() / 3))
-fig, ax = plt.subplots(
-    nrows,
-    3,
-    figsize=(6.75, 12.5),
-    sharex=False,
-    sharey=True,
-    tight_layout=False,
-)
-for idx, sparsity_prior in enumerate(BASE_DATA_melt["sparsity_prior"].unique()):
-    # Draw a vertical line at N_FACTORS_TRUE
-    ax[idx - nrows * (idx // nrows), idx // nrows].axvline(
-        x=N_SHARED_FACTORS + 0.5, color="gray", linestyle="--", linewidth=1.5
+for BASE_DATA, name in zip([df_w_act_l2, df_w_act_ve], ["l2", "ve"]):
+    BASE_DATA_melt = BASE_DATA.melt(
+        id_vars=["seed", "grid_features", "lr", "sparsity_prior", "view"],
+        var_name="factor",
+        value_name="L2 Norm",
     )
-
-    BASE_DATA_melt_sp = BASE_DATA_melt[
-        BASE_DATA_melt["sparsity_prior"] == sparsity_prior
-    ]
-    # Make grid features a categorical variable using .loc
-    BASE_DATA_melt_sp.loc[:, "grid_features"] = BASE_DATA_melt_sp[
-        "grid_features"
-    ].astype("str")
-    # Use colorpalette with 3 colors
-    sns.lineplot(
-        data=BASE_DATA_melt_sp,
-        x="factor",
-        y="L2 Norm",
-        hue="grid_features",
-        ax=ax[idx - nrows * (idx // nrows), idx // nrows],
-        legend=False if idx != 7 else True,
+    # Replace factor names with numbers and convert to int
+    BASE_DATA_melt["factor"] = (
+        BASE_DATA_melt["factor"].str.replace("factor_", "").astype(int)
     )
-    # Add title to each subplot with name of sparse prior
-    ax[idx - nrows * (idx // nrows), idx // nrows].set_title(f"{sparsity_prior}")
-    # Show only integer ticks on x axis from 1 to N_FACTORS_ESTIMATED
-    ax[idx - nrows * (idx // nrows), idx // nrows].set_xticks(
-        range(1, N_FACTORS_ESTIMATED + 1)
+    # Plot L1 norms of W for each sparsity prior separately
+    # Create a figure with two columns
+    Ns = BASE_DATA_melt["sparsity_prior"].nunique()
+    nrows = int(np.ceil(BASE_DATA_melt["sparsity_prior"].nunique() / 3))
+    fig, ax = plt.subplots(
+        nrows,
+        3,
+        figsize=(6.75, 12.5),
+        sharex=False,
+        sharey=True,
+        tight_layout=False,
     )
-    # Set fontsize of x ticks
-    ax[idx - nrows * (idx // nrows), idx // nrows].tick_params(axis="x", labelsize=6)
-    # Set x and y labels
-    ax[idx - nrows * (idx // nrows), idx // nrows].set_xlabel("Factor")
-    ax[idx - nrows * (idx // nrows), idx // nrows].set_ylabel("L2 Norm of Factor")
+    # Sort BASE_DATA by sparsity prior alphabetically
+    BASE_DATA_melt = BASE_DATA_melt.sort_values(by=["grid_features"])
+    
 
-# Place location below plot
-ax[3, 1].legend(
-    loc="upper center",
-    bbox_to_anchor=(0.5, -0.3),
-    ncol=2,
-    title="Features",
-    fancybox=True,
-    shadow=False,
-    fontsize=10,
-)
-plt.grid(True)
-plt.tight_layout()
-# ax[3, 2].axis("off")
-plt.savefig("plots/fac_act_l2.pdf")
-plt.savefig("plots/fac_act_l2.png")
-plt.show()
+    for idx, sparsity_prior in enumerate(sorted(BASE_DATA_melt["sparsity_prior"].unique())):
+        # Draw a vertical line at N_FACTORS_TRUE
+        ax[idx - nrows * (idx // nrows), idx // nrows].axvline(
+            x=N_SHARED_FACTORS + 0.5, color="gray", linestyle="--", linewidth=1.5
+        )
 
+        BASE_DATA_melt_sp = BASE_DATA_melt[
+            BASE_DATA_melt["sparsity_prior"] == sparsity_prior
+        ]
+        # Make grid features a categorical variable using .loc
+        BASE_DATA_melt_sp.loc[:, "grid_features"] = BASE_DATA_melt_sp[
+            "grid_features"
+        ].astype("str")
+        # Use colorpalette with 3 colors
+        sns.lineplot(
+            data=BASE_DATA_melt_sp,
+            x="factor",
+            y="L2 Norm",
+            hue="grid_features",
+            ax=ax[idx - nrows * (idx // nrows), idx // nrows],
+            legend=False if idx != 7 else True,
+        )
+        # Add title to each subplot with name of sparse prior
+        ax[idx - nrows * (idx // nrows), idx // nrows].set_title(f"{sparsity_prior}")
+        # Show only integer ticks on x axis from 1 to N_FACTORS_ESTIMATED
+        ax[idx - nrows * (idx // nrows), idx // nrows].set_xticks(
+            range(1, N_FACTORS_ESTIMATED + 1)
+        )
+        # Set fontsize of x ticks
+        ax[idx - nrows * (idx // nrows), idx // nrows].tick_params(
+            axis="x", labelsize=6
+        )
+        # Set x and y labels
+        ax[idx - nrows * (idx // nrows), idx // nrows].set_xlabel("Factor")
+        ax[idx - nrows * (idx // nrows), idx // nrows].set_ylabel("L2 Norm of Factor")
 
-BASE_DATA = df_w_act_ve
-
-plt.rcParams["mathtext.fontset"] = "stix"
-plt.rcParams["font.family"] = "STIXGeneral"
-
-BASE_DATA_melt = BASE_DATA.melt(
-    id_vars=["seed", "grid_features", "lr", "sparsity_prior", "view"],
-    var_name="factor",
-    value_name="L2 Norm",
-)
-# Replace factor names with numbers and convert to int
-BASE_DATA_melt["factor"] = (
-    BASE_DATA_melt["factor"].str.replace("factor_", "").astype(int)
-)
-# Plot L1 norms of W for each sparsity prior separately
-# Create a figure with two columns
-Ns = BASE_DATA_melt["sparsity_prior"].nunique()
-nrows = int(np.ceil(BASE_DATA_melt["sparsity_prior"].nunique() / 3))
-fig, ax = plt.subplots(
-    nrows,
-    3,
-    figsize=(6.75, 12.5),
-    sharex=False,
-    sharey=True,
-    tight_layout=False,
-)
-for idx, sparsity_prior in enumerate(BASE_DATA_melt["sparsity_prior"].unique()):
-    # Draw a vertical line at N_FACTORS_TRUE
-    ax[idx - nrows * (idx // nrows), idx // nrows].axvline(
-        x=N_SHARED_FACTORS + 0.5, color="gray", linestyle="--", linewidth=1.5
+    plt.grid(True)
+    plt.tight_layout()
+    ax[3, 1].legend(
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.075),
+        ncol=4,
+        title="Features",
+        fancybox=True,
+        shadow=False,
+        fontsize=10,
+        bbox_transform=plt.gcf().transFigure,
     )
-
-    BASE_DATA_melt_sp = BASE_DATA_melt[
-        BASE_DATA_melt["sparsity_prior"] == sparsity_prior
-    ]
-    # Make grid features a categorical variable using .loc
-    BASE_DATA_melt_sp.loc[:, "grid_features"] = BASE_DATA_melt_sp[
-        "grid_features"
-    ].astype("str")
-    # Use colorpalette with 3 colors
-    sns.lineplot(
-        data=BASE_DATA_melt_sp,
-        x="factor",
-        y="L2 Norm",
-        hue="grid_features",
-        ax=ax[idx - nrows * (idx // nrows), idx // nrows],
-        legend=False if idx != 7 else True,
-    )
-    # Add title to each subplot with name of sparse prior
-    ax[idx - nrows * (idx // nrows), idx // nrows].set_title(f"{sparsity_prior}")
-    # Show only integer ticks on x axis from 1 to N_FACTORS_ESTIMATED
-    ax[idx - nrows * (idx // nrows), idx // nrows].set_xticks(
-        range(1, N_FACTORS_ESTIMATED + 1)
-    )
-    # Set fontsize of x ticks
-    ax[idx - nrows * (idx // nrows), idx // nrows].tick_params(axis="x", labelsize=6)
-    # Set x and y labels
-    ax[idx - nrows * (idx // nrows), idx // nrows].set_xlabel("Factor")
-    ax[idx - nrows * (idx // nrows), idx // nrows].set_ylabel("L2 Norm of Factor")
-
-# Place location below plot
-ax[3, 1].legend(
-    loc="upper center",
-    bbox_to_anchor=(0.5, -0.3),
-    ncol=2,
-    title="Features",
-    fancybox=True,
-    shadow=False,
-    fontsize=10,
-)
-plt.grid(True)
-plt.tight_layout()
-# ax[3, 2].axis("off")
-plt.savefig("plots/fac_act_ve.pdf")
-plt.savefig("plots/fac_act_ve.png")
-plt.show()
+    ax[3, 2].axis("off")
+    ax[2, 2].axis("off")
+    plt.savefig(f"plots/fac_act_{name}.pdf")
+    plt.savefig(f"plots/fac_act_{name}.png")
+    plt.show()

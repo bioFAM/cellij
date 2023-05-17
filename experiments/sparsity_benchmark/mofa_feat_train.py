@@ -36,17 +36,8 @@ PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v2_features/"
 for seed in [0, 1, 2]:
     set_all_seeds(seed)
 
-    for lr in [0.01, 0.1, 0.001]:
-        for grid_features in [
-            50,
-            100,
-            200,
-            400,
-            800,
-            1000,
-            2000,
-            5000,
-        ]:
+    for lr in reversed([0.01, 0.1, 0.001]):
+        for grid_features in [10000]:  # 50, 100, 200, 500, 1000, 2000, 5000, 
             for n_factors_estimated in [20]:
                 n_samples = N_SAMPLES
                 n_features = [grid_features, grid_features, grid_features]
@@ -97,7 +88,7 @@ for seed in [0, 1, 2]:
                     )
 
                 for sparsity_prior, prior_params in [
-                    # ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.01}),
+                    # ("SpikeAndSlab", {"relaxed_bernoulli": True, "temperature": 0.01}),
                     # ("Horseshoe", {"tau_scale": 1.0, "lambda_scale": 1.0}),
                     # (
                     #     "SpikeNSlabLasso",
@@ -111,8 +102,6 @@ for seed in [0, 1, 2]:
                     # ("HorseshoePlus", {"tau_const": 0.1, "eta_scale": 1.0}),
                     (None, {}),
                     ("Lasso", {"lasso_scale": 0.1}),
-                    ("SpikeNSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
-                    ("SpikeNSlab", {"relaxed_bernoulli": False}),
                     (
                         "Horseshoe",
                         {
@@ -168,8 +157,10 @@ for seed in [0, 1, 2]:
                             "ard": True,
                         },
                     ),
+                    ("SpikeAndSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                    ("SpikeAndSlab", {"relaxed_bernoulli": False}),
                     (
-                        "SpikeNSlabLasso",
+                        "SpikeAndSlabLasso",
                         {
                             "lambda_spike": 20.0,
                             "lambda_slab": 0.01,
