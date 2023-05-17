@@ -176,13 +176,18 @@ class NormalGenerative(Generative):
         scale = torch.sqrt(self.sample_dict[f"sigma_{feature_group}"])
 
         site_name = f"x_{feature_group}"
+        with pyro.poutine.mask(mask=torch.isnan(obs) == 0):
+            # https://forum.pyro.ai/t/poutine-nan-mask-not-working/3489
+            # Assign temporary values to the missing data, not used
+            # anyway due to masking.
+            masked_data = torch.nan_to_num(obs, nan=3.141)
 
-        self.sample_dict[site_name] = pyro.sample(
-            site_name,
-            dist.Normal(loc, scale),
-            obs=obs,
-            infer={"is_auxiliary": True},
-        )
+            self.sample_dict[site_name] = pyro.sample(
+                site_name,
+                dist.Normal(loc, scale),
+                obs=masked_data,
+                infer={"is_auxiliary": True},
+            )
 
 
 class LassoGenerative(NormalGenerative):
