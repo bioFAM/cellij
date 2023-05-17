@@ -308,7 +308,8 @@ class HorseshoeGenerative(NormalGenerative):
         return self.sample_tau(feature_group=feature_group)
 
     def sample_feature_group_factor(self, feature_group: str = None):
-        return self.sample_theta(feature_group=feature_group)
+        if self.ard:
+            return self.sample_theta(feature_group=feature_group)
 
     def sample_weight(self, feature_group: str = None):
         lmbda = (

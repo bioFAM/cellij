@@ -236,9 +236,8 @@ class HorseshoeGuide(NormalGuide):
         return super().setup_shapes()
 
     def sample_tau(self, feature_group=None):
-        if self.model.delta_tau:
-            return None
-        self._sample_log_normal(f"tau_{feature_group}")
+        if not self.model.delta_tau:
+            self._sample_log_normal(f"tau_{feature_group}")
 
     def sample_theta(self, feature_group=None):
         self._sample_log_normal(f"theta_{feature_group}")
