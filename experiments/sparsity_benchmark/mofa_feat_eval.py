@@ -10,13 +10,20 @@ import seaborn as sns
 import torch
 from addict import Dict
 from tqdm.notebook import tqdm
-from sklearn.metrics import r2_score
+from sklearn.metrics import (
+    pairwise_distances,
+    r2_score,
+    mean_squared_error,
+    precision_recall_fscore_support,
+)
 
 from cellij.core.synthetic import DataGenerator
 from cellij.tools.evaluation import compute_factor_correlation
 from cellij.utils import load_model, set_all_seeds
 from cellij.core.models import MOFA
 
+from scipy.optimize import linear_sum_assignment
+from scipy.stats import pearsonr
 
 if torch.cuda.is_available():
     torch.set_default_tensor_type("torch.cuda.FloatTensor")
@@ -39,14 +46,22 @@ OVERWRITE = False
 perf_corr_factor_all = Dict()
 perf_corr_factor = Dict()
 perf_r2_x = Dict()
+perf_rmse_x = Dict()
+
+perf_prec_x = Dict()
+perf_rec_x = Dict()
+perf_f1_x = Dict()
 perf_time = Dict()
 perf_w_activations_l1 = Dict()
 perf_w_activations_l2 = Dict()
 perf_w_activations_ve = Dict()
 perf_losses = Dict()
 
-PATH_DGP = "/home/m015k/code/cellij/experiments/sparsity_benchmark/data/"
-PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v2_features/"
+# PATH_DGP = "/home/m015k/code/cellij/experiments/sparsity_benchmark/data/"
+# PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v2_features/"
+
+PATH_DGP = "experiments/sparsity_benchmark/data"
+PATH_MODELS = "experiments/sparsity_benchmark/results"
 
 
 def compute_r2(y_true, y_predicted):
@@ -57,7 +72,34 @@ def compute_r2(y_true, y_predicted):
     return r2_score, sse, tse
 
 
-for seed in [0, 1, 2]:
+def get_opt_thresh(X, Y, thresh_min=0, thresh_max=1, n_thresh=101):
+    thresh_max = min(thresh_max, Y.max())
+    print(thresh_max)
+    thresholds = np.linspace(thresh_min, thresh_max, n_thresh)
+    f1s = []
+    for threshold in thresholds:
+        prec, rec, f1, _ = precision_recall_fscore_support(
+            X.flatten(), (Y > threshold).flatten(), average="binary"
+        )
+        f1s.append(f1)
+
+    return thresholds[np.argmax(f1s)]
+
+
+def get_opt_order(X, Y):
+    return linear_sum_assignment(
+        -np.abs(
+            pairwise_distances(
+                X,
+                Y,
+                metric=lambda a, b: pearsonr(a, b)[0],
+                force_all_finite=False,
+            )
+        )
+    )[-1]
+
+
+for seed in [0]:
     set_all_seeds(seed)
 
     for grid_features in tqdm([50, 100, 200, 500, 1000, 2000, 5000, 10000]):
@@ -71,21 +113,16 @@ for seed in [0, 1, 2]:
         n_private_factors = N_PRIVATE_FACTORS
         n_covariates = 0
 
-        if not (
+        data_path = (
             Path(PATH_DGP)
-            .joinpath(
-                f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
-            )
-            .exists()
-        ):
+            / f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
+        )
+
+        if not (data_path.exists()):
             print("Neeeeein....")
         else:
             print(f"Loading data from {PATH_DGP}...")
-            mdata = mudata.read(
-                Path(PATH_DGP).joinpath(
-                    f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
-                )
-            )
+            mdata = mudata.read(str(data_path))
             y = np.concatenate([mdata[m].X for m in mdata.mod], axis=1)
 
         for lr in [0.1, 0.01, 0.001]:
@@ -227,10 +264,23 @@ for seed in [0, 1, 2]:
 
                 temp_model = MOFA(n_factors=100, sparsity_prior="Horseshoe")
                 temp_model.add_data(data=mdata, na_strategy=None)
+
+                z_true = mdata.obsm["z"]
+                w_true = np.concatenate(
+                    [mdata[mod].varm["w"] for mod in mdata.mod.keys()]
+                ).T
+                w_mask_true = np.concatenate(
+                    [mdata[mod].varm["w_mask"] for mod in mdata.mod.keys()]
+                ).T
                 x_true = temp_model._data.values
 
                 z_hat = z_hat.detach().cpu().numpy().squeeze()
                 w_hat = w_hat.detach().cpu().numpy().squeeze()
+
+                opt_order = get_opt_order(w_true, w_hat)
+
+                z_hat = z_hat[:, opt_order]
+                w_hat = w_hat[opt_order, :]
 
                 if sparsity_prior is None:
                     sparsity_prior = "Normal"
@@ -257,6 +307,20 @@ for seed in [0, 1, 2]:
                 perf_r2_x[seed][grid_features][lr][sparsity_prior] = r2_score(
                     x_true, x_hat
                 )
+                perf_rmse_x[seed][grid_features][lr][
+                    sparsity_prior
+                ] = mean_squared_error(x_true, x_hat, squared=False)
+
+                # Prec, Rec, F1
+                opt_thresh = get_opt_thresh(w_mask_true, w_hat, 0, 2)
+                prec, rec, f1, _ = precision_recall_fscore_support(
+                    w_mask_true.flatten(),
+                    (np.abs(w_hat) > opt_thresh).flatten(),
+                    average="binary",
+                )
+                perf_prec_x[seed][grid_features][lr][sparsity_prior] = prec
+                perf_rec_x[seed][grid_features][lr][sparsity_prior] = rec
+                perf_f1_x[seed][grid_features][lr][sparsity_prior] = f1
 
                 # Losses
                 perf_losses[seed][grid_features][lr][sparsity_prior] = len(model.losses)
@@ -299,6 +363,7 @@ for seed in [0, 1, 2]:
 # Plots
 #
 
+
 def flatten_dict(nested_dict):
     res = {}
     if isinstance(nested_dict, dict):
@@ -337,7 +402,9 @@ df_time = nested_dict_to_df(perf_time.to_dict()).reset_index()
 df_time.columns = [f"{x}" for x in range(1, len(df_time.columns) + 1)]
 df_time_idx = df_time.iloc[:, :4]
 # Coalesce all rows
-df_time_idx = df_time_idx.assign(epoch=np.nansum(df_time.iloc[:, 4:].to_numpy(), axis=1))
+df_time_idx = df_time_idx.assign(
+    epoch=np.nansum(df_time.iloc[:, 4:].to_numpy(), axis=1)
+)
 df_time_idx.columns = ["seed", "grid_features", "lr", "sparsity_prior", "time"]
 
 df_losses = nested_dict_to_df(perf_losses.to_dict()).reset_index()
@@ -345,7 +412,9 @@ df_losses = nested_dict_to_df(perf_losses.to_dict()).reset_index()
 df_losses.columns = [f"{x}" for x in range(1, len(df_losses.columns) + 1)]
 df_losses_idx = df_losses.iloc[:, :4]
 # Coalesce all rows
-df_losses_idx = df_losses_idx.assign(time=np.nanmean(df_losses.iloc[:, 4:].to_numpy(), axis=1))
+df_losses_idx = df_losses_idx.assign(
+    time=np.nanmean(df_losses.iloc[:, 4:].to_numpy(), axis=1)
+)
 df_losses_idx.columns = ["seed", "grid_features", "lr", "sparsity_prior", "epoch"]
 
 
@@ -420,8 +489,9 @@ g = sns.boxplot(
 plt.legend(loc="upper center", bbox_to_anchor=(0.45, -0.2), ncol=3)
 # plt.grid(True)
 from matplotlib.ticker import MultipleLocator
+
 ax.xaxis.set_minor_locator(MultipleLocator(0.5))
-ax.xaxis.grid(True, which='minor', color='gray', lw=1.5, linestyle=":")
+ax.xaxis.grid(True, which="minor", color="gray", lw=1.5, linestyle=":")
 # Define legend font size
 plt.setp(ax.get_legend().get_texts(), fontsize="11")
 # Set y range to 0 to 1
@@ -451,7 +521,7 @@ for feats in df_r2_plot["grid_features"].unique():
     plt.savefig(f"plots/r2_general_{feats}.pdf")
     plt.savefig(f"plots/r2_general_{feats}.png")
     plt.show()
-    
+
 df_r2 = df_r2.sort_values(by=["sparsity_prior"])
 # Only use grid_features from 50, 200, 800, 1000, 5000
 # df_r2 = df_r2[df_r2["grid_features"].isin([50, 100, 200, 500, 1000, 2000, 5000, 10000])]
@@ -468,8 +538,9 @@ g = sns.boxplot(
 plt.legend(loc="upper center", bbox_to_anchor=(0.45, -0.2), ncol=3)
 # plt.grid(True)
 from matplotlib.ticker import MultipleLocator
+
 ax.xaxis.set_minor_locator(MultipleLocator(0.5))
-ax.xaxis.grid(True, which='minor', color='gray', lw=1.5, linestyle=":")
+ax.xaxis.grid(True, which="minor", color="gray", lw=1.5, linestyle=":")
 # Define legend font size
 plt.setp(ax.get_legend().get_texts(), fontsize="11")
 # Set y range to 0 to 1
@@ -488,7 +559,9 @@ sns.set_theme(style="whitegrid")
 plt.rcParams["mathtext.fontset"] = "stix"
 plt.rcParams["font.family"] = "STIXGeneral"
 fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
-df_time_idx_plot = df_time_idx[df_time_idx["grid_features"].isin([50, 100, 500, 1000, 2000, 5000, 10000])]
+df_time_idx_plot = df_time_idx[
+    df_time_idx["grid_features"].isin([50, 100, 500, 1000, 2000, 5000, 10000])
+]
 g = sns.boxplot(
     data=df_time_idx_plot,
     x="grid_features",
@@ -499,12 +572,12 @@ plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=3)
 plt.tight_layout()
 # plt.grid(True)
 from matplotlib.ticker import MultipleLocator
+
 ax.xaxis.set_minor_locator(MultipleLocator(0.5))
-ax.xaxis.grid(True, which='minor', color='gray', lw=1.5, linestyle=":")
+ax.xaxis.grid(True, which="minor", color="gray", lw=1.5, linestyle=":")
 plt.savefig(f"plots/time_general_{feats}.pdf")
 plt.savefig(f"plots/time_general_{feats}.png")
 plt.show()
-
 
 
 # #
@@ -524,7 +597,6 @@ plt.show()
 # plt.tight_layout()
 # plt.grid(True)
 # plt.show()
-
 
 
 #
@@ -562,7 +634,7 @@ for BASE_DATA, name in zip([df_w_act_l2, df_w_act_ve], ["l2", "ve"]):
     ):
         # Draw a vertical line at N_FACTORS_TRUE
         # ax[idx // ncols,idx - ncols * (idx // ncols)]
-        ax[idx // ncols,idx - ncols * (idx // ncols)].axvline(
+        ax[idx // ncols, idx - ncols * (idx // ncols)].axvline(
             x=N_SHARED_FACTORS + 0.5, color="gray", linestyle="--", linewidth=1.5
         )
 
@@ -579,25 +651,25 @@ for BASE_DATA, name in zip([df_w_act_l2, df_w_act_ve], ["l2", "ve"]):
             x="factor",
             y="L2 Norm",
             hue="grid_features",
-            ax=ax[idx // ncols,idx - ncols * (idx // ncols)],
+            ax=ax[idx // ncols, idx - ncols * (idx // ncols)],
             legend=False if idx != 9 else True,
         )
         # Add title to each subplot with name of sparse prior
-        ax[idx // ncols,idx - ncols * (idx // ncols)].set_title(f"{sparsity_prior}")
+        ax[idx // ncols, idx - ncols * (idx // ncols)].set_title(f"{sparsity_prior}")
         # Show only integer ticks on x axis from 1 to N_FACTORS_ESTIMATED
-        ax[idx // ncols,idx - ncols * (idx // ncols)].set_xticks(
+        ax[idx // ncols, idx - ncols * (idx // ncols)].set_xticks(
             range(1, N_FACTORS_ESTIMATED + 1)
         )
         # Set fontsize of x ticks
-        ax[idx // ncols,idx - ncols * (idx // ncols)].tick_params(
+        ax[idx // ncols, idx - ncols * (idx // ncols)].tick_params(
             axis="x", labelsize=6
         )
         # Set x and y labels
-        ax[idx // ncols,idx - ncols * (idx // ncols)].set_xlabel("Factor")
-        ax[idx // ncols,idx - ncols * (idx // ncols)].set_ylabel("L2 Norm of Factor")
+        ax[idx // ncols, idx - ncols * (idx // ncols)].set_xlabel("Factor")
+        ax[idx // ncols, idx - ncols * (idx // ncols)].set_ylabel("L2 Norm of Factor")
 
         # Start x axis at 1 and end at N_FACTORS_ESTIMATED
-        ax[idx // ncols,idx - ncols * (idx // ncols)].set_xlim(1, N_FACTORS_ESTIMATED)
+        ax[idx // ncols, idx - ncols * (idx // ncols)].set_xlim(1, N_FACTORS_ESTIMATED)
 
         # Make distance between subplots smaller
         plt.subplots_adjust(wspace=0.3, hspace=0.3)
