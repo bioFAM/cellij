@@ -49,13 +49,11 @@ for seed in [0, 1, 2]:
                 n_private_factors = N_PRIVATE_FACTORS
                 n_covariates = 0
 
-                if not (
+                data_path = (
                     Path(PATH_DGP)
-                    .joinpath(
-                        f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
-                    )
-                    .exists()
-                ):
+                    / f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
+                )
+                if not data_path.exists():
                     print("Creating data...")
 
                     dg = DataGenerator(
@@ -73,19 +71,11 @@ for seed in [0, 1, 2]:
                     feature_offsets = [0] + np.cumsum(n_features).tolist()
                     vlines = feature_offsets[1:-1]
                     mdata = dg.to_mdata()
-                    mdata.write(
-                        Path(PATH_DGP).joinpath(
-                            f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
-                        )
-                    )
+                    mdata.write(str(data_path))
                     print("Saved data...")
                 else:
                     print(f"Loading data from {PATH_DGP}...")
-                    mdata = mudata.read(
-                        Path(PATH_DGP).joinpath(
-                            f"dgp_{N_SHARED_FACTORS}_{N_PARTIAL_FACTORS}_{N_PRIVATE_FACTORS}_{N_SAMPLES}_{grid_features}_{MISSINGS}_{seed}.h5mu"
-                        )
-                    )
+                    mdata = mudata.read(str(data_path))
 
                 for sparsity_prior, prior_params in [
                     # (None, {}),
