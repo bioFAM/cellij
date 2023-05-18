@@ -43,6 +43,7 @@ perf_time = Dict()
 perf_w_activations_l1 = Dict()
 perf_w_activations_l2 = Dict()
 perf_w_activations_ve = Dict()
+perf_losses = Dict()
 
 PATH_DGP = "/home/m015k/code/cellij/experiments/sparsity_benchmark/data/"
 PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v2_features/"
@@ -59,7 +60,7 @@ def compute_r2(y_true, y_predicted):
 for seed in [0, 1, 2]:
     set_all_seeds(seed)
 
-    for grid_features in tqdm([50, 100, 200, 500, 1000, 2000, 5000]):
+    for grid_features in tqdm([50, 100, 200, 500, 1000, 2000, 5000, 10000]):
         n_samples = N_SAMPLES
         n_features = [grid_features, grid_features, grid_features]
         n_views = len(n_features)
@@ -237,14 +238,14 @@ for seed in [0, 1, 2]:
                     sparsity_prior = sparsity_prior + "_" + s_params
 
                 legend_names = {
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=False_ard=False": "HS(0.1, 1.0, 1.0)",
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=False_ard=True": "HS(0.1, 1.0, 1.0)+ARD",
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=True_ard=False": "HS Reg(0.1, 1.0, 1.0)",
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=True_ard=True": "HS Reg(0.1, 1.0, 1.0)+ARD",
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=True_regularized=False_ard=False": "HS ConstTau(0.1, 1.0, 1.0)",
-                    "Lasso_lasso_scale=0.1": "Lap(0,0.1)",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=False_ard=False": "HS(0.1,1,1)",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=False_ard=True": "HS(0.1,1,1)+ARD",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=True_ard=False": "HS Reg(0.1,1,1)",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=True_ard=True": "HS Reg(0.1,1,1)+ARD",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=True_regularized=False_ard=False": "HS ConstTau(0.1,1,1)",
+                    "Lasso_lasso_scale=0.1": "Laplace(0,0.1)",
                     "Normal": "Normal",
-                    "SpikeAndSlabLasso_lambda_spike=20.0_lambda_slab=0.01_relaxed_bernoulli=True_temperature=0.1": "SnSLasso RB(20.0, 0.01, 0.1)",
+                    "SpikeAndSlabLasso_lambda_spike=20.0_lambda_slab=0.01_relaxed_bernoulli=True_temperature=0.1": "SnSLasso RB(20,0.01,0.1)",
                     "SpikeAndSlab_relaxed_bernoulli=False": "SnS CB",
                     "SpikeAndSlab_relaxed_bernoulli=True_temperature=0.1": "SnS RB(0.1)",
                 }
@@ -256,6 +257,9 @@ for seed in [0, 1, 2]:
                 perf_r2_x[seed][grid_features][lr][sparsity_prior] = r2_score(
                     x_true, x_hat
                 )
+
+                # Losses
+                perf_losses[seed][grid_features][lr][sparsity_prior] = len(model.losses)
 
                 # R2 of factors
                 w_hats = np.split(w_hat, 3, axis=1)
@@ -295,7 +299,6 @@ for seed in [0, 1, 2]:
 # Plots
 #
 
-
 def flatten_dict(nested_dict):
     res = {}
     if isinstance(nested_dict, dict):
@@ -334,8 +337,16 @@ df_time = nested_dict_to_df(perf_time.to_dict()).reset_index()
 df_time.columns = [f"{x}" for x in range(1, len(df_time.columns) + 1)]
 df_time_idx = df_time.iloc[:, :4]
 # Coalesce all rows
-df_time_idx = df_time_idx.assign(time=np.nansum(df_time.iloc[:, 4:].to_numpy(), axis=1))
+df_time_idx = df_time_idx.assign(epoch=np.nansum(df_time.iloc[:, 4:].to_numpy(), axis=1))
 df_time_idx.columns = ["seed", "grid_features", "lr", "sparsity_prior", "time"]
+
+df_losses = nested_dict_to_df(perf_losses.to_dict()).reset_index()
+# Assign columns names from 1 to n
+df_losses.columns = [f"{x}" for x in range(1, len(df_losses.columns) + 1)]
+df_losses_idx = df_losses.iloc[:, :4]
+# Coalesce all rows
+df_losses_idx = df_losses_idx.assign(time=np.nanmean(df_losses.iloc[:, 4:].to_numpy(), axis=1))
+df_losses_idx.columns = ["seed", "grid_features", "lr", "sparsity_prior", "epoch"]
 
 
 # Sort all rows independelty in descending order
@@ -394,21 +405,27 @@ plt.rcParams["font.family"] = "STIXGeneral"
 
 df_r2 = df_r2.sort_values(by=["sparsity_prior"])
 # Only use grid_features from 50, 200, 800, 1000, 5000
-df_r2 = df_r2[df_r2["grid_features"].isin([50, 200, 400, 1000, 5000])]
+# df_r2 = df_r2[df_r2["grid_features"].isin([50, 100, 200, 500, 1000, 2000, 5000, 10000])]
+df_r2_plot = df_r2[df_r2["grid_features"].isin([50, 100, 500, 1000, 2000, 5000, 10000])]
 fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
+# Do not plot outliers
 g = sns.boxplot(
-    data=df_r2,
+    data=df_r2_plot,
     x="grid_features",
     y="r2",
     hue="sparsity_prior",
-).set(xlabel="Number of Features", ylabel="Correlation of Factors")
+    showfliers=False,
+).set(xlabel="Number of Features", ylabel="Avg. Factor Correlation")
 # Place location below plot
 plt.legend(loc="upper center", bbox_to_anchor=(0.45, -0.2), ncol=3)
-plt.grid(True)
+# plt.grid(True)
+from matplotlib.ticker import MultipleLocator
+ax.xaxis.set_minor_locator(MultipleLocator(0.5))
+ax.xaxis.grid(True, which='minor', color='gray', lw=1.5, linestyle=":")
 # Define legend font size
 plt.setp(ax.get_legend().get_texts(), fontsize="11")
 # Set y range to 0 to 1
-plt.ylim(0.2, 1.05)
+plt.ylim(0.2, 1.025)
 # Save plot as pdf and png
 plt.tight_layout()
 plt.savefig("plots/r2_features.pdf")
@@ -416,13 +433,13 @@ plt.savefig("plots/r2_features.png")
 plt.show()
 
 fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
-for feats in df_r2["grid_features"].unique():
-    df_r2_tmp = df_r2[df_r2["grid_features"] == feats]
+for feats in df_r2_plot["grid_features"].unique():
+    df_r2_plot_tmp = df_r2_plot[df_r2_plot["grid_features"] == feats]
     g = sns.boxplot(
-        data=df_r2_tmp,
+        data=df_r2_plot_tmp,
         x="sparsity_prior",
         y="r2",
-    ).set(xlabel="Sparsity Priors", ylabel="Correlation of Factors")
+    ).set(xlabel="Sparsity Priors", ylabel="Avg. Factor Correlation")
     plt.title(f"Number of Features = {feats}")
     plt.grid(True)
     # Set y range to 0 to 1
@@ -434,30 +451,86 @@ for feats in df_r2["grid_features"].unique():
     plt.savefig(f"plots/r2_general_{feats}.pdf")
     plt.savefig(f"plots/r2_general_{feats}.png")
     plt.show()
+    
+df_r2 = df_r2.sort_values(by=["sparsity_prior"])
+# Only use grid_features from 50, 200, 800, 1000, 5000
+# df_r2 = df_r2[df_r2["grid_features"].isin([50, 100, 200, 500, 1000, 2000, 5000, 10000])]
+# df_r2_plot = df_r2[df_r2["grid_features"].isin([50, 100, 500, 1000, 2000, 5000, 10000])]
+fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
+# Do not plot outliers
+g = sns.boxplot(
+    data=df_r2_plot,
+    x="sparsity_prior",
+    y="r2",
+    showfliers=False,
+).set(xlabel="Number of Features", ylabel="Avg. Factor Correlation")
+# Place location below plot
+plt.legend(loc="upper center", bbox_to_anchor=(0.45, -0.2), ncol=3)
+# plt.grid(True)
+from matplotlib.ticker import MultipleLocator
+ax.xaxis.set_minor_locator(MultipleLocator(0.5))
+ax.xaxis.grid(True, which='minor', color='gray', lw=1.5, linestyle=":")
+# Define legend font size
+plt.setp(ax.get_legend().get_texts(), fontsize="11")
+# Set y range to 0 to 1
+plt.ylim(0.2, 1.025)
+# Save plot as pdf and png
+plt.tight_layout()
+plt.savefig("plots/r2_features.pdf")
+plt.savefig("plots/r2_features.png")
+plt.show()
 
 
 #
 # Plot Runtime with respect to features
 #
 sns.set_theme(style="whitegrid")
+plt.rcParams["mathtext.fontset"] = "stix"
+plt.rcParams["font.family"] = "STIXGeneral"
 fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
+df_time_idx_plot = df_time_idx[df_time_idx["grid_features"].isin([50, 100, 500, 1000, 2000, 5000, 10000])]
 g = sns.boxplot(
-    data=df_time_idx,
+    data=df_time_idx_plot,
     x="grid_features",
     y="time",
     hue="sparsity_prior",
 ).set(xlabel="Number of Features", ylabel="Time [s]")
 plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=3)
 plt.tight_layout()
-plt.grid(True)
+# plt.grid(True)
+from matplotlib.ticker import MultipleLocator
+ax.xaxis.set_minor_locator(MultipleLocator(0.5))
+ax.xaxis.grid(True, which='minor', color='gray', lw=1.5, linestyle=":")
+plt.savefig(f"plots/time_general_{feats}.pdf")
+plt.savefig(f"plots/time_general_{feats}.png")
 plt.show()
 
-plt.rcParams["mathtext.fontset"] = "stix"
-plt.rcParams["font.family"] = "STIXGeneral"
+
+
+# #
+# # Epochs until convergence or max epochs
+# #
+# plt.rcParams["mathtext.fontset"] = "stix"
+# plt.rcParams["font.family"] = "STIXGeneral"
+# sns.set_theme(style="whitegrid")
+# fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
+# g = sns.boxplot(
+#     data=df_time_idx,
+#     x="grid_features",
+#     y="epoch",
+#     hue="sparsity_prior",
+# ).set(xlabel="Number of Features", ylabel="Avg. Epoch")
+# plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=3)
+# plt.tight_layout()
+# plt.grid(True)
+# plt.show()
+
+
 
 #
 # Plot #Active columns reconstruction with respect to features
 #
+# for BASE_DATA, name in zip([df_w_act_l2], ["l2"]):
 for BASE_DATA, name in zip([df_w_act_l2, df_w_act_ve], ["l2", "ve"]):
     BASE_DATA_melt = BASE_DATA.melt(
         id_vars=["seed", "grid_features", "lr", "sparsity_prior", "view"],
@@ -472,21 +545,24 @@ for BASE_DATA, name in zip([df_w_act_l2, df_w_act_ve], ["l2", "ve"]):
     # Create a figure with two columns
     Ns = BASE_DATA_melt["sparsity_prior"].nunique()
     nrows = int(np.ceil(BASE_DATA_melt["sparsity_prior"].nunique() / 3))
+    ncols = 3
     fig, ax = plt.subplots(
         nrows,
         3,
-        figsize=(6.75, 12.5),
+        figsize=(6.75, 12),
         sharex=False,
         sharey=True,
         tight_layout=False,
     )
     # Sort BASE_DATA by sparsity prior alphabetically
     BASE_DATA_melt = BASE_DATA_melt.sort_values(by=["grid_features"])
-    
 
-    for idx, sparsity_prior in enumerate(sorted(BASE_DATA_melt["sparsity_prior"].unique())):
+    for idx, sparsity_prior in enumerate(
+        sorted(BASE_DATA_melt["sparsity_prior"].unique())
+    ):
         # Draw a vertical line at N_FACTORS_TRUE
-        ax[idx - nrows * (idx // nrows), idx // nrows].axvline(
+        # ax[idx // ncols,idx - ncols * (idx // ncols)]
+        ax[idx // ncols,idx - ncols * (idx // ncols)].axvline(
             x=N_SHARED_FACTORS + 0.5, color="gray", linestyle="--", linewidth=1.5
         )
 
@@ -503,28 +579,34 @@ for BASE_DATA, name in zip([df_w_act_l2, df_w_act_ve], ["l2", "ve"]):
             x="factor",
             y="L2 Norm",
             hue="grid_features",
-            ax=ax[idx - nrows * (idx // nrows), idx // nrows],
-            legend=False if idx != 7 else True,
+            ax=ax[idx // ncols,idx - ncols * (idx // ncols)],
+            legend=False if idx != 9 else True,
         )
         # Add title to each subplot with name of sparse prior
-        ax[idx - nrows * (idx // nrows), idx // nrows].set_title(f"{sparsity_prior}")
+        ax[idx // ncols,idx - ncols * (idx // ncols)].set_title(f"{sparsity_prior}")
         # Show only integer ticks on x axis from 1 to N_FACTORS_ESTIMATED
-        ax[idx - nrows * (idx // nrows), idx // nrows].set_xticks(
+        ax[idx // ncols,idx - ncols * (idx // ncols)].set_xticks(
             range(1, N_FACTORS_ESTIMATED + 1)
         )
         # Set fontsize of x ticks
-        ax[idx - nrows * (idx // nrows), idx // nrows].tick_params(
+        ax[idx // ncols,idx - ncols * (idx // ncols)].tick_params(
             axis="x", labelsize=6
         )
         # Set x and y labels
-        ax[idx - nrows * (idx // nrows), idx // nrows].set_xlabel("Factor")
-        ax[idx - nrows * (idx // nrows), idx // nrows].set_ylabel("L2 Norm of Factor")
+        ax[idx // ncols,idx - ncols * (idx // ncols)].set_xlabel("Factor")
+        ax[idx // ncols,idx - ncols * (idx // ncols)].set_ylabel("L2 Norm of Factor")
+
+        # Start x axis at 1 and end at N_FACTORS_ESTIMATED
+        ax[idx // ncols,idx - ncols * (idx // ncols)].set_xlim(1, N_FACTORS_ESTIMATED)
+
+        # Make distance between subplots smaller
+        plt.subplots_adjust(wspace=0.3, hspace=0.3)
 
     plt.grid(True)
     plt.tight_layout()
-    ax[3, 1].legend(
+    ax[3, 0].legend(
         loc="lower center",
-        bbox_to_anchor=(0.5, -0.075),
+        bbox_to_anchor=(0.65, 0.1),
         ncol=4,
         title="Features",
         fancybox=True,
@@ -533,7 +615,7 @@ for BASE_DATA, name in zip([df_w_act_l2, df_w_act_ve], ["l2", "ve"]):
         bbox_transform=plt.gcf().transFigure,
     )
     ax[3, 2].axis("off")
-    ax[2, 2].axis("off")
+    ax[3, 1].axis("off")
     plt.savefig(f"plots/fac_act_{name}.pdf")
     plt.savefig(f"plots/fac_act_{name}.png")
     plt.show()
