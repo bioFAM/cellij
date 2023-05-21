@@ -23,6 +23,7 @@ from cellij.core.models import MOFA
 from cellij.core.synthetic import DataGenerator
 from cellij.tools.evaluation import compute_factor_correlation
 from cellij.utils import load_model, set_all_seeds
+from matplotlib.ticker import MultipleLocator
 
 if torch.cuda.is_available():
     torch.set_default_tensor_type("torch.cuda.FloatTensor")
@@ -56,11 +57,11 @@ perf_w_activations_l2 = Dict()
 perf_w_activations_ve = Dict()
 perf_losses = Dict()
 
-# PATH_DGP = "/home/m015k/code/cellij/experiments/sparsity_benchmark/data/"
-# PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v2_features/"
+PATH_DGP = "/home/m015k/code/cellij/experiments/sparsity_benchmark/data/"
+PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v2_features/"
 
-PATH_DGP = "experiments/sparsity_benchmark/data"
-PATH_MODELS = "experiments/sparsity_benchmark/results"
+# PATH_DGP = "experiments/sparsity_benchmark/data"
+# PATH_MODELS = "experiments/sparsity_benchmark/results"
 
 
 def compute_r2(y_true, y_predicted):
@@ -73,7 +74,7 @@ def compute_r2(y_true, y_predicted):
 
 def get_opt_thresh(X, Y, thresh_min=0, thresh_max=1, n_thresh=101):
     thresh_max = min(thresh_max, Y.max())
-    print(thresh_max)
+    # print(thresh_max)
     thresholds = np.linspace(thresh_min, thresh_max, n_thresh)
     f1s = []
     for threshold in thresholds:
@@ -98,10 +99,10 @@ def get_opt_order(X, Y):
     )[-1]
 
 
-for seed in [0]:
+for seed in [0, 1, 2]:
     set_all_seeds(seed)
 
-    for grid_features in tqdm([1000, 2000, 5000, 10000]):  # 50, 100, 200, 500,
+    for grid_features in tqdm([50, 100, 200, 500, 1000, 2000, 5000, 10000]):  #
         n_samples = N_SAMPLES
         n_features = [grid_features, grid_features, grid_features]
         n_views = len(n_features)
@@ -183,7 +184,9 @@ for seed in [0]:
                         "ard": True,
                     },
                 ),
+                # ("SpikeAndSlab", {"relaxed_bernoulli": True, "temperature": 0.01}),
                 ("SpikeAndSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                # ("SpikeAndSlab", {"relaxed_bernoulli": True, "temperature": 0.9}),
                 ("SpikeAndSlab", {"relaxed_bernoulli": False}),
                 (
                     "SpikeAndSlabLasso",
@@ -226,7 +229,7 @@ for seed in [0]:
                 query_key = "_feature_group_"
 
                 if sparsity_prior in ["SpikeAndSlabLasso"]:
-                    print(model._guide.median().keys())
+                    # print(model._guide.median().keys())
                     z_hat = model._guide.median()["z"]
                     w_hat = torch.cat(
                         [
@@ -278,8 +281,8 @@ for seed in [0]:
 
                 opt_order = get_opt_order(w_true, w_hat)
 
-                z_hat = z_hat[:, opt_order]
-                w_hat = w_hat[opt_order, :]
+                z_hat_ordered = z_hat[:, opt_order].copy()
+                w_hat_ordered = w_hat[opt_order, :].copy()
 
                 if sparsity_prior is None:
                     sparsity_prior = "Normal"
@@ -287,14 +290,14 @@ for seed in [0]:
                     sparsity_prior = sparsity_prior + "_" + s_params
 
                 legend_names = {
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=False_ard=False": "HS(0.1,1,1)",
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=False_ard=True": "HS(0.1,1,1)+ARD",
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=True_ard=False": "HS Reg(0.1,1,1)",
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=True_ard=True": "HS Reg(0.1,1,1)+ARD",
-                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=True_regularized=False_ard=False": "HS ConstTau(0.1,1,1)",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=False_ard=False": "HS(0.1,1)",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=False_ard=True": "HS(0.1,1)+ARD",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=True_ard=False": "HS Reg(0.1,1)",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=False_regularized=True_ard=True": "HS Reg(0.1,1)+ARD",
+                    "Horseshoe_tau_scale=0.1_lambda_scale=1.0_theta_scale=1.0_delta_tau=True_regularized=False_ard=False": "HS CT(0.1,1)",
                     "Lasso_lasso_scale=0.1": "Laplace(0,0.1)",
                     "Normal": "Normal",
-                    "SpikeAndSlabLasso_lambda_spike=20.0_lambda_slab=0.01_relaxed_bernoulli=True_temperature=0.1": "SnSLasso RB(20,0.01,0.1)",
+                    "SpikeAndSlabLasso_lambda_spike=20.0_lambda_slab=0.01_relaxed_bernoulli=True_temperature=0.1": "SSL(20,0.01)",
                     "SpikeAndSlab_relaxed_bernoulli=False": "SnS CB",
                     "SpikeAndSlab_relaxed_bernoulli=True_temperature=0.1": "SnS RB(0.1)",
                 }
@@ -303,18 +306,19 @@ for seed in [0]:
 
                 # Reconstruction
                 x_hat = np.matmul(z_hat, w_hat)
+                x_hat_ordered = np.matmul(z_hat_ordered, w_hat_ordered)
                 perf_r2_x[seed][grid_features][lr][sparsity_prior] = r2_score(
-                    x_true, x_hat
+                    x_true, x_hat_ordered
                 )
                 perf_rmse_x[seed][grid_features][lr][
                     sparsity_prior
                 ] = mean_squared_error(x_true, x_hat, squared=False)
 
                 # Prec, Rec, F1
-                opt_thresh = get_opt_thresh(w_mask_true, w_hat, 0, 2)
+                opt_thresh = get_opt_thresh(w_mask_true, w_hat_ordered, 0, 2)
                 prec, rec, f1, _ = precision_recall_fscore_support(
                     w_mask_true.flatten(),
-                    (np.abs(w_hat) > opt_thresh).flatten(),
+                    (np.abs(w_hat_ordered) > opt_thresh).flatten(),
                     average="binary",
                 )
                 perf_prec_x[seed][grid_features][lr][sparsity_prior] = prec
@@ -396,6 +400,36 @@ df_r2 = df_r2.melt(
     id_vars=["seed", "grid_features", "lr"], var_name="sparsity_prior", value_name="r2"
 )
 
+for data, name in [
+    (perf_prec_x, "prec"),
+    (perf_rec_x, "rec"),
+    (perf_f1_x, "f1"),
+    (perf_rmse_x, "rmse"),
+]:
+    print(name)
+    df_x = nested_dict_to_df(data.to_dict()).reset_index()
+    # Only use 1000 features
+    df_x.columns = ["seed", "grid_features", "lr"] + df_x.columns[3:].tolist()
+    df_x = df_x.melt(
+        id_vars=["seed", "grid_features", "lr"],
+        var_name="sparsity_prior",
+        value_name=name,
+    )
+    df_x = (
+        df_x.groupby(["grid_features", "seed", "sparsity_prior"])[name]
+        .max()
+        .reset_index()
+    )
+    df_x = df_x[df_x["grid_features"] == 200]
+    df_grouped = df_x.groupby(["sparsity_prior"], as_index=False)[name].agg(
+        {name: ["mean", "std"]}
+    )
+    print(df_grouped)
+    # Save dataframe as csv
+    df_grouped.to_csv(f"plots/df_{name}_x.csv", index=False, float_format="%.3f")
+    print()
+
+
 df_time = nested_dict_to_df(perf_time.to_dict()).reset_index()
 # Assign columns names from 1 to n
 df_time.columns = [f"{x}" for x in range(1, len(df_time.columns) + 1)]
@@ -471,11 +505,26 @@ plt.rcParams["savefig.pad_inches"] = 0.015
 plt.rcParams["mathtext.fontset"] = "stix"
 plt.rcParams["font.family"] = "STIXGeneral"
 
+
+# Prepare dataframes for plotting
+df_r2 = nested_dict_to_df(perf_corr_factor.to_dict()).reset_index()
+for k, col_name in enumerate(["seed", "grid_features", "lr"]):
+    # Rename kth columns
+    df_r2 = df_r2.rename(columns={f"level_{k}": col_name})
+
+df_r2 = df_r2.melt(
+    id_vars=["seed", "grid_features", "lr"], var_name="sparsity_prior", value_name="r2"
+)
 df_r2 = df_r2.sort_values(by=["sparsity_prior"])
-# Only use grid_features from 50, 200, 800, 1000, 5000
-# df_r2 = df_r2[df_r2["grid_features"].isin([50, 100, 200, 500, 1000, 2000, 5000, 10000])]
-df_r2_plot = df_r2[df_r2["grid_features"].isin([50, 100, 500, 1000, 2000, 5000, 10000])]
+df_r2_plot = df_r2[df_r2["grid_features"].isin([50, 100, 500, 1000, 5000, 10000])]
 fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
+
+df_r2_plot = (
+    df_r2_plot.groupby(["grid_features", "seed", "sparsity_prior"], dropna=False)["r2"]
+    .max()
+    .reset_index()
+)
+
 # Do not plot outliers
 g = sns.boxplot(
     data=df_r2_plot,
@@ -487,19 +536,110 @@ g = sns.boxplot(
 # Place location below plot
 plt.legend(loc="upper center", bbox_to_anchor=(0.45, -0.2), ncol=3)
 # plt.grid(True)
-from matplotlib.ticker import MultipleLocator
-
 ax.xaxis.set_minor_locator(MultipleLocator(0.5))
 ax.xaxis.grid(True, which="minor", color="gray", lw=1.5, linestyle=":")
 # Define legend font size
 plt.setp(ax.get_legend().get_texts(), fontsize="11")
 # Set y range to 0 to 1
-plt.ylim(0.2, 1.025)
+plt.ylim(0.4, 1.025)
 # Save plot as pdf and png
 plt.tight_layout()
 plt.savefig("plots/r2_features.pdf")
 plt.savefig("plots/r2_features.png")
 plt.show()
+
+
+
+sns.set_theme(style="whitegrid")
+sns.set_context("paper")
+sns.set_palette(sns.color_palette("colorblind", 9))
+plt.rcParams["figure.constrained_layout.use"] = False
+plt.rcParams["figure.autolayout"] = False
+plt.rcParams["savefig.pad_inches"] = 0.015
+plt.rcParams["mathtext.fontset"] = "stix"
+plt.rcParams["font.family"] = "STIXGeneral"
+fontsize = 12
+fontweight = 600
+plt.rc('font', size=fontsize)
+import matplotlib
+matplotlib.rcParams['legend.labelspacing'] = 1
+matplotlib.rcParams['legend.handletextpad'] = 0.03  # Modify the handle text padding
+
+# for ax in axs.flatten():
+#     ax.set_xticks([])
+#     ax.set_yticks([])
+#     for spine in ax.spines.values():
+#         spine.set_linewidth(1)
+#         spine.set_edgecolor('black')
+
+# plt.tight_layout()
+# plt.savefig("/Users/tim.treis/Downloads/gp.pdf", bbox_inches='tight')
+
+
+# Prepare dataframes for plotting
+df_r2 = nested_dict_to_df(perf_corr_factor.to_dict()).reset_index()
+for k, col_name in enumerate(["seed", "grid_features", "lr"]):
+    # Rename kth columns
+    df_r2 = df_r2.rename(columns={f"level_{k}": col_name})
+
+df_r2 = df_r2.melt(
+    id_vars=["seed", "grid_features", "lr"], var_name="sparsity_prior", value_name="r2"
+)
+df_r2 = df_r2.sort_values(by=["sparsity_prior"])
+df_r2_plot = df_r2[df_r2["grid_features"].isin([50, 500, 5000])]
+# df_r2_plot = df_r2[df_r2["grid_features"].isin([50, 100, 500, 1000, 5000, 10000])]
+fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
+
+df_r2_plot = (
+    df_r2_plot.groupby(["grid_features", "seed", "sparsity_prior"], dropna=False)["r2"]
+    .max()
+    .reset_index()
+)
+
+# Do not plot outliers
+g = sns.boxplot(
+    data=df_r2_plot,
+    x="sparsity_prior",
+    y="r2",
+    showfliers=False,
+    hue="grid_features",
+).set(xlabel=None, ylabel="Avg. Factor Correlation")
+plt.grid(True)
+# Set title for legend
+plt.legend(title="Number of Features")
+ax.xaxis.set_minor_locator(MultipleLocator(0.5))
+ax.xaxis.grid(True, which="minor", color="gray", lw=1.5, linestyle=":")
+# Define legend font size
+# plt.setp(ax.get_legend().get_texts(), fontsize="11")
+# Set y range to 0 to 1
+# plt.ylim(0.925, 1.025)
+# Add linebreak if xticks is longer than 10 characters
+xticklabels = [x.get_text() for x in ax.get_xticklabels()]
+xticklabels = [x if x != "HS Reg(0.1,1)+ARD" else "HS Reg(0.1,1)\n+ARD" for x in xticklabels]
+xticklabels = [x if x != "HS(0.1,1)+ARD" else "HS(0.1,1)\n+ARD" for x in xticklabels]
+ax.set_xticklabels(xticklabels)
+# Increase x tick font size
+# plt.xticks(fontsize=11)
+# Set fontsize fo y label
+plt.ylabel("Avg. Factor Correlation", fontsize=fontsize, fontweight=fontweight)
+# Adjust fonsize and fontweight for x axis ticks
+plt.xticks(fontsize=10, fontweight=fontweight)
+# Rotate x ticks
+plt.xticks(rotation=45)
+# Save plot as pdf and png
+plt.tight_layout()
+plt.savefig("plots/r2_features.pdf")
+plt.savefig("plots/r2_features.png")
+plt.show()
+
+
+
+
+
+
+
+
+
 
 fig, ax = plt.subplots(1, 1, figsize=(6.75, 5))
 for feats in df_r2_plot["grid_features"].unique():
@@ -536,8 +676,6 @@ g = sns.boxplot(
 # Place location below plot
 plt.legend(loc="upper center", bbox_to_anchor=(0.45, -0.2), ncol=3)
 # plt.grid(True)
-from matplotlib.ticker import MultipleLocator
-
 ax.xaxis.set_minor_locator(MultipleLocator(0.5))
 ax.xaxis.grid(True, which="minor", color="gray", lw=1.5, linestyle=":")
 # Define legend font size
@@ -570,8 +708,6 @@ g = sns.boxplot(
 plt.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=3)
 plt.tight_layout()
 # plt.grid(True)
-from matplotlib.ticker import MultipleLocator
-
 ax.xaxis.set_minor_locator(MultipleLocator(0.5))
 ax.xaxis.grid(True, which="minor", color="gray", lw=1.5, linestyle=":")
 plt.savefig(f"plots/time_general_{feats}.pdf")

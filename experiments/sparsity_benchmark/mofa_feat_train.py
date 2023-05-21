@@ -14,7 +14,7 @@ from cellij.utils import load_model, set_all_seeds
 if torch.cuda.is_available():
     torch.set_default_tensor_type("torch.cuda.FloatTensor")
     CUDA = torch.cuda.is_available()
-    torch.cuda.set_device(0)
+    torch.cuda.set_device(1)
     device = torch.device("cuda")
 else:
     torch.set_default_tensor_type("torch.FloatTensor")
@@ -36,8 +36,8 @@ PATH_MODELS = "/data/m015k/data/cellij/benchmark/benchmark_v2_features/"
 for seed in [0, 1, 2]:
     set_all_seeds(seed)
 
-    for lr in reversed([0.01, 0.1, 0.001]):
-        for grid_features in [10000]:
+    for lr in [0.1, 0.05, 0.01, 0.005, 0.001]:
+        for grid_features in [5000]:  #, 100, 200, 500, 1000, 2000, 5000, 10000
             for n_factors_estimated in [20]:
                 n_samples = N_SAMPLES
                 n_features = [grid_features, grid_features, grid_features]
@@ -78,19 +78,19 @@ for seed in [0, 1, 2]:
                     mdata = mudata.read(str(data_path))
 
                 for sparsity_prior, prior_params in [
-                    # (None, {}),
-                    # ("Lasso", {"lasso_scale": 0.1}),
-                    # (
-                    #     "Horseshoe",
-                    #     {
-                    #         "tau_scale": 0.1,
-                    #         "lambda_scale": 1.0,
-                    #         "theta_scale": 1.0,
-                    #         "delta_tau": False,
-                    #         "regularized": False,
-                    #         "ard": False,
-                    #     },
-                    # ),
+                    (None, {}),
+                    ("Lasso", {"lasso_scale": 0.1}),
+                    (
+                        "Horseshoe",
+                        {
+                            "tau_scale": 0.1,
+                            "lambda_scale": 1.0,
+                            "theta_scale": 1.0,
+                            "delta_tau": False,
+                            "regularized": False,
+                            "ard": False,
+                        },
+                    ),
                     (
                         "Horseshoe",
                         {
@@ -113,38 +113,40 @@ for seed in [0, 1, 2]:
                             "ard": False,
                         },
                     ),
-                    # (
-                    #     "Horseshoe",
-                    #     {
-                    #         "tau_scale": 0.1,
-                    #         "lambda_scale": 1.0,
-                    #         "theta_scale": 1.0,
-                    #         "delta_tau": False,
-                    #         "regularized": False,
-                    #         "ard": True,
-                    #     },
-                    # ),
-                    # (
-                    #     "Horseshoe",
-                    #     {
-                    #         "tau_scale": 0.1,
-                    #         "lambda_scale": 1.0,
-                    #         "theta_scale": 1.0,
-                    #         "delta_tau": False,
-                    #         "regularized": True,
-                    #         "ard": True,
-                    #     },
-                    # ),
-                    # ("SpikeAndSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
-                    # (
-                    #     "SpikeAndSlabLasso",
-                    #     {
-                    #         "lambda_spike": 20.0,
-                    #         "lambda_slab": 0.01,
-                    #         "relaxed_bernoulli": True,
-                    #         "temperature": 0.1,
-                    #     },
-                    # ),
+                    (
+                        "Horseshoe",
+                        {
+                            "tau_scale": 0.1,
+                            "lambda_scale": 1.0,
+                            "theta_scale": 1.0,
+                            "delta_tau": False,
+                            "regularized": False,
+                            "ard": True,
+                        },
+                    ),
+                    (
+                        "Horseshoe",
+                        {
+                            "tau_scale": 0.1,
+                            "lambda_scale": 1.0,
+                            "theta_scale": 1.0,
+                            "delta_tau": False,
+                            "regularized": True,
+                            "ard": True,
+                        },
+                    ),
+                    ("SpikeAndSlab", {"relaxed_bernoulli": True, "temperature": 0.1}),
+                    # ("SpikeAndSlab", {"relaxed_bernoulli": True, "temperature": 0.9}),
+                    # ("SpikeAndSlab", {"relaxed_bernoulli": True, "temperature": 0.01}),
+                    (
+                        "SpikeAndSlabLasso",
+                        {
+                            "lambda_spike": 20.0,
+                            "lambda_slab": 0.01,
+                            "relaxed_bernoulli": True,
+                            "temperature": 0.1,
+                        },
+                    ),
                 ]:
                     print(
                         f" - {sparsity_prior} | {prior_params} | {lr} | {grid_features} | {n_factors_estimated} | {seed}"
