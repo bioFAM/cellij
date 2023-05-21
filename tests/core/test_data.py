@@ -49,7 +49,9 @@ class core_TestClass(unittest.TestCase):
                 index=["obs1", "obs2", "obs3"],
             )
         )
-        self.model.add_data(name="toydata", data=data, na_strategy="mean_by_observations")
+        self.model.add_data(
+            name="toydata", data=data, na_strategy="mean_by_observations"
+        )
 
         assert all(self.model.data.values[:, 1] == [1, 2, 6])
 
@@ -57,31 +59,51 @@ class core_TestClass(unittest.TestCase):
         data = np.round(self.rng.random(size=(10, 10)), 1)
         data[np.where(data == 1)] = np.nan
         data = anndata.AnnData(
-            pd.DataFrame(data=data, columns=[f"feat{i}" for i in range(10)], index=[f"obs{i}" for i in range(10)])
+            pd.DataFrame(
+                data=data,
+                columns=[f"feat{i}" for i in range(10)],
+                index=[f"obs{i}" for i in range(10)],
+            )
         )
         self.model.add_data(name="toydata", data=data, na_strategy="knn")
 
-        np.testing.assert_almost_equal(np.round(self.model.data.values[0, 1], 4), 0.4242)
+        np.testing.assert_almost_equal(
+            np.round(self.model.data.values[0, 1], 4), 0.4242
+        )
 
     def test_na_strategy_knn_by_features(self):
         data = np.round(self.rng.random(size=(10, 10)), 1)
         data[np.where(data == 1)] = np.nan
         data = anndata.AnnData(
-            pd.DataFrame(data=data, columns=[f"feat{i}" for i in range(10)], index=[f"obs{i}" for i in range(10)])
+            pd.DataFrame(
+                data=data,
+                columns=[f"feat{i}" for i in range(10)],
+                index=[f"obs{i}" for i in range(10)],
+            )
         )
         self.model.add_data(name="toydata", data=data, na_strategy="knn_by_features")
 
-        np.testing.assert_almost_equal(np.round(self.model.data.values[0, 1], 4), 0.2333)
+        np.testing.assert_almost_equal(
+            np.round(self.model.data.values[0, 1], 4), 0.2333
+        )
 
     def test_na_strategy_knn_by_observations(self):
         data = np.round(self.rng.random(size=(10, 10)), 1)
         data[np.where(data == 1)] = np.nan
         data = anndata.AnnData(
-            pd.DataFrame(data=data, columns=[f"feat{i}" for i in range(10)], index=[f"obs{i}" for i in range(10)])
+            pd.DataFrame(
+                data=data,
+                columns=[f"feat{i}" for i in range(10)],
+                index=[f"obs{i}" for i in range(10)],
+            )
         )
-        self.model.add_data(name="toydata", data=data, na_strategy="knn_by_observations")
+        self.model.add_data(
+            name="toydata", data=data, na_strategy="knn_by_observations"
+        )
 
-        np.testing.assert_almost_equal(np.round(self.model.data.values[0, 1], 4), 0.3667)
+        np.testing.assert_almost_equal(
+            np.round(self.model.data.values[0, 1], 4), 0.3667
+        )
 
     def test_can_create_Importer(self):
         imp = cellij.core.Importer()
@@ -111,4 +133,9 @@ class core_TestClass(unittest.TestCase):
         assert isinstance(data, mu.MuData)
         assert data.n_obs == 437
         assert data.n_vars == 48
-        assert all([col in data.obs.columns for col in ["n_cells", "division", "division_scaled", "label"]])
+        assert all(
+            [
+                col in data.obs.columns
+                for col in ["n_cells", "division", "division_scaled", "label"]
+            ]
+        )

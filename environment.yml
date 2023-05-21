@@ -1,23 +1,23 @@
 name: cellij
 channels:
-  - conda-forge
-  - anaconda
-  - loopbio
-  - menpo
-  - defaults
+    - conda-forge
+    - anaconda
+    - loopbio
+    - menpo
+    - defaults
 dependencies:
-  - anndata
-  - coverage
-  - python-graphviz
-  - flake8
-  - pip
-  - pyro-ppl
-  - python=3.9
-  - pytorch
-  - pytest
-  - pytest-cov
-  - pytest-flake8
-  - numpy
-  - pip:
-      - muon
-      - rich
+    - anndata
+    - coverage
+    - python-graphviz
+    - flake8
+    - pip
+    - pyro-ppl
+    - python=3.9
+    - pytorch
+    - pytest
+    - pytest-cov
+    - pytest-flake8
+    - numpy
+    - pip:
+          - muon
+          - rich

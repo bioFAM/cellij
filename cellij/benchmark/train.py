@@ -3,6 +3,10 @@ from pathlib import Path
 
 import click
 import muon as mu
+import numpy as np
+import pyro
+import torch
+
 from cellij.core.models import MOFA
 
 
@@ -71,6 +75,7 @@ def train(
     seed,
     out_dir,
 ):
+    torch.set_default_tensor_type("torch.cuda.FloatTensor")
     """Train on synthetic data."""
     if isinstance(n_factors, str):
         n_factors = int(n_factors)
@@ -113,13 +118,71 @@ def train(
     # TODO: use random seed to reproduce training
     # TODO: Expose more paraemters to the user, e.g., autoguide, etc.
     model.fit(
-        likelihood=likelihoods[0].title(),
+        # TODO: use likelihoods parameter instead of inferring from mdata
+        likelihoods=mdata.uns["likelihoods"],
         epochs=epochs,
         learning_rate=learning_rate,
         verbose_epochs=verbose_epochs,
     )
+    return model
     click.echo("Saving model...")
     # TODO: save model
+    np.save(Path(out_dir).joinpath("z.npy"), get_z())
+    np.save(Path(out_dir).joinpath("w.npy"), get_w(sparsity_prior))
+    click.echo(f"Model parameters saved in `{out_dir}`...")
+    return model
+
+
+def get_w(sparsity_prior):
+    if sparsity_prior == "Horseshoe":
+        unscaled_w = pyro.get_param_store()["FactorModel._guide.locs.unscaled_w"]
+        w_scale = pyro.get_param_store()["FactorModel._guide.locs.w_scale"]
+        w = unscaled_w * w_scale
+    elif sparsity_prior == "Spikeandslab-Lasso":
+        samples_bernoulli = torch.cat(
+            [
+                pyro.get_param_store()[
+                    f"FactorModel._guide.locs.samples_bernoulli_{idx}"
+                ]
+                for idx in range(3)
+            ],
+            dim=1,
+        )
+        samples_lambda_spike = torch.cat(
+            [
+                pyro.get_param_store()[
+                    f"FactorModel._guide.locs.samples_lambda_spike_{idx}"
+                ]
+                for idx in range(3)
+            ],
+            dim=1,
+        )
+        samples_lambda_slab = torch.cat(
+            [
+                pyro.get_param_store()[
+                    f"FactorModel._guide.locs.samples_lambda_slab_{idx}"
+                ]
+                for idx in range(3)
+            ],
+            dim=1,
+        )
+        w = (
+            1 - samples_bernoulli
+        ) * samples_lambda_spike + samples_bernoulli * samples_lambda_slab
+    else:
+        w = pyro.get_param_store()["FactorModel._guide.locs.w"]
+    return w.squeeze().cpu().detach().numpy()
+
+
+def get_z():
+    return (
+        pyro.get_param_store()
+        .get_param("FactorModel._guide.locs.z")
+        .squeeze()
+        .cpu()
+        .detach()
+        .numpy()
+    )
 
 
 if __name__ == "__main__":

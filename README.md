@@ -6,14 +6,13 @@
 [![codecov](https://codecov.io/github/bioFAM/cellij/branch/main/graph/badge.svg?token=IJ4UMMUIW9)](https://codecov.io/github/bioFAM/cellij)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg?style=flat-square)](https://github.com/psf/black)
 
-
 Implementation of a Modular Multi-Omics Factor Model Framework
 
 ## Getting started
 
 Please refer to the [documentation][link-docs]. In particular, the
 
-- [API documentation][link-api].
+-   [API documentation][link-api].
 
 ## Installation
 

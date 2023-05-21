@@ -120,7 +120,9 @@ class DataContainer:
             feature_groups[name] = self._feature_groups[name].to_df().sort_index()
 
         merged_feature_group = reduce(
-            lambda left, right: pd.merge(left, right, left_index=True, right_index=True, how="outer"),
+            lambda left, right: pd.merge(
+                left, right, left_index=True, right_index=True, how="outer"
+            ),
             feature_groups.values(),
         )
         merged_obs_names = merged_feature_group.index.to_list()
@@ -144,10 +146,16 @@ class DataContainer:
             feature_group_obs_names = self._feature_groups[name].obs_names.to_list()
             feature_group_feature_names = self._feature_groups[name].var_names.to_list()
 
-            self._obs_idx[name] = [i for i, val in enumerate(merged_obs_names) if val in feature_group_obs_names]
+            self._obs_idx[name] = [
+                i
+                for i, val in enumerate(merged_obs_names)
+                if val in feature_group_obs_names
+            ]
 
             self._feature_idx[name] = [
-                i for i, val in enumerate(merged_feature_names) if val in feature_group_feature_names
+                i
+                for i, val in enumerate(merged_feature_names)
+                if val in feature_group_feature_names
             ]
 
     def to_df(self) -> pd.DataFrame:
@@ -233,7 +241,9 @@ class Importer:
                 modalities[ome] = anndata.AnnData(X=modality, dtype="float32")
 
                 if use_drug_compound_names and ome == "drugs":
-                    with resources.path("cellij.data", "id_to_drug_names.csv") as compound_path:
+                    with resources.path(
+                        "cellij.data", "id_to_drug_names.csv"
+                    ) as compound_path:
                         compound_names = pd.read_csv(
                             filepath_or_buffer=os.fspath(compound_path),
                             sep=";",
@@ -247,9 +257,13 @@ class Importer:
 
                     for i, colname in enumerate(ome_colnames):
                         base_id = colname[0 : len(colname) - 2]
-                        drug_name_for_base_id = compound_names.query("id == @base_id")["name"].values[0]
+                        drug_name_for_base_id = compound_names.query("id == @base_id")[
+                            "name"
+                        ].values[0]
                         # print(drug_name_for_base_id)
-                        ome_colnames[i] = colname.replace(f"{base_id}", drug_name_for_base_id)
+                        ome_colnames[i] = colname.replace(
+                            f"{base_id}", drug_name_for_base_id
+                        )
 
                     modalities[ome].var_names = ome_colnames
 

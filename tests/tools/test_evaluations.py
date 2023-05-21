@@ -1,7 +1,8 @@
-import pytest
 import numpy as np
-import cellij
+import pytest
 import torch
+
+import cellij
 
 torch.manual_seed(8)
 np.random.seed(8)
@@ -22,7 +23,9 @@ def test_raise_on_nan():
     predictions = np.random.rand(10, 8)
 
     with pytest.raises(ValueError):
-        cellij.evaluation.compute_factor_correlation(actuals, predictions, replace_nan=None)
+        cellij.evaluation.compute_factor_correlation(
+            actuals, predictions, replace_nan=None
+        )
 
 
 def test_replacement_of_nan():
@@ -31,5 +34,10 @@ def test_replacement_of_nan():
     predictions = np.random.rand(10, 8)
 
     assert (
-        len(cellij.evaluation.compute_factor_correlation(actuals, predictions, replace_nan=0)[1]) == 4
+        len(
+            cellij.evaluation.compute_factor_correlation(
+                actuals, predictions, replace_nan=0
+            )[1]
+        )
+        == 4
     )

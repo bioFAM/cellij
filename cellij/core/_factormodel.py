@@ -1,5 +1,6 @@
 import os
 import pickle
+from pathlib import Path
 from timeit import default_timer as timer
 from typing import List, Optional, Union
 
@@ -12,6 +13,7 @@ import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
 
+import cellij
 from cellij.core._data import DataContainer
 from cellij.core.utils_training import EarlyStopper
 
@@ -27,8 +29,6 @@ class FactorModel(PyroModule):
         The variational distribution
     n_factors : int
         The number of factors
-    trainer : cellij.trainer
-        Defines the training procedure, i.e. the loss function and the optimizer
     dtype : torch.dtype, default = torch.float32
         The data type of the model
     device : str, default = "cpu"
@@ -74,7 +74,6 @@ class FactorModel(PyroModule):
         model,
         guide,
         n_factors,
-        trainer,
         dtype: torch.dtype = torch.float32,
         device="cpu",
         **kwargs,
@@ -83,7 +82,6 @@ class FactorModel(PyroModule):
 
         self._model = model
         self._n_factors = n_factors
-        self._trainer = trainer
         self._dtype = dtype
         self._device = device
         self._data = DataContainer()
@@ -91,7 +89,7 @@ class FactorModel(PyroModule):
         self._feature_groups = {}
         self._obs_groups = {}
 
-        # Setup
+        # # Setup
         if isinstance(guide, str):
             # Implement some default guides
             guide_args = {}
@@ -99,23 +97,27 @@ class FactorModel(PyroModule):
                 guide_args["init_loc_fn"] = kwargs["init_loc_fn"]
 
             if guide == "AutoDelta":
-                self._guide = pyro.infer.autoguide.AutoDelta(self._model, **guide_args)  # type: ignore
+                self._guide = pyro.infer.autoguide.AutoDelta  # type: ignore
             elif guide == "AutoNormal":
                 if "init_scale" in kwargs:
                     guide_args["init_scale"] = kwargs["init_scale"]
-                self._guide = pyro.infer.autoguide.AutoNormal(self._model, **guide_args)  # type: ignore
+                self._guide = pyro.infer.autoguide.AutoNormal  # type: ignore
             elif guide == "AutoLowRankMultivariateNormal":
                 if "init_scale" in kwargs:
                     guide_args["init_scale"] = kwargs["init_scale"]
                 if "rank" in kwargs:
                     guide_args["rank"] = kwargs["rank"]
-                self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal(  # type: ignore
-                    self._model, **guide_args
-                )
+                self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal  # type: ignore
         elif isinstance(guide, pyro.infer.autoguide.AutoGuide):  # type: ignore
-            self._guide = guide(self.model)
+            self._guide = guide
+        elif issubclass(guide, cellij.core._pyro_guides.Guide):
+            print("Using custom guide.")
+            self._guide = guide
         else:
             raise ValueError(f"Unknown guide: {guide}")
+
+        # Save kwargs for later
+        self._kwargs = kwargs
 
     @property
     def model(self):
@@ -142,14 +144,6 @@ class FactorModel(PyroModule):
         self._n_factors = n_factors
 
     @property
-    def trainer(self):
-        pass
-
-    @trainer.setter
-    def trainer(self, trainer):
-        pass
-
-    @property
     def dtype(self):
         pass
 
@@ -171,7 +165,9 @@ class FactorModel(PyroModule):
 
     @data.setter
     def data(self, *args):
-        raise AttributeError("Use `add_data()`, `set_data` or `remove_data()` to modify this property.")
+        raise AttributeError(
+            "Use `add_data()`, `set_data` or `remove_data()` to modify this property."
+        )
 
     @property
     def is_trained(self):
@@ -188,7 +184,8 @@ class FactorModel(PyroModule):
     @feature_groups.setter
     def feature_groups(self, *args):
         raise AttributeError(
-            "Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` " "to modify this property."
+            "Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` "
+            "to modify this property."
         )
 
     @property
@@ -197,7 +194,9 @@ class FactorModel(PyroModule):
 
     @obs_groups.setter
     def obs_groups(self, *args):
-        raise AttributeError("Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property.")
+        raise AttributeError(
+            "Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property."
+        )
 
     def add_data(
         self,
@@ -211,10 +210,14 @@ class FactorModel(PyroModule):
         metadata = None
 
         if not isinstance(data, valid_types):
-            raise TypeError(f"Expected data to be one of {valid_types}, got {type(data)}.")
+            raise TypeError(
+                f"Expected data to be one of {valid_types}, got {type(data)}."
+            )
 
         if not isinstance(data, muon.MuData) and not isinstance(name, str):
-            raise ValueError("When adding data that is not a MuData object, a name must be provided.")
+            raise ValueError(
+                "When adding data that is not a MuData object, a name must be provided."
+            )
 
         if isinstance(data, pandas.DataFrame):
             data = anndata.AnnData(
@@ -291,7 +294,10 @@ class FactorModel(PyroModule):
             raise ValueError(f"Level must be 'feature' or 'obs', not {level}")
 
     def _remove_group(self, name, level, **kwargs):
-        if name not in self._feature_groups.keys() and name not in self._obs_groups.keys():
+        if (
+            name not in self._feature_groups.keys()
+            and name not in self._obs_groups.keys()
+        ):
             raise ValueError(f"No group with the name {name} exists.")
 
         if level == "feature":
@@ -342,14 +348,18 @@ class FactorModel(PyroModule):
             if not isinstance(views, (str, list)):
                 raise TypeError("Parameter 'views' must be of type str or list.")
 
-            if isinstance(views, list) and not all([isinstance(view, str) for view in views]):
+            if isinstance(views, list) and not all(
+                [isinstance(view, str) for view in views]
+            ):
                 raise TypeError("Parameter 'views' must be a list of strings.")
 
         if groups is not None:
             if not isinstance(groups, (str, list)):
                 raise TypeError("Parameter 'groups' must be of type str or list.")
 
-            if isinstance(groups, list) and not all([isinstance(view, str) for view in groups]):
+            if isinstance(groups, list) and not all(
+                [isinstance(view, str) for view in groups]
+            ):
                 raise TypeError("Parameter 'groups' must be a list of strings.")
 
         if not isinstance(format, str):
@@ -373,13 +383,17 @@ class FactorModel(PyroModule):
             if views != "all":
                 if isinstance(views, str):
                     if views not in self.data._names:
-                        raise ValueError(f"Parameter 'views' must be in {list(self.data._names)}.")
+                        raise ValueError(
+                            f"Parameter 'views' must be in {list(self.data._names)}."
+                        )
 
                     result = data[..., self.data._feature_idx[views]]
 
                 elif isinstance(views, list):
                     if not all([view in self.data._names for view in views]):
-                        raise ValueError(f"All elements in 'views' must be in {list(self.data._names)}.")
+                        raise ValueError(
+                            f"All elements in 'views' must be in {list(self.data._names)}."
+                        )
 
                     result = {}
                     for view in views:
@@ -402,16 +416,22 @@ class FactorModel(PyroModule):
         return result.squeeze()
 
     def get_weights(self, views: Union[str, List[str]] = "all", format="numpy"):
-        return self._get_from_param_storage(name="w", param="locs", views=views, groups=None, format=format)
+        return self._get_from_param_storage(
+            name="w", param="locs", views=views, groups=None, format=format
+        )
 
     def get_factors(self, groups: Union[str, List[str]] = "all", format="numpy"):
-        return self._get_from_param_storage(name="z", param="locs", views=None, groups=groups, format=format)
+        return self._get_from_param_storage(
+            name="z", param="locs", views=None, groups=groups, format=format
+        )
 
     def fit(
         self,
         likelihoods: Union[str, dict],
         epochs: int = 1000,
+        num_particles: int = 1,
         learning_rate: float = 0.003,
+        optimizer: str = "Clipped",
         verbose_epochs: int = 100,
         early_stopping: bool = True,
         patience: int = 500,
@@ -429,7 +449,9 @@ class FactorModel(PyroModule):
         if early_stopping:
             if min_delta < 0:
                 raise ValueError("min_delta must be positive.")
-            earlystopper = EarlyStopper(patience=patience, min_delta=min_delta, percentage=percentage)
+            earlystopper = EarlyStopper(
+                patience=patience, min_delta=min_delta, percentage=percentage
+            )
         else:
             earlystopper = None
 
@@ -443,8 +465,20 @@ class FactorModel(PyroModule):
             )
 
         for arg_name, arg in zip(
-            ["early_stopping", "scale_gradients", "center_features", "scale_features", "scale_views"],
-            [early_stopping, scale_gradients, center_features, scale_features, scale_views],
+            [
+                "early_stopping",
+                "scale_gradients",
+                "center_features",
+                "scale_features",
+                "scale_views",
+            ],
+            [
+                early_stopping,
+                scale_gradients,
+                center_features,
+                scale_features,
+                scale_views,
+            ],
         ):
             if not isinstance(arg, bool):
                 raise TypeError(f"Parameter '{arg_name}' must be of type bool.")
@@ -455,7 +489,9 @@ class FactorModel(PyroModule):
 
         # If user passed strings, replace the likelihood strings with the actual distributions
         if isinstance(likelihoods, str):
-            likelihoods = {modality: likelihoods for modality in self._data.feature_groups}
+            likelihoods = {
+                modality: likelihoods for modality in self._data.feature_groups
+            }
 
         for name, distribution in likelihoods.items():
             if isinstance(distribution, str):
@@ -467,7 +503,9 @@ class FactorModel(PyroModule):
                 try:
                     likelihoods[name] = getattr(pyro.distributions, distribution)  # type: ignore
                 except AttributeError:
-                    raise AttributeError(f"Could not find valid Pyro distribution for {distribution}.")
+                    raise AttributeError(
+                        f"Could not find valid Pyro distribution for {distribution}."
+                    )
 
         # Raise error if likelihoods are not set for all modalities
         if len(likelihoods.keys()) != len(self._data.feature_groups):
@@ -477,13 +515,46 @@ class FactorModel(PyroModule):
             )
 
         # Provide data information to generative model
-        self._model._setup(
-            data=self._data,
-            likelihoods=likelihoods,
-            center_features=center_features,
-            scale_features=scale_features,
-            scale_views=scale_views,
+        feature_dict = {
+            k: len(feature_idx) for k, feature_idx in self._data._feature_idx.items()
+        }
+        data_dict = {
+            k: torch.Tensor(self._data._values[:, feature_idx])
+            for k, feature_idx in self._data._feature_idx.items()
+        }
+
+        # Initialize class objects with correct data-related parameters
+        self._model = self._model(
+            n_samples=self._data._values.shape[0],
+            n_factors=self.n_factors,
+            feature_dict=feature_dict,
+            likelihoods=None,
+            **self._kwargs,
         )
+
+        guide_kwargs = {}
+        for key, value in self._kwargs.items():
+            if key in ["init_loc", "init_scale"]:
+                guide_kwargs[key] = value
+
+        self._guide = self._guide(self._model, **guide_kwargs)
+        if not isinstance(likelihoods, (str, dict)):
+            raise ValueError(
+                f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
+            )
+
+        # # Provide data information to generative model
+        # self._model._setup(
+        #     data=self._data,
+        #     likelihoods=likelihoods,
+        #     center_features=center_features,
+        #     scale_features=scale_features,
+        #     scale_views=scale_views,
+        # )
+
+        # Prepare likelihoods
+        # TODO: If string is passed, check if string corresponds to a valid pyro distribution
+        # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
 
         # We scale the gradients by the number of total samples to allow a better comparison across
         # models/datasets
@@ -491,18 +562,31 @@ class FactorModel(PyroModule):
         if scale_gradients:
             scaling_constant = 1.0 / self._data.values.shape[1]
 
+        optim = pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)})
+        if optimizer.lower() == "clipped":
+            gamma = 0.1
+            lrd = gamma ** (1 / epochs)
+            optim = pyro.optim.ClippedAdam({"lr": learning_rate, "lrd": lrd})
+
         svi = SVI(
             model=pyro.poutine.scale(self._model, scale=scaling_constant),
             guide=pyro.poutine.scale(self._guide, scale=scaling_constant),
-            optim=pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)}),  # type: ignore
-            loss=pyro.infer.Trace_ELBO(),  # type: ignore
+            optim=optim,
+            # loss=pyro.infer.Trace_ELBO(),  # type: ignore
+            loss=pyro.infer.TraceMeanField_ELBO(
+                retain_graph=True,
+                num_particles=num_particles,
+                vectorize_particles=True,
+            ),
         )
 
         # TOOD: Preprocess data
-        data = self._model.values
+        data = data_dict
+        # data = self._model.values
 
         self.losses = []
         time_start = timer()
+        verbose_time_start = time_start
         for i in range(epochs + 1):
             loss = svi.step(data=data)
             self.losses.append(loss)
@@ -514,26 +598,43 @@ class FactorModel(PyroModule):
             if i % verbose_epochs == 0:
                 log = f"Epoch {i:>6}: {loss:>14.2f} \t"
                 if i >= 1:
-                    log += f"| {100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:7.2f}%"
-                    log += f"| {(timer() - time_start):.2f}s"
+                    log += f"| {100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:>6.2f}%\t"
+                    log += f"| {(timer() - verbose_time_start):>6.2f}s"
+
+                verbose_time_start = timer()
 
                 print(log)
 
         self._is_trained = True
         print("Training finished.")
 
-    def save(self, filename: str):
+        return self.losses
+
+    def save(self, filename: str, overwrite: bool = False):
         if not self._is_trained:
             raise ValueError("Model must be trained before saving.")
 
         if not isinstance(filename, str):
-            raise ValueError(f"Parameter 'filename' must be a string, got {type(filename)}.")
+            raise ValueError(
+                f"Parameter 'filename' must be a string, got {type(filename)}."
+            )
 
         # Verify that the user used a file ending
         _, file_ending = os.path.splitext(filename)
 
         if file_ending == "":
-            raise ValueError("No file ending provided. Please provide a file ending such as '.pkl'.")
+            raise ValueError(
+                "No file ending provided. Please provide a file ending such as '.pkl'."
+            )
+
+        file_name = filename.replace(".pkl", ".state_dict")
+        if Path(file_name).exists() and not overwrite:
+            raise ValueError(
+                f"File {filename} already exists. Set 'overwrite' to True to overwrite the file."
+            )
+
+        # AnnData causes some issues with old Pytorch versions
+        self._data = None
 
         with open(filename, "wb") as f:
             pickle.dump(self, f)

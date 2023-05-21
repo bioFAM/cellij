@@ -1,7 +1,6 @@
 class Group:
     """Top-level object to collect features or observations.
 
-
     Attributes
     ----------
     name : str

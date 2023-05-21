@@ -1,6 +1,6 @@
 import numpy as np
-from scipy.stats import pearsonr
 from scipy.optimize import linear_sum_assignment
+from scipy.stats import pearsonr
 from sklearn.metrics import pairwise_distances
 
 

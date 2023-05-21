@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import click
+
 from cellij.core.synthetic import DataGenerator
 
 
