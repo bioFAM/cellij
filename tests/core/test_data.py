@@ -133,9 +133,26 @@ class core_TestClass(unittest.TestCase):
         assert isinstance(data, mu.MuData)
         assert data.n_obs == 437
         assert data.n_vars == 48
-        assert all(
-            [
-                col in data.obs.columns
-                for col in ["n_cells", "division", "division_scaled", "label"]
-            ]
-        )
+        assert all(["n_cells", "division", "division_scaled", "label"] in data.obs.columns)
+
+    def test_obsnames_are_not_sorted_on_change(self):
+        """Checks that indicies are not alphabetically sorted.
+
+        The previous sorting logic would result in indicies like ["0", "1", "10", "2"],
+        which could be confusing to the user. So now this order is retained so that it
+        looks like ["0", "1", "2", "10"].
+        """
+        n_samples = 11
+        n_features = [1, 1, 1]
+        ad_dict = {}
+        for offset, nf in enumerate(n_features):
+            arr = np.tile(np.array(list(range(n_samples))), (nf, 1)) + offset*10
+            adata = anndata.AnnData(arr.T, dtype=np.float32)
+            adata.var_names = str(offset) + "_" + adata.var_names
+            ad_dict[f"view_{offset}"] = adata
+
+        mdata = mu.MuData(ad_dict)
+        model = cellij.core.models.MOFA(n_factors=5, sparsity_prior=None)
+        model.add_data(data=mdata, na_strategy=None)
+
+        assert list(model._data.index)[-1] == "10"
