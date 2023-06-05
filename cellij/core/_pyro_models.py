@@ -17,6 +17,8 @@ class Generative(PyroModule):
         feature_dict: Dict[str, int],
         likelihoods: Dict[str, str],
         device: str = None,
+        gp = None,
+        covariate = None,
     ):
         super().__init__(name="Generative")
         self.n_samples = n_samples
@@ -25,6 +27,8 @@ class Generative(PyroModule):
         self.n_feature_groups = len(feature_dict)
         self.likelihoods = likelihoods
         self.device = device
+        self.gp = gp
+        self.covariate = covariate
 
         self.sample_dict = {}
 
@@ -100,10 +104,18 @@ class Generative(PyroModule):
     def forward(self, data: torch.Tensor = None, **kwargs):
         plates = self.get_plates()
 
-        with plates["sample"], plates["factor"]:
-            self.sample_latent()
+        if self.gp is None:
+            with plates["factor"], plates["sample"]:
+                self.sample_latent() # z
+        else:
+            with plates["factor"], plates["sample"]:
+                sample = pyro.sample(
+                    "z",
+                    self.gp.pyro_model(self.covariate),
+                ).view(-1, self.n_samples, self.n_factors, 1)
+            return sample
 
-        for feature_group, _ in self.feature_dict.items():
+        for feature_group in self.feature_dict.keys():
             self.sample_feature_group(feature_group=feature_group)
             with plates["factor"]:
                 self.sample_feature_group_factor(feature_group=feature_group)
@@ -126,17 +138,30 @@ class NormalGenerative(Generative):
         n_factors: int,
         feature_dict: Dict[str, int],
         likelihoods: Dict[str, str],
+        gp = None,
+        covariate = None,
         device: str = None,
     ):
-        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
+        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device, gp, covariate)
 
     def sample_z(self):
+        
+        # if self.gp is None:
+        
         return self._sample_site(
             "z",
             dist.Normal,
             dist_kwargs={"loc": torch.zeros(1), "scale": torch.ones(1)},
             out_shape=self.get_latent_shape(),
         )
+        
+        # else:
+        #     sample = pyro.sample(
+        #             "z",
+        #             self.gp.pyro_model(self.covariate),
+        #         ).view(self.get_latent_shape())
+        #     self.sample_dict["z"] = sample
+        #     return sample
 
     def sample_w(self, feature_group: str = None):
         return self._sample_site(
@@ -167,14 +192,13 @@ class NormalGenerative(Generative):
         obs = None
         if data is not None:
             obs = data[feature_group].view(self.get_obs_shape(feature_group))
-
+        
         loc = torch.einsum(
             "...ikj,...ikj->...ij",
             self.sample_dict["z"],
             self.sample_dict[f"w_{feature_group}"],
         ).view(self.get_obs_shape(feature_group))
         scale = torch.sqrt(self.sample_dict[f"sigma_{feature_group}"])
-
         site_name = f"x_{feature_group}"
         with pyro.poutine.mask(mask=torch.isnan(obs) == 0):
             # https://forum.pyro.ai/t/poutine-nan-mask-not-working/3489

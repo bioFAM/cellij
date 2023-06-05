@@ -23,6 +23,9 @@ class MOFA(FactorModel):
     def __init__(self, n_factors, sparsity_prior="SpikeNSlab", **kwargs):
         prior = NormalGenerative
         guide = "AutoNormal"
+        if sparsity_prior == "Normal":
+            prior = NormalGenerative
+            guide = NormalGuide
         if sparsity_prior == "Lasso":
             prior = LassoGenerative
             guide = NormalGuide
@@ -46,3 +49,21 @@ class MOFA(FactorModel):
         kwargs = {**mofa_defaults, **kwargs}
 
         super(MOFA, self).__init__(n_factors=n_factors, **kwargs)
+
+class SimpleGP(FactorModel):
+    """Model for Multi-Omics Factor Analysis with additional sparsity priors.
+
+    Based on:
+    - Multi-Omics Factor Analysis-a framework for unsupervised integration of multi-omics data sets
+        by Argelaguet, R. et al. (2018)
+    - MOFA+: a statistical framework for comprehensive integration of multi-modal single-cell data
+        by Argelaguet, R. et al. (2020)
+    """
+
+    def __init__(self, n_factors, **kwargs):
+        prior = NormalGenerative
+        guide = NormalGuide
+
+        kwargs = {"model": prior, "guide": guide, **kwargs}
+
+        super(SimpleGP, self).__init__(n_factors=n_factors, **kwargs)

@@ -158,7 +158,7 @@ class Guide(PyroModule):
         """Approximate posterior."""
         plates = self.model.get_plates()
 
-        with plates["sample"], plates["factor"]:
+        with plates["factor"], plates["sample"]:
             self.sample_latent()
 
         for feature_group, _ in self.model.feature_dict.items():
@@ -176,15 +176,17 @@ class Guide(PyroModule):
 
 class NormalGuide(Guide):
     def __init__(
-        self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
+        self, model, init_loc: float = 0, init_scale: float = 0.1, device=None, gp = None, covariate = None
     ):
         super().__init__(model, init_loc, init_scale, device)
+        self.gp = gp
+        self.covariate = covariate
 
     def setup_shapes(self):
         """Setup parameters and sampling sites."""
         self.site_to_shape["z"] = self.model.get_latent_shape()[1:]
 
-        for feature_group, _ in self.model.feature_dict.items():
+        for feature_group in self.model.feature_dict.keys():
             self.site_to_shape[f"w_{feature_group}"] = self.model.get_weight_shape(
                 feature_group
             )[1:]
@@ -195,7 +197,13 @@ class NormalGuide(Guide):
         return super().setup_shapes()
 
     def sample_z(self):
-        return self._sample_normal("z")
+        if self.gp is None:
+            return self._sample_normal("z")
+        else:
+            pyro.sample(
+                    "z",
+                    self.gp.pyro_guide(self.covariate),
+            )
 
     def sample_w(self, feature_group=None):
         return self._sample_normal(f"w_{feature_group}")
