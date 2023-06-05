@@ -133,7 +133,7 @@ class core_TestClass(unittest.TestCase):
         assert isinstance(data, mu.MuData)
         assert data.n_obs == 437
         assert data.n_vars == 48
-        assert all(["n_cells", "division", "division_scaled", "label"] in data.obs.columns)
+        assert all(column in data.obs.columns for column in ["n_cells", "division", "division_scaled", "label"])
 
     def test_obsnames_are_not_sorted_on_change(self):
         """Checks that indicies are not alphabetically sorted.
@@ -155,4 +155,5 @@ class core_TestClass(unittest.TestCase):
         model = cellij.core.models.MOFA(n_factors=5, sparsity_prior=None)
         model.add_data(data=mdata, na_strategy=None)
 
-        assert list(model._data.index)[-1] == "10"
+        # verify that the last element hasn't been moved to the front
+        assert model._data.values[10, 0] == 10
