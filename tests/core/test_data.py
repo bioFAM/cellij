@@ -133,7 +133,10 @@ class core_TestClass(unittest.TestCase):
         assert isinstance(data, mu.MuData)
         assert data.n_obs == 437
         assert data.n_vars == 48
-        assert all(column in data.obs.columns for column in ["n_cells", "division", "division_scaled", "label"])
+        assert all(
+            column in data.obs.columns
+            for column in ["n_cells", "division", "division_scaled", "label"]
+        )
 
     def test_obsnames_are_not_sorted_on_change(self):
         """Checks that indicies are not alphabetically sorted.
@@ -146,14 +149,15 @@ class core_TestClass(unittest.TestCase):
         n_features = [1, 1, 1]
         ad_dict = {}
         for offset, nf in enumerate(n_features):
-            arr = np.tile(np.array(list(range(n_samples))), (nf, 1)) + offset*10
+            arr = np.tile(np.array(list(range(n_samples))), (nf, 1)) + offset * 10
             adata = anndata.AnnData(arr.T, dtype=np.float32)
-            adata.var_names = str(offset) + "_" + adata.var_names
+            adata.var_names = [f"{offset}_{name}" for name in adata.var_names]
             ad_dict[f"view_{offset}"] = adata
 
         mdata = mu.MuData(ad_dict)
-        model = cellij.core.models.MOFA(n_factors=5, sparsity_prior=None)
+        model = cellij.core.models.MOFA(n_factors=5)
         model.add_data(data=mdata, na_strategy=None)
 
         # verify that the last element hasn't been moved to the front
         assert model._data.values[10, 0] == 10
+        assert all(model._data.values[:,0] == list(range(n_samples)))
