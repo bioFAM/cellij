@@ -159,5 +159,4 @@ class core_TestClass(unittest.TestCase):
         model.add_data(data=mdata, na_strategy=None)
 
         # verify that the last element hasn't been moved to the front
-        assert model._data.values[10, 0] == 10
         assert all(model._data.values[:,0] == list(range(n_samples)))
