@@ -530,7 +530,7 @@ class FactorModel(PyroModule):
             k: len(feature_idx) for k, feature_idx in self._data._feature_idx.items()
         }
         data_dict = {
-            k: torch.Tensor(self._data._values[:, feature_idx]).to(self.device)
+            k: torch.Tensor(self._data._values[:, feature_idx], device=self.device)
             for k, feature_idx in self._data._feature_idx.items()
         }
 
