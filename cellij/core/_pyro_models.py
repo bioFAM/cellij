@@ -6,6 +6,8 @@ import pyro.distributions as dist
 import torch
 from pyro.nn import PyroModule
 
+from cellij.core._pyro_priors import Horseshoe
+
 logger = logging.getLogger(__name__)
 
 
@@ -232,6 +234,30 @@ class NonnegativeGenerative(NormalGenerative):
             dist.Normal,
             dist_kwargs={"loc": torch.zeros(1), "scale": torch.ones(1)},
             link_fn=torch.nn.functional.relu,
+            out_shape=self.get_weight_shape(feature_group),
+        )
+
+
+class HorseshoeStandaloneGenerative(NormalGenerative):
+    def __init__(
+        self,
+        n_samples: int,
+        n_factors: int,
+        feature_dict: Dict[str, int],
+        likelihoods: Dict[str, str],
+        lambda_scale: float = 1.0,
+        device: str = None,
+    ):
+        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
+        self.lambda_scale = lambda_scale
+
+    def sample_w(self, feature_group: str = None):
+        return self._sample_site(
+            f"w_{feature_group}",
+            Horseshoe,
+            dist_kwargs={
+                "scale": torch.tensor(self.lambda_scale),
+            },
             out_shape=self.get_weight_shape(feature_group),
         )
 
