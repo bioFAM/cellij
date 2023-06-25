@@ -1,3 +1,4 @@
+import logging
 import os
 import pickle
 from pathlib import Path
@@ -16,6 +17,8 @@ from pyro.nn import PyroModule
 import cellij
 from cellij.core._data import DataContainer
 from cellij.core.utils_training import EarlyStopper
+
+logger = logging.getLogger(__name__)
 
 
 class FactorModel(PyroModule):
@@ -83,7 +86,15 @@ class FactorModel(PyroModule):
         self._model = model
         self._n_factors = n_factors
         self._dtype = dtype
-        self._device = device
+
+        if "cuda" in str(device) and not torch.cuda.is_available():
+            logger.warning(
+                f"Device `{device}` not available, running all computations on the CPU."
+            )
+            device = "cpu"
+        self._device = torch.device(device)
+        self.to(self._device)
+
         self._data = DataContainer()
         self._is_trained = False
         self._feature_groups = {}
@@ -153,11 +164,11 @@ class FactorModel(PyroModule):
 
     @property
     def device(self):
-        pass
+        return self._device
 
     @device.setter
     def device(self, device):
-        pass
+        self._device = device
 
     @property
     def data(self):
@@ -519,7 +530,7 @@ class FactorModel(PyroModule):
             k: len(feature_idx) for k, feature_idx in self._data._feature_idx.items()
         }
         data_dict = {
-            k: torch.Tensor(self._data._values[:, feature_idx])
+            k: torch.Tensor(self._data._values[:, feature_idx], device=self.device)
             for k, feature_idx in self._data._feature_idx.items()
         }
 
@@ -529,6 +540,7 @@ class FactorModel(PyroModule):
             n_factors=self.n_factors,
             feature_dict=feature_dict,
             likelihoods=None,
+            device=self.device,
             **self._kwargs,
         )
 

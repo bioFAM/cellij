@@ -16,7 +16,6 @@ class Guide(PyroModule):
         model,
         init_loc: float = 0.0,
         init_scale: float = 0.1,
-        device=None,
     ):
         super().__init__(name="Guide")
         self.model = model
@@ -25,7 +24,7 @@ class Guide(PyroModule):
 
         self.init_loc = init_loc
         self.init_scale = init_scale
-        self.device = device
+        self.device = model.device
 
         self.site_to_shape = {}
         self.sample_dict = {}
@@ -175,10 +174,8 @@ class Guide(PyroModule):
 
 
 class NormalGuide(Guide):
-    def __init__(
-        self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
-    ):
-        super().__init__(model, init_loc, init_scale, device)
+    def __init__(self, model, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__(model, init_loc, init_scale)
 
     def setup_shapes(self):
         """Setup parameters and sampling sites."""
@@ -214,10 +211,8 @@ class NormalGuide(Guide):
 
 
 class HorseshoeGuide(NormalGuide):
-    def __init__(
-        self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
-    ):
-        super().__init__(model, init_loc, init_scale, device)
+    def __init__(self, model, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__(model, init_loc, init_scale)
 
     def setup_shapes(self):
         for feature_group, _ in self.model.feature_dict.items():
@@ -264,10 +259,8 @@ class HorseshoeGuide(NormalGuide):
 
 
 class NonnegativeGuide(NormalGuide):
-    def __init__(
-        self, model, init_loc: float = 0, init_scale: float = 0.1, device=None
-    ):
-        super().__init__(model, init_loc, init_scale, device)
+    def __init__(self, model, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__(model, init_loc, init_scale)
 
     def sample_w(self, feature_group=None):
         return self._sample_log_normal(f"w_{feature_group}")
