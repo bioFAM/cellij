@@ -32,6 +32,15 @@ class Generative(PyroModule):
 
         self.sample_dict = {}
 
+    def _zeros(self, size):
+        return torch.zeros(size, device=self.device)
+
+    def _ones(self, size):
+        return torch.ones(size, device=self.device)
+
+    def _const(self, value, size=1):
+        return value * self._ones(size)
+
     def get_n_features(self, feature_group: str = None):
         return self.feature_dict[feature_group]
 
@@ -151,7 +160,7 @@ class NormalGenerative(Generative):
         return self._sample_site(
             "z",
             dist.Normal,
-            dist_kwargs={"loc": torch.zeros(1), "scale": torch.ones(1)},
+            dist_kwargs={"loc": self._zeros(1), "scale": self._ones(1)},
             out_shape=self.get_latent_shape(),
         )
         
@@ -167,7 +176,7 @@ class NormalGenerative(Generative):
         return self._sample_site(
             f"w_{feature_group}",
             dist.Normal,
-            dist_kwargs={"loc": torch.zeros(1), "scale": torch.ones(1)},
+            dist_kwargs={"loc": self._zeros(1), "scale": self._ones(1)},
             out_shape=self.get_weight_shape(feature_group),
         )
 
@@ -175,7 +184,7 @@ class NormalGenerative(Generative):
         return self._sample_site(
             f"sigma_{feature_group}",
             dist.InverseGamma,
-            dist_kwargs={"concentration": torch.tensor(1.0), "rate": torch.tensor(1.0)},
+            dist_kwargs={"concentration": self._ones(1), "rate": self._ones(1)},
             out_shape=self.get_feature_shape(feature_group),
         )
 
@@ -204,7 +213,7 @@ class NormalGenerative(Generative):
             # https://forum.pyro.ai/t/poutine-nan-mask-not-working/3489
             # Assign temporary values to the missing data, not used
             # anyway due to masking.
-            masked_data = torch.nan_to_num(obs, nan=3.141)
+            masked_data = torch.nan_to_num(obs, nan=0.0)
 
             self.sample_dict[site_name] = pyro.sample(
                 site_name,
@@ -232,8 +241,8 @@ class LassoGenerative(NormalGenerative):
             f"w_{feature_group}",
             dist.SoftLaplace,
             dist_kwargs={
-                "loc": torch.zeros(1),
-                "scale": torch.tensor(self.lasso_scale),
+                "loc": self._zeros(1),
+                "scale": self._const(self.lasso_scale),
             },
             out_shape=self.get_weight_shape(feature_group),
         )
@@ -254,7 +263,7 @@ class NonnegativeGenerative(NormalGenerative):
         return self._sample_site(
             f"w_{feature_group}",
             dist.Normal,
-            dist_kwargs={"loc": torch.zeros(1), "scale": torch.ones(1)},
+            dist_kwargs={"loc": self._zeros(1), "scale": self._ones(1)},
             link_fn=torch.nn.functional.relu,
             out_shape=self.get_weight_shape(feature_group),
         )
@@ -287,13 +296,13 @@ class HorseshoeGenerative(NormalGenerative):
         site_name = f"tau_{feature_group}"
         if self.delta_tau:
             self.sample_dict[site_name] = pyro.deterministic(
-                site_name, torch.tensor(self.tau_scale)
+                site_name, self._const(self.tau_scale)
             )
         else:
             self._sample_site(
                 site_name,
                 dist.HalfCauchy,
-                dist_kwargs={"scale": torch.tensor(self.tau_scale)},
+                dist_kwargs={"scale": self._const(self.tau_scale)},
                 out_shape=self.get_feature_group_shape(),
             )
         return self.sample_dict[site_name]
@@ -302,7 +311,7 @@ class HorseshoeGenerative(NormalGenerative):
         return self._sample_site(
             f"theta_{feature_group}",
             dist.HalfCauchy,
-            dist_kwargs={"scale": torch.tensor(self.theta_scale)},
+            dist_kwargs={"scale": self._const(self.theta_scale)},
             out_shape=self.get_factor_shape(),
         )
 
@@ -310,7 +319,7 @@ class HorseshoeGenerative(NormalGenerative):
         return self._sample_site(
             f"lambda_{feature_group}",
             dist.HalfCauchy,
-            dist_kwargs={"scale": torch.tensor(self.lambda_scale)},
+            dist_kwargs={"scale": self._const(self.lambda_scale)},
             out_shape=self.get_weight_shape(feature_group=feature_group),
         )
 
@@ -318,7 +327,7 @@ class HorseshoeGenerative(NormalGenerative):
         return self._sample_site(
             f"caux_{feature_group}",
             dist.InverseGamma,
-            dist_kwargs={"concentration": torch.tensor(0.5), "rate": torch.tensor(0.5)},
+            dist_kwargs={"concentration": self._const(0.5), "rate": self._const(0.5)},
             out_shape=self.get_weight_shape(feature_group=feature_group),
         )
 
@@ -327,7 +336,7 @@ class HorseshoeGenerative(NormalGenerative):
             f"w_{feature_group}",
             dist.Normal,
             dist_kwargs={
-                "loc": torch.zeros(1),
+                "loc": self._zeros(1),
                 "scale": self.sample_dict[f"lambda_{feature_group}"],
             },
             out_shape=self.get_weight_shape(feature_group=feature_group),
@@ -381,8 +390,8 @@ class SpikeAndSlabGenerative(NormalGenerative):
             f"theta_{feature_group}",
             dist.Beta,
             dist_kwargs={
-                "concentration1": torch.tensor(0.5),
-                "concentration0": torch.tensor(0.5),
+                "concentration1": self._const(0.5),
+                "concentration0": self._const(0.5),
             },
             out_shape=self.get_factor_shape(),
         )
@@ -391,14 +400,14 @@ class SpikeAndSlabGenerative(NormalGenerative):
         return self._sample_site(
             f"alpha_{feature_group}",
             dist.InverseGamma,
-            dist_kwargs={"concentration": torch.tensor(0.5), "rate": torch.tensor(0.5)},
+            dist_kwargs={"concentration": self._const(0.5), "rate": self._const(0.5)},
             out_shape=self.get_factor_shape(),
         )
 
     def sample_lambda(self, feature_group: str = None):
         dist_kwargs = {"probs": self.sample_dict[f"theta_{feature_group}"]}
         if self.relaxed_bernoulli:
-            dist_kwargs["temperature"] = torch.tensor(self.temperature)
+            dist_kwargs["temperature"] = self._const(self.temperature)
 
         return self._sample_site(
             f"lambda_{feature_group}",
@@ -412,7 +421,7 @@ class SpikeAndSlabGenerative(NormalGenerative):
             f"w_{feature_group}",
             dist.Normal,
             dist_kwargs={
-                "loc": torch.zeros(1),
+                "loc": self._zeros(1),
                 "scale": self.sample_dict[f"alpha_{feature_group}"],
             },
             out_shape=self.get_weight_shape(feature_group=feature_group),
@@ -458,8 +467,8 @@ class SpikeAndSlabLassoGenerative(SpikeAndSlabGenerative):
             f"w_spike_{feature_group}",
             dist.SoftLaplace,
             dist_kwargs={
-                "loc": torch.zeros(1),
-                "scale": torch.tensor(self.lambda_spike),
+                "loc": self._zeros(1),
+                "scale": self._const(self.lambda_spike),
             },
             out_shape=self.get_weight_shape(feature_group=feature_group),
         )
@@ -468,8 +477,8 @@ class SpikeAndSlabLassoGenerative(SpikeAndSlabGenerative):
             f"w_slab_{feature_group}",
             dist.SoftLaplace,
             dist_kwargs={
-                "loc": torch.zeros(1),
-                "scale": torch.tensor(self.lambda_slab),
+                "loc": self._zeros(1),
+                "scale": self._const(self.lambda_slab),
             },
             out_shape=self.get_weight_shape(feature_group=feature_group),
         )
@@ -522,7 +531,7 @@ class SpikeAndSlabLassoGenerative(SpikeAndSlabGenerative):
 #             self.get_w_shape(feature_group),
 #             dist.Laplace,
 #             dist_kwargs={
-#                 "loc": torch.zeros(1),
+#                 "loc": self._zeros(1),
 #                 "scale": torch.tensor(scale),
 #             },
 #         )

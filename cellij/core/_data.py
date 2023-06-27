@@ -116,15 +116,11 @@ class DataContainer:
     def merge_data(self, **kwargs):
         """Merges all feature_groups into a single tensor."""
         feature_groups = {}
+        obs_names = []
         for name in self._names:
-            feature_groups[name] = self._feature_groups[name].to_df().sort_index()
+            feature_groups[name] = self._feature_groups[name].to_df()
 
-        merged_feature_group = reduce(
-            lambda left, right: pd.merge(
-                left, right, left_index=True, right_index=True, how="outer"
-            ),
-            feature_groups.values(),
-        )
+        merged_feature_group = pd.concat(list(feature_groups.values()), axis=1, join='outer')
         merged_obs_names = merged_feature_group.index.to_list()
         merged_feature_names = merged_feature_group.columns
 
