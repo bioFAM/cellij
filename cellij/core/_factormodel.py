@@ -391,11 +391,12 @@ class FactorModel(PyroModule):
                     raise ValueError(
                         f"Parameter 'views' must be in {list(self.data._names)}."
                     )
-            elif isinstance(views, list):
-                if not all([view in self.data._names for view in views]):
-                    raise ValueError(
-                        f"All elements in 'views' must be in {list(self.data._names)}."
-                    )
+            elif isinstance(views, list) and not all(
+                [view in self.data._names for view in views]
+            ):
+                raise ValueError(
+                    f"All elements in 'views' must be in {list(self.data._names)}."
+                )
 
             for view in views:
                 key = "FactorModel._guide." + param + "." + name
