@@ -325,7 +325,7 @@ class FactorModel(PyroModule):
         views: Optional[Union[str, List[str]]] = "all",
         groups: Optional[Union[str, List[str]]] = "all",
         format: str = "numpy",
-    ) -> np.ndarray | torch.Tensor:
+    ) -> np.ndarray | torch.FloatTensor:
         """Pulls a parameter from the pyro parameter storage.
 
         TODO: Get all parameters, but in a dict.
