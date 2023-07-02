@@ -325,11 +325,12 @@ class FactorModel(PyroModule):
         views: Optional[Union[str, List[str]]] = "all",
         groups: Optional[Union[str, List[str]]] = "all",
         format: str = "numpy",
-    ) -> np.ndarray | torch.FloatTensor:
+    ) -> np.ndarray:
         """Pulls a parameter from the pyro parameter storage.
 
         TODO: Get all parameters, but in a dict.
         TODO: Add full support for group selection.
+        TODO: Add torch.FloatTensor return type hint
 
         Parameters
         ----------
