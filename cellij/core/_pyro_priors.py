@@ -21,12 +21,12 @@ class Horseshoe(TorchDistribution):
 
     def expand(self, batch_shape, _instance=None):
         new = self._get_checked_instance(Horseshoe, _instance)
-        batch_shape = torch.Size(batch_shape)
-        new.scale = self.scale.expand(batch_shape)
-        super(Horseshoe, new).__init__(batch_shape, validate_args=False)
+        Horseshoe.__init__(
+            new, scale=self.scale.expand(torch.Size(batch_shape)), validate_args=False
+        )
         new._validate_args = self._validate_args
         return new
-    
+
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
@@ -36,19 +36,19 @@ class Horseshoe(TorchDistribution):
         h_inf = 1.0801359952503342  #  (1-g)*(g*g-6*g+12) / (3*g * (2-g)**2 * b)
         q = 20.0 / 47.0 * xx**1.0919284281983377
         h = 1.0 / (1 + xx ** (1.5)) + h_inf * q / (1 + q)
-        c = -0.5 * np.log1p(2 * np.pi**3) - torch.log1p(g * self.scale)
-        z = np.log1p(-g) - np.log1p(g)
+        c = -0.5 * np.log(2 * np.pi**3) - torch.log(g * self.scale)
+        z = np.log1p(-g) - np.log(g)
         softplus_bij = torch.nn.Softplus()
         return (
             -softplus_bij(z - xx / (1 - g))
-            + torch.log1p(torch.log1p(g / xx - (1 - g) / (h + b * xx) ** 2))
+            + torch.log(torch.log1p(g / xx - (1 - g) / (h + b * xx) ** 2))
             + c
         )
 
     def rsample(self, sample_shape=torch.Size()):
         local_shrinkage = self._half_cauchy.sample(sample_shape)
         shrinkage = self.scale * local_shrinkage
-        sampled = self._normal.rsample(sample_shape)
+        sampled = self._normal.sample(sample_shape)
         return sampled * shrinkage
 
     def cdf(self, value):
