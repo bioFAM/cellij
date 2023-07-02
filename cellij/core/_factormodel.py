@@ -84,48 +84,17 @@ class FactorModel(PyroModule):
         super().__init__(name="FactorModel")
 
         self._model = model
+        self._guide = self._setup_guide(guide, kwargs)
         self._n_factors = n_factors
         self._dtype = dtype
 
-        if "cuda" in str(device) and not torch.cuda.is_available():
-            logger.warning(
-                f"Device `{device}` not available, running all computations on the CPU."
-            )
-            device = "cpu"
-        self._device = torch.device(device)
-        self.to(self._device)
+        self.device = self._setup_device(device)
+        self.to(self.device)
 
         self._data = DataContainer()
         self._is_trained = False
         self._feature_groups = {}
         self._obs_groups = {}
-
-        # # Setup
-        if isinstance(guide, str):
-            # Implement some default guides
-            guide_args = {}
-            if "init_loc_fn" in kwargs:
-                guide_args["init_loc_fn"] = kwargs["init_loc_fn"]
-
-            if guide == "AutoDelta":
-                self._guide = pyro.infer.autoguide.AutoDelta  # type: ignore
-            elif guide == "AutoNormal":
-                if "init_scale" in kwargs:
-                    guide_args["init_scale"] = kwargs["init_scale"]
-                self._guide = pyro.infer.autoguide.AutoNormal  # type: ignore
-            elif guide == "AutoLowRankMultivariateNormal":
-                if "init_scale" in kwargs:
-                    guide_args["init_scale"] = kwargs["init_scale"]
-                if "rank" in kwargs:
-                    guide_args["rank"] = kwargs["rank"]
-                self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal  # type: ignore
-        elif isinstance(guide, pyro.infer.autoguide.AutoGuide):  # type: ignore
-            self._guide = guide
-        elif issubclass(guide, cellij.core._pyro_guides.Guide):
-            print("Using custom guide.")
-            self._guide = guide
-        else:
-            raise ValueError(f"Unknown guide: {guide}")
 
         # Save kwargs for later
         self._kwargs = kwargs
@@ -208,6 +177,52 @@ class FactorModel(PyroModule):
         raise AttributeError(
             "Use `add_obs_group()`, `set_obs_group` or `remove_obs_group()` to modify this property."
         )
+
+    def _setup_guide(self, guide, kwargs):
+        # Setup
+        if isinstance(guide, str):
+            # Implement some default guides
+            guide_args = {}
+            if "init_loc_fn" in kwargs:
+                guide_args["init_loc_fn"] = kwargs["init_loc_fn"]
+
+            if guide == "AutoDelta":
+                self._guide = pyro.infer.autoguide.AutoDelta  # type: ignore
+            elif guide == "AutoNormal":
+                if "init_scale" in kwargs:
+                    guide_args["init_scale"] = kwargs["init_scale"]
+                self._guide = pyro.infer.autoguide.AutoNormal  # type: ignore
+            elif guide == "AutoLowRankMultivariateNormal":
+                if "init_scale" in kwargs:
+                    guide_args["init_scale"] = kwargs["init_scale"]
+                if "rank" in kwargs:
+                    guide_args["rank"] = kwargs["rank"]
+                self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal  # type: ignore
+        elif isinstance(guide, pyro.infer.autoguide.AutoGuide):  # type: ignore
+            self._guide = guide
+        elif issubclass(guide, cellij.core._pyro_guides.Guide):
+            print("Using custom guide.")
+            self._guide = guide
+        else:
+            raise ValueError(f"Unknown guide: {guide}")
+
+    def _setup_device(self, device):
+        cuda_available = torch.cuda.is_available()
+
+        try:
+            mps_available = torch.backends.mps.is_available()
+        except AttributeError:
+            mps_available = False
+
+        device = str(device).lower()
+        if ("cuda" in device and not cuda_available) or (
+            device == "mps" and not mps_available
+        ):
+            logger.warning(f"`{device}` not available...")
+            device = "cpu"
+
+        logger.info(f"Running all computations on `{device}`.")
+        return torch.device(device)
 
     def add_data(
         self,
