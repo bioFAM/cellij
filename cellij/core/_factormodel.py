@@ -329,6 +329,8 @@ class FactorModel(PyroModule):
         """Pulls a parameter from the pyro parameter storage.
 
         TODO: Get all parameters, but in a dict.
+        TODO: Add full support for group selection.
+        TODO: Add torch.FloatTensor return type hint
 
         Parameters
         ----------
@@ -340,8 +342,9 @@ class FactorModel(PyroModule):
 
         Returns
         -------
-        parameter : torch.Tensor or numpy.ndarray
-            The parameter pulled from the pyro parameter storage.
+        parameter : dict
+            The parameters pulled from the pyro parameter storage.
+            Key Value Pairs are view name : variational param
         """
         if not isinstance(name, str):
             raise TypeError("Parameter 'name' must be of type str.")
@@ -379,59 +382,52 @@ class FactorModel(PyroModule):
         if format not in ["numpy", "torch"]:
             raise ValueError("Parameter 'format' must be in ['numpy', 'torch'].")
 
-        key = "FactorModel._guide." + param + "." + name
-
-        if key not in list(pyro.get_param_store().keys()):
-            raise ValueError(
-                f"Parameter '{key}' not found in parameter storage. Available choices are: {', '.join(list(pyro.get_param_store().keys()))}"
-            )
-
-        data = pyro.get_param_store()[key]
-
-        # TODO: Add full support for group selection.
-
         if views is not None:
-            if views != "all":
-                if isinstance(views, str):
-                    if views not in self.data._names:
-                        raise ValueError(
-                            f"Parameter 'views' must be in {list(self.data._names)}."
-                        )
+            result = {}
 
-                    result = data[..., self.data._feature_idx[views]]
+            if views == "all":
+                views = self.data._names
+            elif isinstance(views, str):
+                if views not in self.data._names:
+                    raise ValueError(
+                        f"Parameter 'views' must be in {list(self.data._names)}."
+                    )
+            elif isinstance(views, list) and not all(
+                [view in self.data._names for view in views]
+            ):
+                raise ValueError(
+                    f"All elements in 'views' must be in {list(self.data._names)}."
+                )
 
-                elif isinstance(views, list):
-                    if not all([view in self.data._names for view in views]):
-                        raise ValueError(
-                            f"All elements in 'views' must be in {list(self.data._names)}."
-                        )
+            for view in views:
+                key = "FactorModel._guide." + param + "." + name
+                if name == "w":
+                    key += "_" + view
 
-                    result = {}
-                    for view in views:
-                        result[view] = data[..., self.data._feature_idx[view]]
+                if key not in list(pyro.get_param_store().keys()):
+                    raise ValueError(
+                        f"Parameter '{key}' not found in parameter storage. Available choices are: {', '.join(list(pyro.get_param_store().keys()))}"
+                    )
 
-            elif views == "all":
-                result = data
+                data = pyro.get_param_store()[key]
 
-        if groups is not None:
-            if groups != "all":
-                raise NotImplementedError()
-            elif groups == "all":
-                result = data
+                result[view] = data.squeeze()
 
         if format == "numpy":
-            if result.is_cuda:
-                result = result.cpu()
-            result = result.detach().numpy()
+            for k, v in result.items():
+                if v.is_cuda:
+                    v = v.cpu()
+                if isinstance(v, torch.Tensor):
+                    result[k] = v.detach().numpy()
 
-        return result.squeeze()
+        return result
 
-    def get_weights(self, views: Union[str, List[str]] = "all", format="numpy"):
+    def get_weights(self, views: Union[str, List[str]] = "all", format: str = "numpy"):
         return self._get_from_param_storage(
             name="w", param="locs", views=views, groups=None, format=format
         )
 
-    def get_factors(self, groups: Union[str, List[str]] = "all", format="numpy"):
+    def get_factors(self, groups: Union[str, List[str]] = "all", format: str = "numpy"):
         return self._get_from_param_storage(
             name="z", param="locs", views=None, groups=groups, format=format
         )
@@ -530,7 +526,7 @@ class FactorModel(PyroModule):
             k: len(feature_idx) for k, feature_idx in self._data._feature_idx.items()
         }
         data_dict = {
-            k: torch.Tensor(self._data._values[:, feature_idx], device=self.device)
+            k: torch.tensor(self._data._values[:, feature_idx], device=self.device)
             for k, feature_idx in self._data._feature_idx.items()
         }
 
@@ -585,7 +581,7 @@ class FactorModel(PyroModule):
             guide=pyro.poutine.scale(self._guide, scale=scaling_constant),
             optim=optim,
             # loss=pyro.infer.Trace_ELBO(),  # type: ignore
-            loss=pyro.infer.TraceMeanField_ELBO(
+            loss=pyro.infer.Trace_ELBO(
                 retain_graph=True,
                 num_particles=num_particles,
                 vectorize_particles=True,
@@ -596,22 +592,23 @@ class FactorModel(PyroModule):
         data = data_dict
         # data = self._model.values
 
-        self.losses = []
+        self.train_loss_elbo = []
         time_start = timer()
         verbose_time_start = time_start
+        print("Training Model...")
         for i in range(epochs + 1):
             loss = svi.step(data=data)
-            self.losses.append(loss)
+            self.train_loss_elbo.append(loss)
 
             if early_stopping and earlystopper.step(loss):
                 print(f"Early stopping of training due to convergence at step {i}")
                 break
 
             if i % verbose_epochs == 0:
-                log = f"Epoch {i:>6}: {loss:>14.2f} \t"
+                log = f"- Epoch {i:>6}/{epochs} | Train Loss: {loss:>14.2f} \t"
                 if i >= 1:
-                    log += f"| {100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:>6.2f}%\t"
-                    log += f"| {(timer() - verbose_time_start):>6.2f}s"
+                    log += f"| Decrease: {100 - 100*self.train_loss_elbo[i]/self.train_loss_elbo[i - verbose_epochs]:>6.2f}%\t"
+                    log += f"| Time: {(timer() - verbose_time_start):>6.2f}s"
 
                 verbose_time_start = timer()
 
@@ -619,8 +616,8 @@ class FactorModel(PyroModule):
 
         self._is_trained = True
         print("Training finished.")
-
-        return self.losses
+        print(f"- Final loss: {loss:.2f}")
+        print(f"- Training took {(timer() - time_start):.2f}s")
 
     def save(self, filename: str, overwrite: bool = False):
         if not self._is_trained:
