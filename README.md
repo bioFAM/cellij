@@ -12,8 +12,28 @@ Cellij is a versatile factor analysis framework for rapidly building and trainin
 
 Cellij is designed for rapid prototyping of custom FA models, allowing users to efficiently define new models in an iterative fashion.
 ```
-TODO
+# First we create an instance of a MOFA class
+model = cellij.core.models.MOFA(n_factors=30, sparsity_prior="Horseshoe")
+
+# Afterwards, we need to add the data to the model
+model.add_data(data=mdata)
+
+# We call `.fit` to train the model
+model.fit(
+    likelihoods={
+        "mrna": "Normal",
+        "mutations": "Bernoulli",
+        "drugs": "Normal",
+        "methylation": "Normal",
+    },
+    epochs=20000,
+    verbose_epochs=500,
+    learning_rate=0.005,
+    early_stopping=True,
+    num_particles=10,
+)
 ```
+For a basic tutorial on real-world data, have a look at [this notebook](https://github.com/bioFAM/cellij/blob/main/notebooks/basic_example_mofa.ipynb).
 
 
 ## Getting started
