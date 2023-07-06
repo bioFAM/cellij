@@ -6,7 +6,15 @@
 [![codecov](https://codecov.io/github/bioFAM/cellij/branch/main/graph/badge.svg?token=IJ4UMMUIW9)](https://codecov.io/github/bioFAM/cellij)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg?style=flat-square)](https://github.com/psf/black)
 
-Implementation of a Modular Multi-Omics Factor Model Framework
+Cellij is a versatile factor analysis framework for rapidly building and training a wide range of factor analysis models for multi-omics data. Cellij builds upon a Bayesian FA skeleton that is designed to provide wide-ranging customisability at all levels, ranging from likelihoods and optimisation procedures to sparsity-inducing priors. 
+
+[![Cellij Logo](https://github.com/bioFAM/cellij/blob/main/docs/_static/schematic_view.png)](https://github.com/bioFAM/cellij)
+
+Cellij is designed for rapid prototyping of custom FA models, allowing users to efficiently define new models in an iterative fashion.
+```
+TODO
+```
+
 
 ## Getting started
 
@@ -41,15 +49,24 @@ See the [changelog][changelog].
 
 ## Contact
 
-For questions and help requests, you can reach out in the [scverse discourse][scverse-discourse].
 If you found a bug, please use the [issue tracker][issue-tracker].
 
 ## Citation
 
-> t.b.a
+If you use Cellij, please consider citing:
+```
+@article{bingham2019pyro,
+  author    = {Rohbeck, Martin and Qoku, Arber and Treis, Tim and Theis, Fabian J and Velten, Britta and Buettner, Florian and Stegle, Oliver},
+  title     = {Cellij: A Modular Factor Model Framework for Interpretable and Accelerated Multi-Omics Data Integration},
+  journal   = {XXX},
+  year      = {2023},
+  url       = {YYY}
+}
+```
 
-[scverse-discourse]: https://discourse.scverse.org/
-[issue-tracker]: https://github.com/timtreis/cellij/issues
+## Docs and Changelog
+
 [changelog]: https://cellij.readthedocs.io/latest/changelog.html
 [link-docs]: https://cellij.readthedocs.io
 [link-api]: https://cellij.readthedocs.io/latest/api.html
+
