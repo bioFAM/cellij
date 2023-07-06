@@ -179,29 +179,33 @@ class FactorModel(PyroModule):
         )
 
     def _setup_guide(self, guide, kwargs):
+        
+        
+        if isinstance(guide, str):
+
+            # Implement some default guides
+            if guide == "AutoDelta":
+                guide = pyro.infer.autoguide.AutoDelta  # type: ignore
+            if guide == "AutoNormal":
+                guide = pyro.infer.autoguide.AutoNormal  # type: ignore
+            if guide == "AutoLowRankMultivariateNormal":
+                guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal  # type: ignore
+
+            # TODO: return proper kwargs
+            return guide, {}
+    
+    
         guide_kwargs = {}
         # TODO: implement init_loc_fn instead of init_loc
         for arg in ["init_loc", "init_scale"]:
             if arg in kwargs:
                 guide_kwargs[arg] = kwargs[arg]
-
+        
         if issubclass(guide, cellij.core._pyro_guides.Guide):
             print("Using custom guide.")
             return guide, guide_kwargs
-
-        if not isinstance(guide, str):
-            raise ValueError(f"Unknown guide: {guide}")
-
-        # Implement some default guides
-        if guide == "AutoDelta":
-            guide = pyro.infer.autoguide.AutoDelta  # type: ignore
-        if guide == "AutoNormal":
-            guide = pyro.infer.autoguide.AutoNormal  # type: ignore
-        if guide == "AutoLowRankMultivariateNormal":
-            guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal  # type: ignore
-
-        # TODO: return proper kwargs
-        return guide, {}
+        
+        raise ValueError(f"Unknown guide: {guide}")
 
     def _setup_device(self, device):
         cuda_available = torch.cuda.is_available()
@@ -542,7 +546,7 @@ class FactorModel(PyroModule):
             k: len(feature_idx) for k, feature_idx in self._data._feature_idx.items()
         }
         data_dict = {
-            k: torch.Tensor(self._data._values[:, feature_idx], device=self.device)
+            k: torch.tensor(self._data._values[:, feature_idx], device=self.device)
             for k, feature_idx in self._data._feature_idx.items()
         }
 
