@@ -88,6 +88,7 @@ class FactorModel(PyroModule):
         self._n_factors = n_factors
         self._dtype = dtype
 
+
         self.device = self._setup_device(device)
         self.to(self.device)
 
