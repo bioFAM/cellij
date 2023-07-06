@@ -1,4 +1,6 @@
-[![Cellij Logo](https://github.com/bioFAM/cellij/blob/main/docs/_static/logo2.png)](https://github.com/bioFAM/cellij)
+<p align="center">
+    <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/logo2.png" alt="drawing" width="500"/>
+</p>
 
 # cellij
 
