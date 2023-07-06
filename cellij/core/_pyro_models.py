@@ -11,24 +11,14 @@ from cellij.core._pyro_priors import Horseshoe
 logger = logging.getLogger(__name__)
 
 
-class Generative(PyroModule):
-    def __init__(
-        self,
-        n_samples: int,
-        n_factors: int,
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
-        device=None,
-    ):
-        super().__init__(name="Generative")
-        self.n_samples = n_samples
-        self.n_factors = n_factors
-        self.feature_dict = feature_dict
-        self.n_feature_groups = len(feature_dict)
-        self.likelihoods = likelihoods
+class Prior(PyroModule):
+    def __init__(self, site_name: str, device=None):
+        super().__init__("Prior")
+        self.site_name = site_name
         self.device = device
 
-        self.sample_dict = {}
+    def sample():
+        raise NotImplementedError()
 
     def _zeros(self, size):
         return torch.zeros(size, device=self.device)
@@ -39,15 +29,73 @@ class Generative(PyroModule):
     def _const(self, value, size=1):
         return value * self._ones(size)
 
+
+class Generative(PyroModule):
+    def __init__(
+        self,
+        n_factors: int,
+        obs_dict: Dict[str, int],
+        feature_dict: Dict[str, int],
+        likelihoods: Dict[str, str],
+        weight_priors: Dict[str, str] = None,
+        factor_priors: Dict[str, str] = None,
+        device=None,
+    ):
+        super().__init__(name="Generative")
+        self.n_samples = sum(obs_dict.values())
+        self.n_factors = n_factors
+        self.feature_dict = feature_dict
+        self.obs_dict = obs_dict
+        self.n_feature_groups = len(feature_dict)
+        self.n_obs_groups = len(obs_dict)
+        self.likelihoods = likelihoods
+        self.device = device
+        self.weight_priors = {}
+        self.factor_priors = {}
+
+        for k, v in weight_priors.items():
+            # Replace strings with actuals priors
+            if v == "Horseshoe":
+                self.weight_priors[k] = HorseshoePrior(
+                    site_name=f"w_{k}",
+                    tau_scale=1.0,
+                    tau_delta=None,
+                    lambdas_scale=1.0,
+                    thetas_scale=1.0,
+                    device=self.device,
+                )
+            elif v == "Laplace":
+                self.weight_priors[k] = LaplacePrior(
+                    site_name=f"w_{k}", scale=1.0, device=self.device
+                )
+        for k, v in factor_priors.items():
+            # Replace strings with actuals priors
+            if v == "Horseshoe":
+                self.factor_priors[k] = HorseshoePrior(
+                    site_name=f"z_{k}",
+                    tau_scale=1.0,
+                    tau_delta=None,
+                    lambdas_scale=1.0,
+                    thetas_scale=1.0,
+                    device=self.device,
+                )
+            elif v == "Laplace":
+                self.factor_priors[k] = LaplacePrior(
+                    site_name=f"z_{k}", scale=1.0, device=self.device
+                )
+
     def get_n_features(self, feature_group: str = None):
         return self.feature_dict[feature_group]
 
+    def get_n_obs(self, obs_group: str = None):
+        return self.obs_dict[obs_group]
+
     def get_plates(self):
         plates = {
-            "sample": pyro.plate("sample", self.n_samples, dim=-3),
             "factor": pyro.plate("factor", self.n_factors, dim=-2),
         }
-
+        for obs_group, n_obs in self.obs_dict.items():
+            plates[f"obs_{obs_group}"] = pyro.plate(obs_group, n_obs, dim=-3)
         for feature_group, n_features in self.feature_dict.items():
             plates[f"feature_{feature_group}"] = pyro.plate(
                 feature_group, n_features, dim=-1
@@ -55,14 +103,11 @@ class Generative(PyroModule):
 
         return plates
 
-    def get_latent_shape(self):
-        return (-1, self.n_samples, self.n_factors, 1)
+    def get_factor_shape(self, obs_group: str = None):
+        return (-1, self.get_n_obs(obs_group), self.n_factors, 1)
 
     def get_feature_group_shape(self):
         return (-1, 1, 1, 1)
-
-    def get_factor_shape(self):
-        return (-1, 1, self.n_factors, 1)
 
     def get_weight_shape(self, feature_group: str = None):
         return (-1, 1, self.n_factors, self.get_n_features(feature_group))
@@ -70,8 +115,8 @@ class Generative(PyroModule):
     def get_feature_shape(self, feature_group: str = None):
         return (-1, 1, 1, self.get_n_features(feature_group))
 
-    def get_obs_shape(self, feature_group: str = None):
-        return (-1, self.n_samples, 1, self.get_n_features(feature_group))
+    def get_obs_shape(self, obs_group: str = None, feature_group: str = None):
+        return (-1, self.get_n_obs(obs_group), 1, self.get_n_features(feature_group))
 
     def _sample_site(
         self,
@@ -90,7 +135,7 @@ class Generative(PyroModule):
         self.sample_dict[site_name] = samples
         return samples
 
-    def sample_latent(self):
+    def sample_latent(self, obs_group: str = None):
         return None
 
     def sample_feature_group(self, feature_group: str = None):
@@ -105,48 +150,149 @@ class Generative(PyroModule):
     def sample_feature(self, feature_group: str = None):
         return None
 
-    def sample_obs(self, data, feature_group: str = None):
+    def sample_obs(self, data, obs_group: str = None, feature_group: str = None):
+        return None
+
+    def sample_obs_groups(self, obs_group: str = None):
+        return None
+
+    def sample_obs_group_factor(self, obs_group: str = None):
         return None
 
     def forward(self, data: torch.Tensor = None, **kwargs):
         plates = self.get_plates()
 
-        with plates["sample"], plates["factor"]:
-            self.sample_latent()
-
-        for feature_group, _ in self.feature_dict.items():
-            self.sample_feature_group(feature_group=feature_group)
+        for obs_group, factor_prior in self.factor_priors.items():
+            factor_prior.sample_global()
             with plates["factor"]:
-                self.sample_feature_group_factor(feature_group=feature_group)
-                with plates[f"feature_{feature_group}"]:
-                    self.sample_weight(feature_group=feature_group)
+                factor_prior.sample_inter()
+                with plates[f"factor_{obs_group}"]:
+                    factor_prior.local()
+
+        sigmas = {}
+        
+        for feature_group, weight_prior in self.weight_priors.items():
+            weight_prior.sample_global()
+            with plates["factor"]:
+                weight_prior.sample_inter()
+                with plates[f"weight_{feature_group}"]:
+                    weight_prior.local()
 
             with plates[f"feature_{feature_group}"]:
-                self.sample_feature(feature_group=feature_group)
+                sigmas[feature_group] = pyro.sample(
+                    f"sigma_{feature_group}",
+                    dist.InverseGamma(concentration=self._ones(1), rate=self._ones(1)),
+                )
 
-            with plates["sample"]:
-                self.sample_obs(data, feature_group=feature_group)
+        for obs_group, factor_prior in self.factor_priors.items():
+            for feature_group, weight_prior in self.weight_priors.items():
+                with plates[f"obs_{obs_group}"], plates[f"feature_{feature_group}"]:
+                    obs = None
+                    if data is not None:
+                        obs = data[obs_group][feature_group].view(
+                            self.get_obs_shape(obs_group, feature_group)
+                        )
 
-        return self.sample_dict
+                    loc = torch.einsum(
+                        "...ikj,...ikj->...ij",
+                        factor_prior.samples,
+                        weight_prior.samples,
+                    ).view(self.get_obs_shape(obs_group, feature_group))
+                    scale = torch.sqrt(sigmas[feature_group])
+
+                    site_name = f"x_{obs_group}_{feature_group}"
+                    with pyro.poutine.mask(mask=torch.isnan(obs) == 0):
+                        # https://forum.pyro.ai/t/poutine-nan-mask-not-working/3489
+                        # Assign temporary values to the missing data, not used
+                        # anyway due to masking.
+                        masked_data = torch.nan_to_num(obs, nan=0.0)
+
+                        self.sample_dict[site_name] = pyro.sample(
+                            site_name,
+                            dist.Normal(loc, scale),
+                            obs=masked_data,
+                            infer={"is_auxiliary": True},
+                        )
+
+
+class LaplacePrior(Prior):
+    def __init__(self, site_name: str, scale: float = 1.0, device=None):
+        super().__init__(site_name, device)
+        self.scale = self._const(scale)
+
+    def sample(self):
+        return pyro.sample(self.site_name, dist.SoftLaplace(self._zeros(1), self.scale))
+
+
+class HorseshoePrior(Prior):
+    def __init__(
+        self,
+        site_name: str,
+        tau_scale: float = None,
+        tau_delta: float = None,
+        lambdas_scale: float = 1.0,
+        thetas_scale: float = 1.0,
+        device=None,
+    ):
+        super().__init__(site_name, device)
+        if tau_scale is None and tau_delta is None:
+            raise ValueError("Either tau_scale or tau_delta must be specified")
+        if tau_scale is not None and tau_delta is not None:
+            raise ValueError("Only one of tau_scale or tau_delta can be specified")
+
+        if tau_scale:
+            self.tau_scale = self._const(tau_scale)
+        elif tau_delta:
+            self.tau_delta = self._const(tau_delta)
+        self.lambdas_scale = self._const(lambdas_scale)
+        self.thetas_scale = self._const(thetas_scale)
+
+        self.tau = None
+        self.thetas = None
+        self.lambdas = None
+        self.samples = None
+
+    def sample_tau(self):
+        if hasattr(self, "tau_scale"):
+            self.tau = pyro.sample(
+                self.site_name + ".tau", dist.HalfCauchy(self.tau_scale)
+            )
+        elif hasattr(self, "tau_delta"):
+            self.tau = pyro.deterministic(self.site_name + ".tau", self.tau_delta)
+
+    def sample_lambdas(self):
+        self.lambdas = pyro.sample(
+            self.site_name + ".lambdas", dist.HalfCauchy(self.lambdas_scale)
+        )
+
+    def sample_thetas(self):
+        self.thetas = pyro.sample(
+            self.site_name + ".thetas", dist.HalfCauchy(self.thetas_scale)
+        )
+
+    def sample(self):
+        self.samples = pyro.sample(
+            self.site_name, dist.Normal(0, self.tau * self.lambdas * self.thetas)
+        )
 
 
 class NormalGenerative(Generative):
     def __init__(
         self,
-        n_samples: int,
         n_factors: int,
+        obs_dict: Dict[str, int],
         feature_dict: Dict[str, int],
         likelihoods: Dict[str, str],
         device: str = None,
     ):
-        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
+        super().__init__(n_factors, obs_dict, feature_dict, likelihoods, device)
 
-    def sample_z(self):
+    def sample_z(self, obs_group: str = None):
         return self._sample_site(
-            "z",
+            f"z_{obs_group}",
             dist.Normal,
             dist_kwargs={"loc": self._zeros(1), "scale": self._ones(1)},
-            out_shape=self.get_latent_shape(),
+            out_shape=self.get_factor_shape(obs_group),
         )
 
     def sample_w(self, feature_group: str = None):
@@ -165,8 +311,8 @@ class NormalGenerative(Generative):
             out_shape=self.get_feature_shape(feature_group),
         )
 
-    def sample_latent(self):
-        return self.sample_z()
+    def sample_latent(self, obs_group: str = None):
+        return self.sample_z(obs_group=obs_group)
 
     def sample_weight(self, feature_group: str = None):
         return self.sample_w(feature_group=feature_group)
@@ -174,19 +320,21 @@ class NormalGenerative(Generative):
     def sample_feature(self, feature_group: str = None):
         return self.sample_sigma(feature_group=feature_group)
 
-    def sample_obs(self, data, feature_group: str = None):
+    def sample_obs(self, data, obs_group: str = None, feature_group: str = None):
         obs = None
         if data is not None:
-            obs = data[feature_group].view(self.get_obs_shape(feature_group))
+            obs = data[obs_group][feature_group].view(
+                self.get_obs_shape(obs_group, feature_group)
+            )
 
         loc = torch.einsum(
             "...ikj,...ikj->...ij",
-            self.sample_dict["z"],
+            self.sample_dict[f"z_{obs_group}"],
             self.sample_dict[f"w_{feature_group}"],
-        ).view(self.get_obs_shape(feature_group))
+        ).view(self.get_obs_shape(obs_group, feature_group))
         scale = torch.sqrt(self.sample_dict[f"sigma_{feature_group}"])
 
-        site_name = f"x_{feature_group}"
+        site_name = f"x_{obs_group}_{feature_group}"
         with pyro.poutine.mask(mask=torch.isnan(obs) == 0):
             # https://forum.pyro.ai/t/poutine-nan-mask-not-working/3489
             # Assign temporary values to the missing data, not used
@@ -204,14 +352,14 @@ class NormalGenerative(Generative):
 class LassoGenerative(NormalGenerative):
     def __init__(
         self,
-        n_samples: int,
         n_factors: int,
+        obs_dict: Dict[str, int],
         feature_dict: Dict[str, int],
         likelihoods: Dict[str, str],
         lasso_scale=0.1,
         device: str = None,
     ):
-        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
+        super().__init__(n_factors, obs_dict, feature_dict, likelihoods, device)
         self.lasso_scale = lasso_scale
 
     def sample_w(self, feature_group: str = None):
@@ -225,57 +373,23 @@ class LassoGenerative(NormalGenerative):
             out_shape=self.get_weight_shape(feature_group),
         )
 
-
-class NonnegativeGenerative(NormalGenerative):
-    def __init__(
-        self,
-        n_samples: int,
-        n_factors: int,
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
-        device: str = None,
-    ):
-        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
-
-    def sample_w(self, feature_group: str = None):
+    def sample_z(self, obs_group: str = None):
         return self._sample_site(
-            f"w_{feature_group}",
-            dist.Normal,
-            dist_kwargs={"loc": self._zeros(1), "scale": self._ones(1)},
-            link_fn=torch.nn.functional.relu,
-            out_shape=self.get_weight_shape(feature_group),
-        )
-
-
-class HorseshoeStandaloneGenerative(NormalGenerative):
-    def __init__(
-        self,
-        n_samples: int,
-        n_factors: int,
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
-        lambda_scale: float = 1.0,
-        device: str = None,
-    ):
-        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
-        self.lambda_scale = lambda_scale
-
-    def sample_w(self, feature_group: str = None):
-        return self._sample_site(
-            f"w_{feature_group}",
-            Horseshoe,
+            f"z_{obs_group}",
+            dist.SoftLaplace,
             dist_kwargs={
-                "scale": torch.tensor(self.lambda_scale),
+                "loc": self._zeros(1),
+                "scale": self._const(self.lasso_scale),
             },
-            out_shape=self.get_weight_shape(feature_group),
+            out_shape=self.get_factor_shape(obs_group),
         )
 
 
 class HorseshoeGenerative(NormalGenerative):
     def __init__(
         self,
-        n_samples: int,
         n_factors: int,
+        obs_dict: Dict[str, int],
         feature_dict: Dict[str, int],
         likelihoods: Dict[str, str],
         tau_scale: float = 1.0,
@@ -286,7 +400,7 @@ class HorseshoeGenerative(NormalGenerative):
         ard: bool = False,
         device: str = None,
     ):
-        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
+        super().__init__(n_factors, obs_dict, feature_dict, likelihoods, device)
         self.tau_scale = tau_scale
         self.lambda_scale = lambda_scale
         self.theta_scale = theta_scale
@@ -294,7 +408,7 @@ class HorseshoeGenerative(NormalGenerative):
         self.regularized = regularized
         self.ard = ard
 
-    def sample_tau(self, feature_group: str = None):
+    def sample_tau(self, obs_group: str = None, feature_group: str = None):
         site_name = f"tau_{feature_group}"
         if self.delta_tau:
             self.sample_dict[site_name] = pyro.deterministic(

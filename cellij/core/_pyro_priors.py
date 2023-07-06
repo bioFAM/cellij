@@ -3,6 +3,7 @@ import logging
 import numpy as np
 import torch
 from pyro.distributions import HalfCauchy, Normal, TorchDistribution
+from pyro.distributions.torch_distribution import TorchDistributionMixin
 from torch.distributions import constraints
 
 logger = logging.getLogger(__name__)

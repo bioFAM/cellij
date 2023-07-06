@@ -278,7 +278,7 @@ class FactorModel(PyroModule):
         data: anndata.AnnData,
         name: str,
     ):
-        self._data.add_data(data=data, name=name)
+        self._data(data=data, name=name)
 
     def remove_data(self, name, **kwargs):
         pass
@@ -464,6 +464,7 @@ class FactorModel(PyroModule):
         center_features: bool = True,
         scale_features: bool = False,
         scale_views: bool = False,
+        sample_groups: str = None
     ):
         # Clear pyro param
         pyro.clear_param_store()
