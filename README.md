@@ -23,14 +23,9 @@ model.fit(
     likelihoods={
         "mrna": "Normal",
         "mutations": "Bernoulli",
-        "drugs": "Normal",
-        "methylation": "Normal",
     },
-    epochs=20000,
-    verbose_epochs=500,
-    learning_rate=0.005,
-    early_stopping=True,
-    num_particles=10,
+    epochs=1000,
+    learning_rate=0.001,
 )
 ```
 For a basic tutorial on real-world data, have a look at [this notebook](https://github.com/bioFAM/cellij/blob/main/notebooks/basic_example_mofa.ipynb).
