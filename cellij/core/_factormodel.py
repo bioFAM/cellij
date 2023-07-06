@@ -84,7 +84,7 @@ class FactorModel(PyroModule):
         super().__init__(name="FactorModel")
 
         self._model = model
-        self._guide = self._setup_guide(guide, kwargs)
+        self._guide, self._guide_kwargs = self._setup_guide(guide, kwargs)
         self._n_factors = n_factors
         self._dtype = dtype
 
@@ -179,32 +179,29 @@ class FactorModel(PyroModule):
         )
 
     def _setup_guide(self, guide, kwargs):
-        # Setup
-        if isinstance(guide, str):
-            # Implement some default guides
-            guide_args = {}
-            if "init_loc_fn" in kwargs:
-                guide_args["init_loc_fn"] = kwargs["init_loc_fn"]
+        guide_kwargs = {}
+        # TODO: implement init_loc_fn instead of init_loc
+        for arg in ["init_loc", "init_scale"]:
+            if arg in kwargs:
+                guide_kwargs[arg] = kwargs[arg]
 
-            if guide == "AutoDelta":
-                self._guide = pyro.infer.autoguide.AutoDelta  # type: ignore
-            elif guide == "AutoNormal":
-                if "init_scale" in kwargs:
-                    guide_args["init_scale"] = kwargs["init_scale"]
-                self._guide = pyro.infer.autoguide.AutoNormal  # type: ignore
-            elif guide == "AutoLowRankMultivariateNormal":
-                if "init_scale" in kwargs:
-                    guide_args["init_scale"] = kwargs["init_scale"]
-                if "rank" in kwargs:
-                    guide_args["rank"] = kwargs["rank"]
-                self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal  # type: ignore
-        elif isinstance(guide, pyro.infer.autoguide.AutoGuide):  # type: ignore
-            self._guide = guide
-        elif issubclass(guide, cellij.core._pyro_guides.Guide):
+        if issubclass(guide, cellij.core._pyro_guides.Guide):
             print("Using custom guide.")
-            self._guide = guide
-        else:
+            return guide, guide_kwargs
+
+        if not isinstance(guide, str):
             raise ValueError(f"Unknown guide: {guide}")
+
+        # Implement some default guides
+        if guide == "AutoDelta":
+            guide = pyro.infer.autoguide.AutoDelta  # type: ignore
+        if guide == "AutoNormal":
+            guide = pyro.infer.autoguide.AutoNormal  # type: ignore
+        if guide == "AutoLowRankMultivariateNormal":
+            guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal  # type: ignore
+
+        # TODO: return proper kwargs
+        return guide, {}
 
     def _setup_device(self, device):
         cuda_available = torch.cuda.is_available()
@@ -559,12 +556,7 @@ class FactorModel(PyroModule):
             **self._kwargs,
         )
 
-        guide_kwargs = {}
-        for key, value in self._kwargs.items():
-            if key in ["init_loc", "init_scale"]:
-                guide_kwargs[key] = value
-
-        self._guide = self._guide(self._model, **guide_kwargs)
+        self._guide = self._guide(self._model, **self._guide_kwargs)
         if not isinstance(likelihoods, (str, dict)):
             raise ValueError(
                 f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
