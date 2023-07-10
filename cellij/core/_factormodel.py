@@ -85,49 +85,18 @@ class FactorModel(PyroModule, gpytorch.Module):
         super().__init__(name="FactorModel")
 
         self._model = model
+        self._guide, self._guide_kwargs = self._setup_guide(guide, kwargs)
         self._n_factors = n_factors
         self._dtype = dtype
 
-        if "cuda" in str(device) and not torch.cuda.is_available():
-            logger.warning(
-                f"Device `{device}` not available, running all computations on the CPU."
-            )
-            device = "cpu"
-        self._device = torch.device(device)
-        self.to(self._device)
+        self.device = self._setup_device(device)
+        self.to(self.device)
 
         self._data = DataContainer()
         self._is_trained = False
         self._feature_groups = {}
         self._obs_groups = {}
         self._covariate = None
-
-        # # Setup
-        if isinstance(guide, str):
-            # Implement some default guides
-            guide_args = {}
-            if "init_loc_fn" in kwargs:
-                guide_args["init_loc_fn"] = kwargs["init_loc_fn"]
-
-            if guide == "AutoDelta":
-                self._guide = pyro.infer.autoguide.AutoDelta  # type: ignore
-            elif guide == "AutoNormal":
-                if "init_scale" in kwargs:
-                    guide_args["init_scale"] = kwargs["init_scale"]
-                self._guide = pyro.infer.autoguide.AutoNormal  # type: ignore
-            elif guide == "AutoLowRankMultivariateNormal":
-                if "init_scale" in kwargs:
-                    guide_args["init_scale"] = kwargs["init_scale"]
-                if "rank" in kwargs:
-                    guide_args["rank"] = kwargs["rank"]
-                self._guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal  # type: ignore
-        elif isinstance(guide, pyro.infer.autoguide.AutoGuide):  # type: ignore
-            self._guide = guide
-        elif issubclass(guide, cellij.core._pyro_guides.Guide):
-            print("Using custom guide.")
-            self._guide = guide
-        else:
-            raise ValueError(f"Unknown guide: {guide}")
 
         # Save kwargs for later
         self._kwargs = kwargs
@@ -245,6 +214,52 @@ class FactorModel(PyroModule, gpytorch.Module):
         self._covariate = torch.Tensor(covariate.values)
         self._inducing_points = torch.Tensor(covariate.drop_duplicates().values)
         
+    def _setup_guide(self, guide, kwargs):
+        
+        
+        if isinstance(guide, str):
+
+            # Implement some default guides
+            if guide == "AutoDelta":
+                guide = pyro.infer.autoguide.AutoDelta  # type: ignore
+            if guide == "AutoNormal":
+                guide = pyro.infer.autoguide.AutoNormal  # type: ignore
+            if guide == "AutoLowRankMultivariateNormal":
+                guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal  # type: ignore
+
+            # TODO: return proper kwargs
+            return guide, {}
+    
+    
+        guide_kwargs = {}
+        # TODO: implement init_loc_fn instead of init_loc
+        for arg in ["init_loc", "init_scale"]:
+            if arg in kwargs:
+                guide_kwargs[arg] = kwargs[arg]
+        
+        if issubclass(guide, cellij.core._pyro_guides.Guide):
+            print("Using custom guide.")
+            return guide, guide_kwargs
+        
+        raise ValueError(f"Unknown guide: {guide}")
+
+    def _setup_device(self, device):
+        cuda_available = torch.cuda.is_available()
+
+        try:
+            mps_available = torch.backends.mps.is_available()
+        except AttributeError:
+            mps_available = False
+
+        device = str(device).lower()
+        if ("cuda" in device and not cuda_available) or (
+            device == "mps" and not mps_available
+        ):
+            logger.warning(f"`{device}` not available...")
+            device = "cpu"
+
+        logger.info(f"Running all computations on `{device}`.")
+        return torch.device(device)
 
     def add_data(
         self,
@@ -366,6 +381,8 @@ class FactorModel(PyroModule, gpytorch.Module):
         """Pulls a parameter from the pyro parameter storage.
 
         TODO: Get all parameters, but in a dict.
+        TODO: Add full support for group selection.
+        TODO: Add torch.FloatTensor return type hint
 
         Parameters
         ----------
@@ -377,8 +394,9 @@ class FactorModel(PyroModule, gpytorch.Module):
 
         Returns
         -------
-        parameter : torch.Tensor or numpy.ndarray
-            The parameter pulled from the pyro parameter storage.
+        parameter : dict
+            The parameters pulled from the pyro parameter storage.
+            Key Value Pairs are view name : variational param
         """
         if not isinstance(name, str):
             raise TypeError("Parameter 'name' must be of type str.")
@@ -416,59 +434,52 @@ class FactorModel(PyroModule, gpytorch.Module):
         if format not in ["numpy", "torch"]:
             raise ValueError("Parameter 'format' must be in ['numpy', 'torch'].")
 
-        key = "FactorModel._guide." + param + "." + name
-
-        if key not in list(pyro.get_param_store().keys()):
-            raise ValueError(
-                f"Parameter '{key}' not found in parameter storage. Available choices are: {', '.join(list(pyro.get_param_store().keys()))}"
-            )
-
-        data = pyro.get_param_store()[key]
-
-        # TODO: Add full support for group selection.
-
         if views is not None:
-            if views != "all":
-                if isinstance(views, str):
-                    if views not in self.data._names:
-                        raise ValueError(
-                            f"Parameter 'views' must be in {list(self.data._names)}."
-                        )
+            result = {}
 
-                    result = data[..., self.data._feature_idx[views]]
+            if views == "all":
+                views = self.data._names
+            elif isinstance(views, str):
+                if views not in self.data._names:
+                    raise ValueError(
+                        f"Parameter 'views' must be in {list(self.data._names)}."
+                    )
+            elif isinstance(views, list) and not all(
+                [view in self.data._names for view in views]
+            ):
+                raise ValueError(
+                    f"All elements in 'views' must be in {list(self.data._names)}."
+                )
 
-                elif isinstance(views, list):
-                    if not all([view in self.data._names for view in views]):
-                        raise ValueError(
-                            f"All elements in 'views' must be in {list(self.data._names)}."
-                        )
+            for view in views:
+                key = "FactorModel._guide." + param + "." + name
+                if name == "w":
+                    key += "_" + view
 
-                    result = {}
-                    for view in views:
-                        result[view] = data[..., self.data._feature_idx[view]]
+                if key not in list(pyro.get_param_store().keys()):
+                    raise ValueError(
+                        f"Parameter '{key}' not found in parameter storage. Available choices are: {', '.join(list(pyro.get_param_store().keys()))}"
+                    )
 
-            elif views == "all":
-                result = data
+                data = pyro.get_param_store()[key]
 
-        if groups is not None:
-            if groups != "all":
-                raise NotImplementedError()
-            elif groups == "all":
-                result = data
+                result[view] = data.squeeze()
 
         if format == "numpy":
-            if result.is_cuda:
-                result = result.cpu()
-            result = result.detach().numpy()
+            for k, v in result.items():
+                if v.is_cuda:
+                    v = v.cpu()
+                if isinstance(v, torch.Tensor):
+                    result[k] = v.detach().numpy()
 
-        return result.squeeze()
+        return result
 
-    def get_weights(self, views: Union[str, List[str]] = "all", format="numpy"):
+    def get_weights(self, views: Union[str, List[str]] = "all", format: str = "numpy"):
         return self._get_from_param_storage(
             name="w", param="locs", views=views, groups=None, format=format
         )
 
-    def get_factors(self, groups: Union[str, List[str]] = "all", format="numpy"):
+    def get_factors(self, groups: Union[str, List[str]] = "all", format: str = "numpy"):
         return self._get_from_param_storage(
             name="z", param="locs", views=None, groups=groups, format=format
         )
@@ -567,7 +578,7 @@ class FactorModel(PyroModule, gpytorch.Module):
             k: len(feature_idx) for k, feature_idx in self._data._feature_idx.items()
         }
         data_dict = {
-            k: torch.Tensor(self._data._values[:, feature_idx], device=self.device)
+            k: torch.tensor(self._data._values[:, feature_idx], device=self.device)
             for k, feature_idx in self._data._feature_idx.items()
         }
 
@@ -590,18 +601,18 @@ class FactorModel(PyroModule, gpytorch.Module):
             device=self.device,
             **self._kwargs,
         )
-
-        guide_kwargs = {}
+     
         for key, value in self._kwargs.items():
             if key in ["init_loc", "init_scale"]:
-                guide_kwargs[key] = value
+                self._guide_kwargs[key] = value
                 
         if self.covariate is not None:
                 
-            guide_kwargs["gp"] = self.gp
-            guide_kwargs["covariate"] = self.covariate
+            self._guide_kwargs["gp"] = self.gp
+            self._guide_kwargs["covariate"] = self.covariate
             
-        self._guide = self._guide(self._model, **guide_kwargs)
+        self._guide = self._guide(self._model, **self._guide_kwargs)
+
         if not isinstance(likelihoods, (str, dict)):
             raise ValueError(
                 f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
@@ -648,22 +659,23 @@ class FactorModel(PyroModule, gpytorch.Module):
         data = data_dict
         # data = self._model.values
 
-        self.losses = []
+        self.train_loss_elbo = []
         time_start = timer()
         verbose_time_start = time_start
+        print("Training Model...")
         for i in range(epochs + 1):
             loss = svi.step(data=data)
-            self.losses.append(loss)
+            self.train_loss_elbo.append(loss)
 
             if early_stopping and earlystopper.step(loss):
                 print(f"Early stopping of training due to convergence at step {i}")
                 break
 
             if i % verbose_epochs == 0:
-                log = f"Epoch {i:>6}: {loss:>14.2f} \t"
+                log = f"- Epoch {i:>6}/{epochs} | Train Loss: {loss:>14.2f} \t"
                 if i >= 1:
-                    log += f"| {100 - 100*self.losses[i]/self.losses[i - verbose_epochs]:>6.2f}%\t"
-                    log += f"| {(timer() - verbose_time_start):>6.2f}s"
+                    log += f"| Decrease: {100 - 100*self.train_loss_elbo[i]/self.train_loss_elbo[i - verbose_epochs]:>6.2f}%\t"
+                    log += f"| Time: {(timer() - verbose_time_start):>6.2f}s"
 
                 verbose_time_start = timer()
 
@@ -671,8 +683,8 @@ class FactorModel(PyroModule, gpytorch.Module):
 
         self._is_trained = True
         print("Training finished.")
-
-        # return self.losses
+        print(f"- Final loss: {loss:.2f}")
+        print(f"- Training took {(timer() - time_start):.2f}s")
 
     def save(self, filename: str, overwrite: bool = False):
         if not self._is_trained:
