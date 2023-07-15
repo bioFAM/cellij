@@ -6,8 +6,6 @@ import pyro.distributions as dist
 import torch
 from pyro.nn import PyroModule
 
-from cellij.core._pyro_priors import Horseshoe
-
 logger = logging.getLogger(__name__)
 
 
@@ -16,9 +14,9 @@ class Prior(PyroModule):
         super().__init__("Prior")
         self.site_name = site_name
         self.device = device
+        self.to(self.device)
 
-    def sample():
-        raise NotImplementedError()
+        self.sample_dict = {}
 
     def _zeros(self, size):
         return torch.zeros(size, device=self.device)
@@ -29,6 +27,203 @@ class Prior(PyroModule):
     def _const(self, value, size=1):
         return value * self._ones(size)
 
+    def _sample(self, name, dist, dist_kwargs={}, sample_kwargs={}):
+        self.sample_dict[name] = pyro.sample(name, dist(**dist_kwargs), **sample_kwargs)
+        return self.sample_dict[name]
+
+    def _deterministic(self, name, value, event_dim=None):
+        self.sample_dict[name] = pyro.deterministic(name, value, event_dim)
+        return self.sample_dict[name]
+
+    def sample_global(self):
+        return None
+
+    def sample_inter(self):
+        return None
+
+    def sample_local(self):
+        return None
+
+
+class NormalPrior(Prior):
+    def __init__(self, site_name: str, device=None):
+        super().__init__(site_name, device)
+
+    def sample_local(self):
+        return self._sample(
+            self.site_name,
+            dist.Normal,
+            dist_kwargs={"loc": self._zeros(1), "scale": self._ones(1)},
+        )
+
+
+class LaplacePrior(Prior):
+    def __init__(self, site_name: str, scale: float = 1.0, device=None):
+        super().__init__(site_name, device)
+        self.scale = self._const(scale)
+
+    def sample_local(self):
+        return self._sample(
+            self.site_name,
+            dist.SoftLaplace,
+            dist_kwargs={"loc": self._zeros(1), "scale": self.scale},
+        )
+
+
+class HorseshoePrior(Prior):
+    def __init__(
+        self,
+        site_name: str,
+        tau_scale: float = 1.0,
+        tau_delta: float = None,
+        lambdas_scale: float = 1.0,
+        thetas_scale: float = 1.0,
+        regularized: bool = False,
+        ard: bool = False,
+        device=None,
+    ):
+        super().__init__(site_name, device)
+
+        self.tau_site_name = self.site_name + ".tau"
+        self.thetas_site_name = self.site_name + ".thetas"
+        self.caux_site_name = self.site_name + ".caux"
+        self.lambdas_site_name = self.site_name + ".lambdas"
+
+        if (tau_scale is None) == (tau_delta is None):
+            raise ValueError(
+                "Either `tau_scale` or `tau_delta` must be specified, but not both."
+            )
+
+        if tau_scale is not None:
+            self.tau_scale = self._const(tau_scale)
+        if tau_delta is not None:
+            self.tau_delta = self._const(tau_delta)
+        self.lambdas_scale = self._const(lambdas_scale)
+        self.thetas_scale = self._const(thetas_scale)
+        self.regularized = regularized
+        self.ard = ard
+
+    def sample_global(self):
+        if hasattr(self, "tau_delta"):
+            return self._deterministic(self.tau_site_name, self.tau_delta)
+        return self._sample(
+            self.tau_site_name, dist.HalfCauchy, dist_kwargs={"scale": self.tau_scale}
+        )
+
+    def sample_inter(self):
+        if not self.ard:
+            return self._deterministic(self.thetas_site_name, self._ones(1))
+        return self._sample(
+            self.thetas_site_name,
+            dist.HalfCauchy,
+            dist_kwargs={"scale": self.thetas_scale},
+        )
+
+    def sample_local(self):
+        lambdas_samples = self._sample(
+            self.lambdas_site_name,
+            dist.HalfCauchy,
+            dist_kwargs={"scale": self.lambdas_scale},
+        )
+
+        lambdas_samples = (
+            lambdas_samples
+            * self.sample_dict[self.thetas_site_name]
+            * self.sample_dict[self.tau_site_name]
+        )
+
+        if self.regularized:
+            caux_samples = self._sample(
+                self.caux_site_name,
+                dist.InverseGamma,
+                dist_kwargs={
+                    "concentration": self._const(0.5),
+                    "rate": self._const(0.5),
+                },
+            )
+            lambdas_samples = (torch.sqrt(caux_samples) * lambdas_samples) / torch.sqrt(
+                caux_samples + lambdas_samples**2
+            )
+
+        return self._sample(
+            self.site_name,
+            dist.Normal,
+            dist_kwargs={"loc": self._zeros(1), "scale": lambdas_samples},
+        )
+
+
+class SpikeAndSlabPrior(Prior):
+    def __init__(
+        self,
+        site_name: str,
+        relaxed_bernoulli: bool = True,
+        temperature: float = 0.1,
+        ard: bool = False,
+        device=None,
+    ):
+        super().__init__(site_name, device)
+
+        self.thetas_site_name = self.site_name + ".thetas"
+        self.alphas_site_name = self.site_name + ".alphas"
+        self.lambdas_site_name = self.site_name + ".lambdas"
+        self.unconstrained_site_name = self.site_name + ".unconstrained"
+
+        self.relaxed_bernoulli = relaxed_bernoulli
+        self.temperature = temperature
+        self.ard = ard
+
+        self.lambdas_dist = dist.ContinuousBernoulli
+        if self.relaxed_bernoulli:
+            self.lambdas_dist = dist.RelaxedBernoulliStraightThrough
+
+    def sample_inter(self):
+        if self.ard:
+            self._sample(
+                self.alphas_site_name,
+                dist.InverseGamma,
+                dist_kwargs={
+                    "concentration": self._const(0.5),
+                    "rate": self._const(0.5),
+                },
+            )
+        else:
+            self._deterministic(self.alphas_site_name, self._ones(1))
+
+        # how can we also return alphas...
+        # they are still accessible via self.sample_dict, 
+        # but still would be nice to return them
+        return self._sample(
+            self.thetas_site_name,
+            dist.Beta,
+            dist_kwargs={
+                "concentration1": self._const(0.5),
+                "concentration0": self._const(0.5),
+            },
+        )
+
+    def sample_local(self):
+        dist_kwargs = {"probs": self.sample_dict[self.thetas_site_name]}
+        if self.relaxed_bernoulli:
+            dist_kwargs["temperature"] = self._const(self.temperature)
+
+        lambdas_samples = self._sample(
+            self.lambdas_site_name,
+            self.lambdas_dist,
+            dist_kwargs=dist_kwargs,
+        )
+
+        unconstrained_samples = self._sample(
+            self.unconstrained_site_name,
+            dist.Normal,
+            dist_kwargs={
+                "loc": self._zeros(1),
+                "scale": self.sample_dict[self.alphas_site_name],
+            },
+        )
+        return self._deterministic(
+            self.site_name, unconstrained_samples * lambdas_samples
+        )
+
 
 class Generative(PyroModule):
     def __init__(
@@ -37,8 +232,8 @@ class Generative(PyroModule):
         obs_dict: Dict[str, int],
         feature_dict: Dict[str, int],
         likelihoods: Dict[str, str],
-        weight_priors: Dict[str, str] = None,
         factor_priors: Dict[str, str] = None,
+        weight_priors: Dict[str, str] = None,
         device=None,
     ):
         super().__init__(name="Generative")
@@ -49,46 +244,27 @@ class Generative(PyroModule):
         self.n_feature_groups = len(feature_dict)
         self.n_obs_groups = len(obs_dict)
         self.likelihoods = likelihoods
+
         self.device = device
-        self.weight_priors = {}
-        self.factor_priors = {}
+        self.to(self.device)
 
-        for k, v in weight_priors.items():
+        self.factor_priors = self._get_priors(factor_priors, "z")
+        self.weight_priors = self._get_priors(weight_priors, "w")
+
+        self.sample_dict = {}
+
+    def _get_priors(self, priors, site_name):
+        _priors = {}
+
+        for group, prior in priors.items():
             # Replace strings with actuals priors
-            if v == "Horseshoe":
-                self.weight_priors[k] = HorseshoePrior(
-                    site_name=f"w_{k}",
-                    tau_scale=1.0,
-                    tau_delta=None,
-                    lambdas_scale=1.0,
-                    thetas_scale=1.0,
-                    device=self.device,
-                )
-            elif v == "Laplace":
-                self.weight_priors[k] = LaplacePrior(
-                    site_name=f"w_{k}", scale=1.0, device=self.device
-                )
-        for k, v in factor_priors.items():
-            # Replace strings with actuals priors
-            if v == "Horseshoe":
-                self.factor_priors[k] = HorseshoePrior(
-                    site_name=f"z_{k}",
-                    tau_scale=1.0,
-                    tau_delta=None,
-                    lambdas_scale=1.0,
-                    thetas_scale=1.0,
-                    device=self.device,
-                )
-            elif v == "Laplace":
-                self.factor_priors[k] = LaplacePrior(
-                    site_name=f"z_{k}", scale=1.0, device=self.device
-                )
+            _priors[group] = {
+                "Laplace": LaplacePrior,
+                "Horseshoe": HorseshoePrior,
+                "SpikeAndSlab": SpikeAndSlabPrior,
+            }[prior](site_name=f"{site_name}_{group}", device=self.device)
 
-    def get_n_features(self, feature_group: str = None):
-        return self.feature_dict[feature_group]
-
-    def get_n_obs(self, obs_group: str = None):
-        return self.obs_dict[obs_group]
+        return _priors
 
     def get_plates(self):
         plates = {
@@ -103,61 +279,14 @@ class Generative(PyroModule):
 
         return plates
 
-    def get_factor_shape(self, obs_group: str = None):
-        return (-1, self.get_n_obs(obs_group), self.n_factors, 1)
-
-    def get_feature_group_shape(self):
-        return (-1, 1, 1, 1)
-
-    def get_weight_shape(self, feature_group: str = None):
-        return (-1, 1, self.n_factors, self.get_n_features(feature_group))
-
-    def get_feature_shape(self, feature_group: str = None):
-        return (-1, 1, 1, self.get_n_features(feature_group))
-
-    def get_obs_shape(self, obs_group: str = None, feature_group: str = None):
-        return (-1, self.get_n_obs(obs_group), 1, self.get_n_features(feature_group))
-
-    def _sample_site(
-        self,
-        site_name,
-        dist,
-        dist_kwargs={},
-        sample_kwargs={},
-        link_fn=None,
-        out_shape=None,
-    ):
-        samples = pyro.sample(site_name, dist(**dist_kwargs), **sample_kwargs)
-        if out_shape is not None:
-            samples = samples.view(out_shape)
-        if link_fn is not None:
-            samples = link_fn(samples)
-        self.sample_dict[site_name] = samples
-        return samples
-
-    def sample_latent(self, obs_group: str = None):
-        return None
-
-    def sample_feature_group(self, feature_group: str = None):
-        return None
-
-    def sample_feature_group_factor(self, feature_group: str = None):
-        return None
-
-    def sample_weight(self, feature_group: str = None):
-        return None
-
-    def sample_feature(self, feature_group: str = None):
-        return None
-
-    def sample_obs(self, data, obs_group: str = None, feature_group: str = None):
-        return None
-
-    def sample_obs_groups(self, obs_group: str = None):
-        return None
-
-    def sample_obs_group_factor(self, obs_group: str = None):
-        return None
+    def sample_sigma(self, feature_group: str = None):
+        return pyro.sample(
+            f"sigma_{feature_group}",
+            dist.InverseGamma(
+                concentration=torch.ones(1, device=self.device),
+                rate=torch.ones(1, device=self.device),
+            ),
+        )
 
     def forward(self, data: torch.Tensor = None, **kwargs):
         plates = self.get_plates()
@@ -166,504 +295,89 @@ class Generative(PyroModule):
             factor_prior.sample_global()
             with plates["factor"]:
                 factor_prior.sample_inter()
-                with plates[f"factor_{obs_group}"]:
-                    factor_prior.local()
+                with plates[f"obs_{obs_group}"]:
+                    self.sample_dict[f"z_{obs_group}"] = factor_prior.sample_local()
 
-        sigmas = {}
-        
         for feature_group, weight_prior in self.weight_priors.items():
             weight_prior.sample_global()
             with plates["factor"]:
                 weight_prior.sample_inter()
-                with plates[f"weight_{feature_group}"]:
-                    weight_prior.local()
+                with plates[f"feature_{feature_group}"]:
+                    self.sample_dict[f"w_{feature_group}"] = factor_prior.sample_local()
 
             with plates[f"feature_{feature_group}"]:
-                sigmas[feature_group] = pyro.sample(
-                    f"sigma_{feature_group}",
-                    dist.InverseGamma(concentration=self._ones(1), rate=self._ones(1)),
-                )
+                self.sample_dict[f"sigma_{feature_group}"] = self.sample_sigma()
 
         for obs_group, factor_prior in self.factor_priors.items():
             for feature_group, weight_prior in self.weight_priors.items():
+                n_obs = self.obs_dict[obs_group]
+                n_features = self.feature_dict[feature_group]
+
                 with plates[f"obs_{obs_group}"], plates[f"feature_{feature_group}"]:
                     obs = None
                     if data is not None:
-                        obs = data[obs_group][feature_group].view(
-                            self.get_obs_shape(obs_group, feature_group)
-                        )
+                        obs = data[obs_group][feature_group]
 
                     loc = torch.einsum(
-                        "...ikj,...ikj->...ij",
-                        factor_prior.samples,
-                        weight_prior.samples,
-                    ).view(self.get_obs_shape(obs_group, feature_group))
-                    scale = torch.sqrt(sigmas[feature_group])
+                        "...ikj,...kj->...ij",
+                        self.sample_dict[f"z_{obs_group}"],
+                        self.sample_dict[f"w_{feature_group}"],
+                    ).view(-1, n_obs, 1, n_features)
+
+                    scale = torch.sqrt(self.sample_dict[f"sigma_{feature_group}"]).view(
+                        -1, 1, 1, n_features
+                    )
 
                     site_name = f"x_{obs_group}_{feature_group}"
-                    with pyro.poutine.mask(mask=torch.isnan(obs) == 0):
-                        # https://forum.pyro.ai/t/poutine-nan-mask-not-working/3489
-                        # Assign temporary values to the missing data, not used
-                        # anyway due to masking.
-                        masked_data = torch.nan_to_num(obs, nan=0.0)
+                    obs_mask = obs is None
+                    if not obs_mask:
+                        obs_mask = ~torch.isnan(obs)
+                    with pyro.poutine.mask(mask=obs_mask):
+                        if obs is not None:
+                            obs = torch.nan_to_num(obs, nan=0.0)
 
                         self.sample_dict[site_name] = pyro.sample(
                             site_name,
                             dist.Normal(loc, scale),
-                            obs=masked_data,
+                            obs=obs,
                             infer={"is_auxiliary": True},
-                        )
+                        ).view(n_obs, n_features)
 
-
-class LaplacePrior(Prior):
-    def __init__(self, site_name: str, scale: float = 1.0, device=None):
-        super().__init__(site_name, device)
-        self.scale = self._const(scale)
-
-    def sample(self):
-        return pyro.sample(self.site_name, dist.SoftLaplace(self._zeros(1), self.scale))
-
-
-class HorseshoePrior(Prior):
-    def __init__(
-        self,
-        site_name: str,
-        tau_scale: float = None,
-        tau_delta: float = None,
-        lambdas_scale: float = 1.0,
-        thetas_scale: float = 1.0,
-        device=None,
-    ):
-        super().__init__(site_name, device)
-        if tau_scale is None and tau_delta is None:
-            raise ValueError("Either tau_scale or tau_delta must be specified")
-        if tau_scale is not None and tau_delta is not None:
-            raise ValueError("Only one of tau_scale or tau_delta can be specified")
-
-        if tau_scale:
-            self.tau_scale = self._const(tau_scale)
-        elif tau_delta:
-            self.tau_delta = self._const(tau_delta)
-        self.lambdas_scale = self._const(lambdas_scale)
-        self.thetas_scale = self._const(thetas_scale)
-
-        self.tau = None
-        self.thetas = None
-        self.lambdas = None
-        self.samples = None
-
-    def sample_tau(self):
-        if hasattr(self, "tau_scale"):
-            self.tau = pyro.sample(
-                self.site_name + ".tau", dist.HalfCauchy(self.tau_scale)
-            )
-        elif hasattr(self, "tau_delta"):
-            self.tau = pyro.deterministic(self.site_name + ".tau", self.tau_delta)
-
-    def sample_lambdas(self):
-        self.lambdas = pyro.sample(
-            self.site_name + ".lambdas", dist.HalfCauchy(self.lambdas_scale)
-        )
-
-    def sample_thetas(self):
-        self.thetas = pyro.sample(
-            self.site_name + ".thetas", dist.HalfCauchy(self.thetas_scale)
-        )
-
-    def sample(self):
-        self.samples = pyro.sample(
-            self.site_name, dist.Normal(0, self.tau * self.lambdas * self.thetas)
-        )
-
-
-class NormalGenerative(Generative):
-    def __init__(
-        self,
-        n_factors: int,
-        obs_dict: Dict[str, int],
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
-        device: str = None,
-    ):
-        super().__init__(n_factors, obs_dict, feature_dict, likelihoods, device)
-
-    def sample_z(self, obs_group: str = None):
-        return self._sample_site(
-            f"z_{obs_group}",
-            dist.Normal,
-            dist_kwargs={"loc": self._zeros(1), "scale": self._ones(1)},
-            out_shape=self.get_factor_shape(obs_group),
-        )
-
-    def sample_w(self, feature_group: str = None):
-        return self._sample_site(
-            f"w_{feature_group}",
-            dist.Normal,
-            dist_kwargs={"loc": self._zeros(1), "scale": self._ones(1)},
-            out_shape=self.get_weight_shape(feature_group),
-        )
-
-    def sample_sigma(self, feature_group: str = None):
-        return self._sample_site(
-            f"sigma_{feature_group}",
-            dist.InverseGamma,
-            dist_kwargs={"concentration": self._ones(1), "rate": self._ones(1)},
-            out_shape=self.get_feature_shape(feature_group),
-        )
-
-    def sample_latent(self, obs_group: str = None):
-        return self.sample_z(obs_group=obs_group)
-
-    def sample_weight(self, feature_group: str = None):
-        return self.sample_w(feature_group=feature_group)
-
-    def sample_feature(self, feature_group: str = None):
-        return self.sample_sigma(feature_group=feature_group)
-
-    def sample_obs(self, data, obs_group: str = None, feature_group: str = None):
-        obs = None
-        if data is not None:
-            obs = data[obs_group][feature_group].view(
-                self.get_obs_shape(obs_group, feature_group)
-            )
-
-        loc = torch.einsum(
-            "...ikj,...ikj->...ij",
-            self.sample_dict[f"z_{obs_group}"],
-            self.sample_dict[f"w_{feature_group}"],
-        ).view(self.get_obs_shape(obs_group, feature_group))
-        scale = torch.sqrt(self.sample_dict[f"sigma_{feature_group}"])
-
-        site_name = f"x_{obs_group}_{feature_group}"
-        with pyro.poutine.mask(mask=torch.isnan(obs) == 0):
-            # https://forum.pyro.ai/t/poutine-nan-mask-not-working/3489
-            # Assign temporary values to the missing data, not used
-            # anyway due to masking.
-            masked_data = torch.nan_to_num(obs, nan=0.0)
-
-            self.sample_dict[site_name] = pyro.sample(
-                site_name,
-                dist.Normal(loc, scale),
-                obs=masked_data,
-                infer={"is_auxiliary": True},
-            )
-
-
-class LassoGenerative(NormalGenerative):
-    def __init__(
-        self,
-        n_factors: int,
-        obs_dict: Dict[str, int],
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
-        lasso_scale=0.1,
-        device: str = None,
-    ):
-        super().__init__(n_factors, obs_dict, feature_dict, likelihoods, device)
-        self.lasso_scale = lasso_scale
-
-    def sample_w(self, feature_group: str = None):
-        return self._sample_site(
-            f"w_{feature_group}",
-            dist.SoftLaplace,
-            dist_kwargs={
-                "loc": self._zeros(1),
-                "scale": self._const(self.lasso_scale),
-            },
-            out_shape=self.get_weight_shape(feature_group),
-        )
-
-    def sample_z(self, obs_group: str = None):
-        return self._sample_site(
-            f"z_{obs_group}",
-            dist.SoftLaplace,
-            dist_kwargs={
-                "loc": self._zeros(1),
-                "scale": self._const(self.lasso_scale),
-            },
-            out_shape=self.get_factor_shape(obs_group),
-        )
-
-
-class HorseshoeGenerative(NormalGenerative):
-    def __init__(
-        self,
-        n_factors: int,
-        obs_dict: Dict[str, int],
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
-        tau_scale: float = 1.0,
-        lambda_scale: float = 1.0,
-        theta_scale: float = 1.0,
-        delta_tau: bool = False,
-        regularized: bool = False,
-        ard: bool = False,
-        device: str = None,
-    ):
-        super().__init__(n_factors, obs_dict, feature_dict, likelihoods, device)
-        self.tau_scale = tau_scale
-        self.lambda_scale = lambda_scale
-        self.theta_scale = theta_scale
-        self.delta_tau = delta_tau
-        self.regularized = regularized
-        self.ard = ard
-
-    def sample_tau(self, obs_group: str = None, feature_group: str = None):
-        site_name = f"tau_{feature_group}"
-        if self.delta_tau:
-            self.sample_dict[site_name] = pyro.deterministic(
-                site_name, self._const(self.tau_scale)
-            )
-        else:
-            self._sample_site(
-                site_name,
-                dist.HalfCauchy,
-                dist_kwargs={"scale": self._const(self.tau_scale)},
-                out_shape=self.get_feature_group_shape(),
-            )
-        return self.sample_dict[site_name]
-
-    def sample_theta(self, feature_group: str = None):
-        return self._sample_site(
-            f"theta_{feature_group}",
-            dist.HalfCauchy,
-            dist_kwargs={"scale": self._const(self.theta_scale)},
-            out_shape=self.get_factor_shape(),
-        )
-
-    def sample_lambda(self, feature_group: str = None):
-        return self._sample_site(
-            f"lambda_{feature_group}",
-            dist.HalfCauchy,
-            dist_kwargs={"scale": self._const(self.lambda_scale)},
-            out_shape=self.get_weight_shape(feature_group=feature_group),
-        )
-
-    def sample_caux(self, feature_group: str = None):
-        return self._sample_site(
-            f"caux_{feature_group}",
-            dist.InverseGamma,
-            dist_kwargs={"concentration": self._const(0.5), "rate": self._const(0.5)},
-            out_shape=self.get_weight_shape(feature_group=feature_group),
-        )
-
-    def sample_w(self, feature_group: str = None):
-        return self._sample_site(
-            f"w_{feature_group}",
-            dist.Normal,
-            dist_kwargs={
-                "loc": self._zeros(1),
-                "scale": self.sample_dict[f"lambda_{feature_group}"],
-            },
-            out_shape=self.get_weight_shape(feature_group=feature_group),
-        )
-
-    def sample_feature_group(self, feature_group: str = None):
-        return self.sample_tau(feature_group=feature_group)
-
-    def sample_feature_group_factor(self, feature_group: str = None):
-        if self.ard:
-            return self.sample_theta(feature_group=feature_group)
-
-    def sample_weight(self, feature_group: str = None):
-        lmbda = (
-            self.sample_lambda(feature_group=feature_group)
-            * self.sample_dict[f"tau_{feature_group}"]
-        )
-
-        if self.ard:
-            lmbda = lmbda * self.sample_dict[f"theta_{feature_group}"]
-
-        if self.regularized:
-            caux = self.sample_caux(feature_group=feature_group)
-            lmbda = (torch.sqrt(caux) * lmbda) / torch.sqrt(caux + lmbda**2)
-
-        self.sample_dict[f"lambda_{feature_group}"] = lmbda
-        return self.sample_w(feature_group=feature_group)
-
-
-class SpikeAndSlabGenerative(NormalGenerative):
-    def __init__(
-        self,
-        n_samples: int,
-        n_factors: int,
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
-        relaxed_bernoulli: bool = True,
-        temperature: float = 0.1,
-        device: str = None,
-    ):
-        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
-        self.relaxed_bernoulli = relaxed_bernoulli
-        self.temperature = temperature
-
-        self.bernoulli_dist = dist.ContinuousBernoulli
-        if self.relaxed_bernoulli:
-            self.bernoulli_dist = dist.RelaxedBernoulliStraightThrough
-
-    def sample_theta(self, feature_group: str = None):
-        return self._sample_site(
-            f"theta_{feature_group}",
-            dist.Beta,
-            dist_kwargs={
-                "concentration1": self._const(0.5),
-                "concentration0": self._const(0.5),
-            },
-            out_shape=self.get_factor_shape(),
-        )
-
-    def sample_alpha(self, feature_group: str = None):
-        return self._sample_site(
-            f"alpha_{feature_group}",
-            dist.InverseGamma,
-            dist_kwargs={"concentration": self._const(0.5), "rate": self._const(0.5)},
-            out_shape=self.get_factor_shape(),
-        )
-
-    def sample_lambda(self, feature_group: str = None):
-        dist_kwargs = {"probs": self.sample_dict[f"theta_{feature_group}"]}
-        if self.relaxed_bernoulli:
-            dist_kwargs["temperature"] = self._const(self.temperature)
-
-        return self._sample_site(
-            f"lambda_{feature_group}",
-            self.bernoulli_dist,
-            dist_kwargs=dist_kwargs,
-            out_shape=self.get_weight_shape(feature_group=feature_group),
-        )
-
-    def sample_w(self, feature_group: str = None):
-        return self._sample_site(
-            f"w_{feature_group}",
-            dist.Normal,
-            dist_kwargs={
-                "loc": self._zeros(1),
-                "scale": self.sample_dict[f"alpha_{feature_group}"],
-            },
-            out_shape=self.get_weight_shape(feature_group=feature_group),
-        )
-
-    def sample_feature_group_factor(self, feature_group: str = None):
-        self.sample_theta(feature_group=feature_group)
-        self.sample_alpha(feature_group=feature_group)
-
-    def sample_weight(self, feature_group: str = None):
-        lmbda = self.sample_lambda(feature_group=feature_group)
-        w = self.sample_w(feature_group=feature_group)
-        return w * lmbda
-
-
-class SpikeAndSlabLassoGenerative(SpikeAndSlabGenerative):
-    def __init__(
-        self,
-        n_samples: int,
-        n_factors: int,
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
-        lambda_spike: float = 20,
-        lambda_slab: float = 0.1,
-        relaxed_bernoulli: bool = True,
-        temperature: float = 0.1,
-        device: str = None,
-    ):
-        super().__init__(
-            n_samples,
-            n_factors,
-            feature_dict,
-            likelihoods,
-            relaxed_bernoulli,
-            temperature,
-            device,
-        )
-        self.lambda_spike = lambda_spike
-        self.lambda_slab = lambda_slab
-
-    def sample_w(self, feature_group: str = None):
-        self._sample_site(
-            f"w_spike_{feature_group}",
-            dist.SoftLaplace,
-            dist_kwargs={
-                "loc": self._zeros(1),
-                "scale": self._const(self.lambda_spike),
-            },
-            out_shape=self.get_weight_shape(feature_group=feature_group),
-        )
-
-        self._sample_site(
-            f"w_slab_{feature_group}",
-            dist.SoftLaplace,
-            dist_kwargs={
-                "loc": self._zeros(1),
-                "scale": self._const(self.lambda_slab),
-            },
-            out_shape=self.get_weight_shape(feature_group=feature_group),
-        )
-
-    def sample_feature_group_factor(self, feature_group: str = None):
-        self.sample_theta(feature_group=feature_group)
-
-    def sample_weight(self, feature_group: str = None):
-        lmbda = self.sample_lambda(feature_group=feature_group)
-        self.sample_w(feature_group=feature_group)
-        w = (1 - lmbda) * self.sample_dict[
-            f"w_spike_{feature_group}"
-        ] + lmbda * self.sample_dict[f"w_slab_{feature_group}"]
-        self.sample_dict[f"w_{feature_group}"] = w
-        return w
-
-
-# class SpikeNSlabLassoGenerative(SpikeNSlabGenerative):
-#     def __init__(
-#         self,
-#         n_samples: int,
-#         n_factors: int,
-#         feature_dict: dict,
-#         likelihoods,
-#         lambda_spike=20.0,
-#         lambda_slab=1.0,
-#         relaxed_bernoulli=True,
-#         temperature=0.1,
-#         device=None,
-#     ):
-#         super().__init__(
-#             n_samples,
-#             n_factors,
-#             feature_dict,
-#             likelihoods,
-#             relaxed_bernoulli,
-#             temperature,
-#             device,
-#         )
-#         self.lambda_spike = lambda_spike
-#         self.lambda_slab = lambda_slab
-
-#     def sample_laplace(
-#         self, site_name="lambda", feature_group: str = None, is_spike=True
-#     ):
-#         spike_name = "spike" if is_spike else "slab"
-#         scale = self.lambda_spike if is_spike else self.lambda_slab
-#         return self._sample_site(
-#             f"{site_name}_{spike_name}_{feature_group}",
-#             self.get_w_shape(feature_group),
-#             dist.Laplace,
-#             dist_kwargs={
-#                 "loc": self._zeros(1),
-#                 "scale": torch.tensor(scale),
-#             },
-#         )
-
-#     def sample_w(self, site_name="w", feature_group: str = None):
-#         self.sample_theta(feature_group=feature_group)
-#         lmbda = self.sample_lambda(feature_group=feature_group)
-#         lmbda_spike = self.sample_laplace(feature_group=feature_group, is_spike=True)
-#         lmbda_slab = self.sample_laplace(feature_group=feature_group, is_spike=False)
-
-#         w = (1 - lmbda) * lmbda_spike + lmbda * lmbda_slab
-#         self.sample_dict[f"{site_name}_{feature_group}"] = w
-#         return w
+        return self.sample_dict
 
 
 if __name__ == "__main__":
-    model = HorseshoeGenerative(100, 5, {"a": 10, "b": 20}, {})
+    hs = HorseshoePrior(
+        "z",
+        tau_scale=1.0,
+        tau_delta=None,
+        lambdas_scale=1.0,
+        thetas_scale=1.0,
+        regularized=True,
+        ard=True,
+        device=torch.device("cpu"),
+    )
+
+    hs.sample_global()
+    hs.sample_inter()
+    hs.sample_local()
+
+    model = Generative(
+        n_factors=3,
+        obs_dict={"group_0": 5, "group_1": 7, "group_2": 9},
+        feature_dict={"view_0": 15, "view_1": 17, "view_2": 19},
+        likelihoods={"group_0": "Normal", "group_1": "Normal", "group_2": "Normal"},
+        factor_priors={
+            "group_0": "Laplace",
+            "group_1": "Horseshoe",
+            "group_2": "SpikeAndSlab",
+        },
+        weight_priors={
+            "view_0": "Laplace",
+            "view_1": "Horseshoe",
+            "view_2": "SpikeAndSlab",
+        },
+        device=torch.device("cpu"),
+    )
     for k, v in model().items():
         print(k, v.shape)
