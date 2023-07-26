@@ -84,10 +84,10 @@ class HorseshoePrior(Prior):
     ):
         super().__init__(site_name, device)
 
-        self.tau_site_name = self.site_name + ".tau"
-        self.thetas_site_name = self.site_name + ".thetas"
-        self.caux_site_name = self.site_name + ".caux"
-        self.lambdas_site_name = self.site_name + ".lambdas"
+        self.tau_site_name = self.site_name + "_tau"
+        self.thetas_site_name = self.site_name + "_thetas"
+        self.caux_site_name = self.site_name + "_caux"
+        self.lambdas_site_name = self.site_name + "_lambdas"
 
         if (tau_scale is None) == (tau_delta is None):
             raise ValueError(
@@ -163,10 +163,10 @@ class SpikeAndSlabPrior(Prior):
     ):
         super().__init__(site_name, device)
 
-        self.thetas_site_name = self.site_name + ".thetas"
-        self.alphas_site_name = self.site_name + ".alphas"
-        self.lambdas_site_name = self.site_name + ".lambdas"
-        self.unconstrained_site_name = self.site_name + ".unconstrained"
+        self.thetas_site_name = self.site_name + "_thetas"
+        self.alphas_site_name = self.site_name + "_alphas"
+        self.lambdas_site_name = self.site_name + "_lambdas"
+        self.unconstrained_site_name = self.site_name + "_unconstrained"
 
         self.relaxed_bernoulli = relaxed_bernoulli
         self.temperature = temperature
@@ -259,6 +259,7 @@ class Generative(PyroModule):
         for group, prior in priors.items():
             # Replace strings with actuals priors
             _priors[group] = {
+                "Normal": NormalPrior,
                 "Laplace": LaplacePrior,
                 "Horseshoe": HorseshoePrior,
                 "SpikeAndSlab": SpikeAndSlabPrior,
@@ -303,10 +304,10 @@ class Generative(PyroModule):
             with plates["factor"]:
                 weight_prior.sample_inter()
                 with plates[f"feature_{feature_group}"]:
-                    self.sample_dict[f"w_{feature_group}"] = factor_prior.sample_local()
+                    self.sample_dict[f"w_{feature_group}"] = weight_prior.sample_local()
 
             with plates[f"feature_{feature_group}"]:
-                self.sample_dict[f"sigma_{feature_group}"] = self.sample_sigma()
+                self.sample_dict[f"sigma_{feature_group}"] = self.sample_sigma(feature_group)
 
         for obs_group, factor_prior in self.factor_priors.items():
             for feature_group, weight_prior in self.weight_priors.items():
