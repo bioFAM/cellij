@@ -1,5 +1,5 @@
 import logging
-from typing import Dict
+from typing import Optional
 
 import pyro
 import pyro.distributions as dist
@@ -14,11 +14,11 @@ class Generative(PyroModule):
         self,
         n_samples: int,
         n_factors: int,
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
-        device: str = None,
-        gp = None,
-        covariate = None,
+        feature_dict: dict[str, int],
+        likelihoods: dict[str, str],
+        device: Optional[str] = None,
+        gp=None,
+        covariate=None,
     ):
         super().__init__(name="Generative")
         self.n_samples = n_samples
@@ -41,7 +41,7 @@ class Generative(PyroModule):
     def _const(self, value, size=1):
         return value * self._ones(size)
 
-    def get_n_features(self, feature_group: str = None):
+    def get_n_features(self, feature_group: Optional[str] = None):
         return self.feature_dict[feature_group]
 
     def get_plates(self):
@@ -66,21 +66,21 @@ class Generative(PyroModule):
     def get_factor_shape(self):
         return (-1, 1, self.n_factors, 1)
 
-    def get_weight_shape(self, feature_group: str = None):
+    def get_weight_shape(self, feature_group: Optional[str] = None):
         return (-1, 1, self.n_factors, self.get_n_features(feature_group))
 
-    def get_feature_shape(self, feature_group: str = None):
+    def get_feature_shape(self, feature_group: Optional[str] = None):
         return (-1, 1, 1, self.get_n_features(feature_group))
 
-    def get_obs_shape(self, feature_group: str = None):
+    def get_obs_shape(self, feature_group: Optional[str] = None):
         return (-1, self.n_samples, 1, self.get_n_features(feature_group))
 
     def _sample_site(
         self,
         site_name,
         dist,
-        dist_kwargs={},
-        sample_kwargs={},
+        dist_kwargs: dict = {},
+        sample_kwargs: dict = {},
         link_fn=None,
         out_shape=None,
     ):
@@ -95,36 +95,35 @@ class Generative(PyroModule):
     def sample_latent(self):
         return None
 
-    def sample_feature_group(self, feature_group: str = None):
+    def sample_feature_group(self, feature_group: Optional[str] = None):
         return None
 
-    def sample_feature_group_factor(self, feature_group: str = None):
+    def sample_feature_group_factor(self, feature_group: Optional[str] = None):
         return None
 
-    def sample_weight(self, feature_group: str = None):
+    def sample_weight(self, feature_group: Optional[str] = None):
         return None
 
-    def sample_feature(self, feature_group: str = None):
+    def sample_feature(self, feature_group: Optional[str] = None):
         return None
 
-    def sample_obs(self, data, feature_group: str = None):
+    def sample_obs(self, data, feature_group: Optional[str] = None):
         return None
 
     def forward(self, data: torch.Tensor = None, **kwargs):
         plates = self.get_plates()
 
-        if self.gp is None:
-            with plates["factor"], plates["sample"]:
-                self.sample_latent() # z
-        else:
-            with plates["factor"], plates["sample"]:
+        with plates["factor"], plates["sample"]:
+            if self.gp is None:
+                self.sample_latent()
+            else:
                 sample = pyro.sample(
                     "z",
                     self.gp.pyro_model(self.covariate),
                 ).view(-1, self.n_samples, self.n_factors, 1)
-            return sample
+                return sample
 
-        for feature_group in self.feature_dict.keys():
+        for feature_group in self.feature_dict:
             self.sample_feature_group(feature_group=feature_group)
             with plates["factor"]:
                 self.sample_feature_group_factor(feature_group=feature_group)
@@ -145,34 +144,31 @@ class NormalGenerative(Generative):
         self,
         n_samples: int,
         n_factors: int,
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
-        gp = None,
-        covariate = None,
-        device: str = None,
+        feature_dict: dict[str, int],
+        likelihoods: dict[str, str],
+        device: Optional[str] = None,
+        gp=None,
+        covariate=None,
     ):
-        super().__init__(n_samples, n_factors, feature_dict, likelihoods, device, gp, covariate)
+        super().__init__(
+            n_samples=n_samples,
+            n_factors=n_factors,
+            feature_dict=feature_dict,
+            likelihoods=likelihoods, 
+            device=device,
+            gp=gp,
+            covariate=covariate
+        )
 
     def sample_z(self):
-        
-        # if self.gp is None:
-        
         return self._sample_site(
             "z",
             dist.Normal,
             dist_kwargs={"loc": self._zeros(1), "scale": self._ones(1)},
             out_shape=self.get_latent_shape(),
         )
-        
-        # else:
-        #     sample = pyro.sample(
-        #             "z",
-        #             self.gp.pyro_model(self.covariate),
-        #         ).view(self.get_latent_shape())
-        #     self.sample_dict["z"] = sample
-        #     return sample
 
-    def sample_w(self, feature_group: str = None):
+    def sample_w(self, feature_group: Optional[str] = None):
         return self._sample_site(
             f"w_{feature_group}",
             dist.Normal,
@@ -180,7 +176,7 @@ class NormalGenerative(Generative):
             out_shape=self.get_weight_shape(feature_group),
         )
 
-    def sample_sigma(self, feature_group: str = None):
+    def sample_sigma(self, feature_group: Optional[str] = None):
         return self._sample_site(
             f"sigma_{feature_group}",
             dist.InverseGamma,
@@ -191,17 +187,17 @@ class NormalGenerative(Generative):
     def sample_latent(self):
         return self.sample_z()
 
-    def sample_weight(self, feature_group: str = None):
+    def sample_weight(self, feature_group: Optional[str] = None):
         return self.sample_w(feature_group=feature_group)
 
-    def sample_feature(self, feature_group: str = None):
+    def sample_feature(self, feature_group: Optional[str] = None):
         return self.sample_sigma(feature_group=feature_group)
 
-    def sample_obs(self, data, feature_group: str = None):
+    def sample_obs(self, data, feature_group: Optional[str] = None):
         obs = None
         if data is not None:
             obs = data[feature_group].view(self.get_obs_shape(feature_group))
-        
+
         loc = torch.einsum(
             "...ikj,...ikj->...ij",
             self.sample_dict["z"],
@@ -228,15 +224,15 @@ class LassoGenerative(NormalGenerative):
         self,
         n_samples: int,
         n_factors: int,
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
+        feature_dict: dict[str, int],
+        likelihoods: dict[str, str],
         lasso_scale=0.1,
-        device: str = None,
+        device: Optional[str] = None,
     ):
         super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
         self.lasso_scale = lasso_scale
 
-    def sample_w(self, feature_group: str = None):
+    def sample_w(self, feature_group: Optional[str] = None):
         return self._sample_site(
             f"w_{feature_group}",
             dist.SoftLaplace,
@@ -253,13 +249,13 @@ class NonnegativeGenerative(NormalGenerative):
         self,
         n_samples: int,
         n_factors: int,
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
-        device: str = None,
+        feature_dict: dict[str, int],
+        likelihoods: dict[str, str],
+        device: Optional[str] = None,
     ):
         super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
 
-    def sample_w(self, feature_group: str = None):
+    def sample_w(self, feature_group: Optional[str] = None):
         return self._sample_site(
             f"w_{feature_group}",
             dist.Normal,
@@ -274,15 +270,15 @@ class HorseshoeGenerative(NormalGenerative):
         self,
         n_samples: int,
         n_factors: int,
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
+        feature_dict: dict[str, int],
+        likelihoods: dict[str, str],
         tau_scale: float = 1.0,
         lambda_scale: float = 1.0,
         theta_scale: float = 1.0,
         delta_tau: bool = False,
         regularized: bool = False,
         ard: bool = False,
-        device: str = None,
+        device: Optional[str] = None,
     ):
         super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
         self.tau_scale = tau_scale
@@ -292,7 +288,7 @@ class HorseshoeGenerative(NormalGenerative):
         self.regularized = regularized
         self.ard = ard
 
-    def sample_tau(self, feature_group: str = None):
+    def sample_tau(self, feature_group: Optional[str] = None):
         site_name = f"tau_{feature_group}"
         if self.delta_tau:
             self.sample_dict[site_name] = pyro.deterministic(
@@ -307,7 +303,7 @@ class HorseshoeGenerative(NormalGenerative):
             )
         return self.sample_dict[site_name]
 
-    def sample_theta(self, feature_group: str = None):
+    def sample_theta(self, feature_group: Optional[str] = None):
         return self._sample_site(
             f"theta_{feature_group}",
             dist.HalfCauchy,
@@ -315,7 +311,7 @@ class HorseshoeGenerative(NormalGenerative):
             out_shape=self.get_factor_shape(),
         )
 
-    def sample_lambda(self, feature_group: str = None):
+    def sample_lambda(self, feature_group: Optional[str] = None):
         return self._sample_site(
             f"lambda_{feature_group}",
             dist.HalfCauchy,
@@ -323,7 +319,7 @@ class HorseshoeGenerative(NormalGenerative):
             out_shape=self.get_weight_shape(feature_group=feature_group),
         )
 
-    def sample_caux(self, feature_group: str = None):
+    def sample_caux(self, feature_group: Optional[str] = None):
         return self._sample_site(
             f"caux_{feature_group}",
             dist.InverseGamma,
@@ -331,7 +327,7 @@ class HorseshoeGenerative(NormalGenerative):
             out_shape=self.get_weight_shape(feature_group=feature_group),
         )
 
-    def sample_w(self, feature_group: str = None):
+    def sample_w(self, feature_group: Optional[str] = None):
         return self._sample_site(
             f"w_{feature_group}",
             dist.Normal,
@@ -342,14 +338,14 @@ class HorseshoeGenerative(NormalGenerative):
             out_shape=self.get_weight_shape(feature_group=feature_group),
         )
 
-    def sample_feature_group(self, feature_group: str = None):
+    def sample_feature_group(self, feature_group: Optional[str] = None):
         return self.sample_tau(feature_group=feature_group)
 
-    def sample_feature_group_factor(self, feature_group: str = None):
+    def sample_feature_group_factor(self, feature_group: Optional[str] = None):
         if self.ard:
             return self.sample_theta(feature_group=feature_group)
 
-    def sample_weight(self, feature_group: str = None):
+    def sample_weight(self, feature_group: Optional[str] = None):
         lmbda = (
             self.sample_lambda(feature_group=feature_group)
             * self.sample_dict[f"tau_{feature_group}"]
@@ -371,11 +367,11 @@ class SpikeAndSlabGenerative(NormalGenerative):
         self,
         n_samples: int,
         n_factors: int,
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
+        feature_dict: dict[str, int],
+        likelihoods: dict[str, str],
         relaxed_bernoulli: bool = True,
         temperature: float = 0.1,
-        device: str = None,
+        device: Optional[str] = None,
     ):
         super().__init__(n_samples, n_factors, feature_dict, likelihoods, device)
         self.relaxed_bernoulli = relaxed_bernoulli
@@ -385,7 +381,7 @@ class SpikeAndSlabGenerative(NormalGenerative):
         if self.relaxed_bernoulli:
             self.bernoulli_dist = dist.RelaxedBernoulliStraightThrough
 
-    def sample_theta(self, feature_group: str = None):
+    def sample_theta(self, feature_group: Optional[str] = None):
         return self._sample_site(
             f"theta_{feature_group}",
             dist.Beta,
@@ -396,7 +392,7 @@ class SpikeAndSlabGenerative(NormalGenerative):
             out_shape=self.get_factor_shape(),
         )
 
-    def sample_alpha(self, feature_group: str = None):
+    def sample_alpha(self, feature_group: Optional[str] = None):
         return self._sample_site(
             f"alpha_{feature_group}",
             dist.InverseGamma,
@@ -404,7 +400,7 @@ class SpikeAndSlabGenerative(NormalGenerative):
             out_shape=self.get_factor_shape(),
         )
 
-    def sample_lambda(self, feature_group: str = None):
+    def sample_lambda(self, feature_group: Optional[str] = None):
         dist_kwargs = {"probs": self.sample_dict[f"theta_{feature_group}"]}
         if self.relaxed_bernoulli:
             dist_kwargs["temperature"] = self._const(self.temperature)
@@ -416,7 +412,7 @@ class SpikeAndSlabGenerative(NormalGenerative):
             out_shape=self.get_weight_shape(feature_group=feature_group),
         )
 
-    def sample_w(self, feature_group: str = None):
+    def sample_w(self, feature_group: Optional[str] = None):
         return self._sample_site(
             f"w_{feature_group}",
             dist.Normal,
@@ -427,11 +423,11 @@ class SpikeAndSlabGenerative(NormalGenerative):
             out_shape=self.get_weight_shape(feature_group=feature_group),
         )
 
-    def sample_feature_group_factor(self, feature_group: str = None):
+    def sample_feature_group_factor(self, feature_group: Optional[str] = None):
         self.sample_theta(feature_group=feature_group)
         self.sample_alpha(feature_group=feature_group)
 
-    def sample_weight(self, feature_group: str = None):
+    def sample_weight(self, feature_group: Optional[str] = None):
         lmbda = self.sample_lambda(feature_group=feature_group)
         w = self.sample_w(feature_group=feature_group)
         return w * lmbda
@@ -442,13 +438,13 @@ class SpikeAndSlabLassoGenerative(SpikeAndSlabGenerative):
         self,
         n_samples: int,
         n_factors: int,
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
+        feature_dict: dict[str, int],
+        likelihoods: dict[str, str],
         lambda_spike: float = 20,
         lambda_slab: float = 0.1,
         relaxed_bernoulli: bool = True,
         temperature: float = 0.1,
-        device: str = None,
+        device: Optional[str] = None,
     ):
         super().__init__(
             n_samples,
@@ -462,7 +458,7 @@ class SpikeAndSlabLassoGenerative(SpikeAndSlabGenerative):
         self.lambda_spike = lambda_spike
         self.lambda_slab = lambda_slab
 
-    def sample_w(self, feature_group: str = None):
+    def sample_w(self, feature_group: Optional[str] = None):
         self._sample_site(
             f"w_spike_{feature_group}",
             dist.SoftLaplace,
@@ -483,71 +479,15 @@ class SpikeAndSlabLassoGenerative(SpikeAndSlabGenerative):
             out_shape=self.get_weight_shape(feature_group=feature_group),
         )
 
-    def sample_feature_group_factor(self, feature_group: str = None):
+    def sample_feature_group_factor(self, feature_group: Optional[str] = None):
         self.sample_theta(feature_group=feature_group)
 
-    def sample_weight(self, feature_group: str = None):
+    def sample_weight(self, feature_group: Optional[str] = None):
         lmbda = self.sample_lambda(feature_group=feature_group)
         self.sample_w(feature_group=feature_group)
         w = (1 - lmbda) * self.sample_dict[
             f"w_spike_{feature_group}"
         ] + lmbda * self.sample_dict[f"w_slab_{feature_group}"]
         self.sample_dict[f"w_{feature_group}"] = w
+
         return w
-
-
-# class SpikeNSlabLassoGenerative(SpikeNSlabGenerative):
-#     def __init__(
-#         self,
-#         n_samples: int,
-#         n_factors: int,
-#         feature_dict: dict,
-#         likelihoods,
-#         lambda_spike=20.0,
-#         lambda_slab=1.0,
-#         relaxed_bernoulli=True,
-#         temperature=0.1,
-#         device=None,
-#     ):
-#         super().__init__(
-#             n_samples,
-#             n_factors,
-#             feature_dict,
-#             likelihoods,
-#             relaxed_bernoulli,
-#             temperature,
-#             device,
-#         )
-#         self.lambda_spike = lambda_spike
-#         self.lambda_slab = lambda_slab
-
-#     def sample_laplace(
-#         self, site_name="lambda", feature_group: str = None, is_spike=True
-#     ):
-#         spike_name = "spike" if is_spike else "slab"
-#         scale = self.lambda_spike if is_spike else self.lambda_slab
-#         return self._sample_site(
-#             f"{site_name}_{spike_name}_{feature_group}",
-#             self.get_w_shape(feature_group),
-#             dist.Laplace,
-#             dist_kwargs={
-#                 "loc": self._zeros(1),
-#                 "scale": torch.tensor(scale),
-#             },
-#         )
-
-#     def sample_w(self, site_name="w", feature_group: str = None):
-#         self.sample_theta(feature_group=feature_group)
-#         lmbda = self.sample_lambda(feature_group=feature_group)
-#         lmbda_spike = self.sample_laplace(feature_group=feature_group, is_spike=True)
-#         lmbda_slab = self.sample_laplace(feature_group=feature_group, is_spike=False)
-
-#         w = (1 - lmbda) * lmbda_spike + lmbda * lmbda_slab
-#         self.sample_dict[f"{site_name}_{feature_group}"] = w
-#         return w
-
-
-if __name__ == "__main__":
-    model = HorseshoeGenerative(100, 5, {"a": 10, "b": 20}, {})
-    for k, v in model().items():
-        print(k, v.shape)

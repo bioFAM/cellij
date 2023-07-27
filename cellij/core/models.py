@@ -48,16 +48,20 @@ class MOFA(FactorModel):
 
         kwargs = {**mofa_defaults, **kwargs}
 
-        super(MOFA, self).__init__(n_factors=n_factors, **kwargs)
+        super().__init__(n_factors=n_factors, **kwargs)
+
 
 class SimpleGP(FactorModel):
-    """Model for Multi-Omics Factor Analysis with additional sparsity priors.
+    """
+    A simple Gaussian Process Factor Model.
 
-    Based on:
-    - Multi-Omics Factor Analysis-a framework for unsupervised integration of multi-omics data sets
-        by Argelaguet, R. et al. (2018)
-    - MOFA+: a statistical framework for comprehensive integration of multi-modal single-cell data
-        by Argelaguet, R. et al. (2020)
+    Parameters
+    ----------
+    n_factors : int
+        The number of latent factors in the model.
+
+    **kwargs : dict
+        Additional keyword arguments passed to the FactorModel constructor.
     """
 
     def __init__(self, n_factors, **kwargs):
@@ -66,4 +70,4 @@ class SimpleGP(FactorModel):
 
         kwargs = {"model": prior, "guide": guide, **kwargs}
 
-        super(SimpleGP, self).__init__(n_factors=n_factors, **kwargs)
+        super().__init__(n_factors=n_factors, **kwargs)

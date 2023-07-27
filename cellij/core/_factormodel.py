@@ -3,10 +3,10 @@ import os
 import pickle
 from pathlib import Path
 from timeit import default_timer as timer
-from typing import Any, List, Optional, Union
-import gpytorch
+from typing import Optional, Union
 
 import anndata
+import gpytorch
 import muon
 import numpy as np
 import pandas as pd
@@ -20,6 +20,7 @@ from cellij.core._data import DataContainer
 from cellij.core.utils_training import EarlyStopper
 
 logger = logging.getLogger(__name__)
+rng = np.random.default_rng()
 
 
 class FactorModel(PyroModule, gpytorch.Module):
@@ -186,61 +187,119 @@ class FactorModel(PyroModule, gpytorch.Module):
 
     @covariate.setter
     def covariate(self, *args):
-        raise AttributeError(
-            "Use `add_covariate()` to modify this property."
-        )
+        raise AttributeError("Use `add_covariate()` to modify this property.")
 
-    def add_covariate(self, covariate: Any):
-        
+    def add_covariate(
+        self,
+        covariate: Union[np.ndarray, pd.DataFrame, pd.Series, torch.Tensor],
+        num_inducing_points: int = 100,
+    ):
+        """
+        Add a covariate to the model, replacing any existing covariate if necessary.
+
+        Parameters
+        ----------
+        covariate : Any
+            The covariate to be added to the model. Should be a 1D or 2D matrix-like object.
+            If 2D, it must not have more than 2 columns.
+        num_inducing_points : int, optional
+            The number of inducing points to keep. Default is 100.
+
+        Raises
+        ------
+        TypeError
+            If the 'covariate' is not a matrix-like object.
+        ValueError
+            If the 'covariate' is not a 1D or 2D matrix, or if it is a 2D matrix with more than 2 columns.
+
+        Attributes updated
+        ------------------
+        _covariate : torch.Tensor
+            The covariate data stored as a PyTorch tensor.
+        _inducing_points : torch.Tensor
+            Unique values from the covariate data, stored as a PyTorch tensor.
+        """
         if self.covariate is not None:
-            raise NotImplementedError("Currently, only 1 covariate can be used.")
-        
+            logger.info(
+                "Currently, only one covariate is supported. Overwriting existing covariate."
+            )
+            self.covariate = None
+
+        if not isinstance(
+            covariate, (np.ndarray, pd.DataFrame, pd.Series, torch.Tensor)
+        ):
+            raise TypeError(
+                f"Parameter 'covariate' must be a matrix-like object, got {type(covariate)}."
+            )
+
+        if isinstance(covariate, np.ndarray):
+            covariate = pd.DataFrame(covariate.tolist())
+        elif isinstance(covariate, torch.Tensor):
+            covariate = pd.DataFrame(covariate.numpy().tolist())
+        elif isinstance(covariate, pd.Series):
+            covariate = covariate.to_frame()
+
+        covariate_shape_len = len(covariate.shape)
         try:
-            if len(covariate.shape) == 1:
+            if covariate_shape_len == 1:
                 rows = len(covariate)
                 cols = 1
-            elif len(covariate.shape) == 2:
+            elif covariate_shape_len == 2:
                 rows, cols = covariate.shape
             else:
-                raise ValueError(f"Parameter 'covariate' must be a 1D or 2D matrix, got shape '{covariate.shape}'.")
+                raise ValueError(
+                    f"Parameter 'covariate' must be a 1D or 2D matrix, got shape '{covariate.shape}'."
+                )
         except AttributeError as e:
-            raise TypeError(f"Paramter 'covariate' must be a matrix-like object, got {type(covariate)}.") from e
-        
-        if cols > 2:
-            raise ValueError(f"Parameter 'covariate' must have 1 or 2 columns, got {cols}.")
-        
-        # TODO(ttreis): Join covariate with obs names and add NAs when missing
-        
-        self._covariate = torch.Tensor(covariate.values)
-        self._inducing_points = torch.Tensor(covariate.drop_duplicates().values)
-        
-    def _setup_guide(self, guide, kwargs):
-        
-        
-        if isinstance(guide, str):
+            raise TypeError(
+                f"Paramter 'covariate' must be a matrix-like object, got {type(covariate)}."
+            ) from e
 
+        if cols == 0:
+            raise ValueError(
+                f"Parameter 'covariate' must have at least one column, got {cols}."
+            )
+
+        if cols > 2:
+            raise ValueError(
+                f"Parameter 'covariate' must have 1 or 2 columns, got {cols}."
+            )
+
+        self._covariate = torch.Tensor(covariate.values)
+
+        if cols == 1:
+            unique_points = covariate.drop_duplicates().values
+            if len(unique_points) > num_inducing_points:
+                unique_points = unique_points[
+                    rng.choice(
+                        len(unique_points), size=num_inducing_points, replace=False
+                    )
+                ]
+            self._inducing_points = torch.Tensor(unique_points)
+
+    def _setup_guide(self, guide, kwargs):
+        if isinstance(guide, str):
             # Implement some default guides
             if guide == "AutoDelta":
-                guide = pyro.infer.autoguide.AutoDelta  # type: ignore
+                guide = pyro.infer.autoguide.AutoDelta
             if guide == "AutoNormal":
-                guide = pyro.infer.autoguide.AutoNormal  # type: ignore
+                guide = pyro.infer.autoguide.AutoNormal
             if guide == "AutoLowRankMultivariateNormal":
-                guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal  # type: ignore
+                guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal
 
             # TODO: return proper kwargs
             return guide, {}
-    
-    
+
         guide_kwargs = {}
         # TODO: implement init_loc_fn instead of init_loc
         for arg in ["init_loc", "init_scale"]:
             if arg in kwargs:
                 guide_kwargs[arg] = kwargs[arg]
-        
+
         if issubclass(guide, cellij.core._pyro_guides.Guide):
-            print("Using custom guide.")
+            logger.info("Using custom guide.")
             return guide, guide_kwargs
-        
+
         raise ValueError(f"Unknown guide: {guide}")
 
     def _setup_device(self, device):
@@ -287,11 +346,11 @@ class FactorModel(PyroModule, gpytorch.Module):
                 X=data.values,
                 obs=pd.DataFrame(data.index),
                 var=pd.DataFrame(data.columns),
-                dtype=self._dtype,  # type: ignore
+                dtype=self._dtype,
             )
 
         elif isinstance(data, anndata.AnnData):
-            self._add_data(data=data, name=name)  # type: ignore
+            self._add_data(data=data, name=name)
 
         elif isinstance(data, muon.MuData):
             if not data.obs.empty:
@@ -374,11 +433,11 @@ class FactorModel(PyroModule, gpytorch.Module):
         self,
         name: str,
         param: str = "locs",
-        views: Optional[Union[str, List[str]]] = "all",
-        groups: Optional[Union[str, List[str]]] = "all",
+        views: Optional[Union[str, list[str]]] = "all",
+        groups: Optional[Union[str, list[str]]] = "all",
         format: str = "numpy",
     ) -> np.ndarray:
-        """Pulls a parameter from the pyro parameter storage.
+        """Pull a parameter from the pyro parameter storage.
 
         TODO: Get all parameters, but in a dict.
         TODO: Add full support for group selection.
@@ -458,7 +517,8 @@ class FactorModel(PyroModule, gpytorch.Module):
 
                 if key not in list(pyro.get_param_store().keys()):
                     raise ValueError(
-                        f"Parameter '{key}' not found in parameter storage. Available choices are: {', '.join(list(pyro.get_param_store().keys()))}"
+                        f"Parameter '{key}' not found in parameter storage. ",
+                        f"Available choices are: {', '.join(list(pyro.get_param_store().keys()))}",
                     )
 
                 data = pyro.get_param_store()[key]
@@ -474,12 +534,12 @@ class FactorModel(PyroModule, gpytorch.Module):
 
         return result
 
-    def get_weights(self, views: Union[str, List[str]] = "all", format: str = "numpy"):
+    def get_weights(self, views: Union[str, list[str]] = "all", format: str = "numpy"):
         return self._get_from_param_storage(
             name="w", param="locs", views=views, groups=None, format=format
         )
 
-    def get_factors(self, groups: Union[str, List[str]] = "all", format: str = "numpy"):
+    def get_factors(self, groups: Union[str, list[str]] = "all", format: str = "numpy"):
         return self._get_from_param_storage(
             name="z", param="locs", views=None, groups=groups, format=format
         )
@@ -520,7 +580,8 @@ class FactorModel(PyroModule, gpytorch.Module):
 
         if not isinstance(likelihoods, (str, dict)):
             raise ValueError(
-                f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
+                f"Parameter 'likelihoods' must either be a string or a dictionary "
+                f"mapping the modalities to strings, got {type(likelihoods)}."
             )
 
         for arg_name, arg in zip(
@@ -560,11 +621,11 @@ class FactorModel(PyroModule, gpytorch.Module):
                     distribution = "Normal"
 
                 try:
-                    likelihoods[name] = getattr(pyro.distributions, distribution)  # type: ignore
-                except AttributeError:
+                    likelihoods[name] = getattr(pyro.distributions, distribution)
+                except AttributeError as e:
                     raise AttributeError(
                         f"Could not find valid Pyro distribution for {distribution}."
-                    )
+                    ) from e
 
         # Raise error if likelihoods are not set for all modalities
         if len(likelihoods.keys()) != len(self._data.feature_groups):
@@ -583,15 +644,13 @@ class FactorModel(PyroModule, gpytorch.Module):
         }
 
         if self.covariate is not None:
-            
             self.gp = cellij.core._gp.PseudotimeGP(
-                inducing_points=self._inducing_points,
-                n_factors=self.n_factors
+                inducing_points=self._inducing_points, n_factors=self.n_factors
             )
-            
+
             self._kwargs["gp"] = self.gp
             self._kwargs["covariate"] = self.covariate
-        
+
         # Initialize class objects with correct data-related parameters
         self._model = self._model(
             n_samples=self._data._values.shape[0],
@@ -601,21 +660,21 @@ class FactorModel(PyroModule, gpytorch.Module):
             device=self.device,
             **self._kwargs,
         )
-     
+
         for key, value in self._kwargs.items():
             if key in ["init_loc", "init_scale"]:
                 self._guide_kwargs[key] = value
-                
+
         if self.covariate is not None:
-                
             self._guide_kwargs["gp"] = self.gp
             self._guide_kwargs["covariate"] = self.covariate
-            
+
         self._guide = self._guide(self._model, **self._guide_kwargs)
 
         if not isinstance(likelihoods, (str, dict)):
             raise ValueError(
-                f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
+                "Parameter 'likelihoods' must either be a string or a dictionary "
+                f"mapping the modalities to strings, got {type(likelihoods)}."
             )
 
         # # Provide data information to generative model
@@ -647,7 +706,6 @@ class FactorModel(PyroModule, gpytorch.Module):
             model=pyro.poutine.scale(self._model, scale=scaling_constant),
             guide=pyro.poutine.scale(self._guide, scale=scaling_constant),
             optim=optim,
-            # loss=pyro.infer.Trace_ELBO(),  # type: ignore
             loss=pyro.infer.Trace_ELBO(
                 retain_graph=True,
                 num_particles=num_particles,
@@ -674,7 +732,13 @@ class FactorModel(PyroModule, gpytorch.Module):
             if i % verbose_epochs == 0:
                 log = f"- Epoch {i:>6}/{epochs} | Train Loss: {loss:>14.2f} \t"
                 if i >= 1:
-                    log += f"| Decrease: {100 - 100*self.train_loss_elbo[i]/self.train_loss_elbo[i - verbose_epochs]:>6.2f}%\t"
+                    decrease_pct = (
+                        100
+                        - 100
+                        * self.train_loss_elbo[i]
+                        / self.train_loss_elbo[i - verbose_epochs]
+                    )
+                    log += f"| Decrease: {decrease_pct:>6.2f}%\t"
                     log += f"| Time: {(timer() - verbose_time_start):>6.2f}s"
 
                 verbose_time_start = timer()
