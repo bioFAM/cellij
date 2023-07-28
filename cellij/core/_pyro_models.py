@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 class Prior(PyroModule):
-    def __init__(self, site_name: str, device=None):
-        super().__init__("Prior")
+    def __init__(self, name, site_name: str, device=None):
+        super().__init__(name)
         self.site_name = site_name
         self.device = device
         self.to(self.device)
@@ -43,16 +43,15 @@ class Prior(PyroModule):
     def sample_inter(self):
         return None
 
-    def sample_local(self):
+    def forward(self):
         return None
 
 
 class InverseGammaPrior(Prior):
     def __init__(self, site_name: str, device=None):
-        super().__init__(site_name, device)
-        self.name = "InverseGamma"
+        super().__init__("InverseGamma", site_name, device)
 
-    def sample_local(self):
+    def forward(self):
         return self._sample(
             self.site_name,
             dist.InverseGamma,
@@ -62,10 +61,9 @@ class InverseGammaPrior(Prior):
 
 class NormalPrior(Prior):
     def __init__(self, site_name: str, device=None):
-        super().__init__(site_name, device)
-        self.name = "Normal"
+        super().__init__("Normal", site_name, device)
 
-    def sample_local(self):
+    def forward(self):
         return self._sample(
             self.site_name,
             dist.Normal,
@@ -75,11 +73,10 @@ class NormalPrior(Prior):
 
 class LaplacePrior(Prior):
     def __init__(self, site_name: str, scale: float = 1.0, device=None):
-        super().__init__(site_name, device)
-        self.name = "Laplace"
+        super().__init__("Laplace", site_name, device)
         self.scale = self._const(scale)
 
-    def sample_local(self):
+    def forward(self):
         return self._sample(
             self.site_name,
             dist.SoftLaplace,
@@ -99,8 +96,7 @@ class HorseshoePrior(Prior):
         ard: bool = True,
         device=None,
     ):
-        super().__init__(site_name, device)
-        self.name = "Horseshoe"
+        super().__init__("Horseshoe", site_name, device)
 
         self.tau_site_name = self.site_name + "_tau"
         self.thetas_site_name = self.site_name + "_thetas"
@@ -137,7 +133,7 @@ class HorseshoePrior(Prior):
             dist_kwargs={"scale": self.thetas_scale},
         )
 
-    def sample_local(self):
+    def forward(self):
         lambdas_samples = self._sample(
             self.lambdas_site_name,
             dist.HalfCauchy,
@@ -179,8 +175,7 @@ class SpikeAndSlabPrior(Prior):
         ard: bool = False,
         device=None,
     ):
-        super().__init__(site_name, device)
-        self.name = "SpikeAndSlab"
+        super().__init__("SpikeAndSlab", site_name, device)
 
         self.thetas_site_name = self.site_name + "_thetas"
         self.alphas_site_name = self.site_name + "_alphas"
@@ -220,7 +215,7 @@ class SpikeAndSlabPrior(Prior):
             },
         )
 
-    def sample_local(self):
+    def forward(self):
         dist_kwargs = {"probs": self.sample_dict[self.thetas_site_name]}
         if self.relaxed_bernoulli:
             dist_kwargs["temperature"] = self._const(self.temperature)
@@ -311,19 +306,19 @@ class Generative(PyroModule):
             with plates["factor"]:
                 factor_prior.sample_inter()
                 with plates[f"obs_{obs_group}"]:
-                    self.sample_dict[f"z_{obs_group}"] = factor_prior.sample_local()
+                    self.sample_dict[f"z_{obs_group}"] = factor_prior()
 
         for feature_group, weight_prior in self.weight_priors.items():
             weight_prior.sample_global()
             with plates["factor"]:
                 weight_prior.sample_inter()
                 with plates[f"feature_{feature_group}"]:
-                    self.sample_dict[f"w_{feature_group}"] = weight_prior.sample_local()
+                    self.sample_dict[f"w_{feature_group}"] = weight_prior()
 
             with plates[f"feature_{feature_group}"]:
                 self.sample_dict[f"sigma_{feature_group}"] = self.sigma_priors[
                     feature_group
-                ].sample_local()
+                ]()
 
         for obs_group, factor_prior in self.factor_priors.items():
             for feature_group, weight_prior in self.weight_priors.items():
@@ -377,7 +372,7 @@ if __name__ == "__main__":
 
     hs.sample_global()
     hs.sample_inter()
-    hs.sample_local()
+    hs()
 
     model = Generative(
         n_factors=3,

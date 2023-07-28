@@ -23,11 +23,9 @@ class Q(PyroModule):
         self.device = prior.device
         self.to(self.device)
 
-        self.site_to_shape = {}
-        self.sample_dict = {}
-
-        self.setup_shapes()
         self.setup_sites()
+
+        self.sample_dict = {}
 
     def _set_loc_and_scale(self, site_name: str, site_shape):
         deep_setattr(
@@ -80,16 +78,13 @@ class Q(PyroModule):
             self.site_to_shape[site_name] = site_samples.shape
 
     def setup_sites(self):
-        for site_name, site_shape in self.site_to_shape.items():
-            self._set_loc_and_scale(site_name, site_shape)
+        for site_name, site_samples in self.prior.sample_dict.items():
+            self._set_loc_and_scale(site_name, site_samples.shape)
 
     def sample_global(self):
         return None
 
     def sample_inter(self):
-        return None
-
-    def sample_local(self):
         return None
 
     def _mean_normal(self, site_name):
@@ -125,14 +120,13 @@ class Q(PyroModule):
     def mode(self):
         return None
 
+    def forward(self):
+        return None
+
 
 class InverseGammaQ(Q):
     def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
         super().__init__(prior, init_loc, init_scale)
-        self.name = "InverseGamma"
-
-    def sample_local(self):
-        return self._sample_log_normal(self.prior.site_name)
 
     @torch.no_grad()
     def mean(self):
@@ -146,14 +140,13 @@ class InverseGammaQ(Q):
     def mode(self):
         return self._mode_log_normal(self.prior.site_name)
 
+    def forward(self):
+        return self._sample_log_normal(self.prior.site_name)
+
 
 class NormalQ(Q):
     def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
         super().__init__(prior, init_loc, init_scale)
-        self.name = "Normal"
-
-    def sample_local(self):
-        return self._sample_normal(self.prior.site_name)
 
     @torch.no_grad()
     def mean(self):
@@ -167,17 +160,18 @@ class NormalQ(Q):
     def mode(self):
         return self._mode_normal(self.prior.site_name)
 
+    def forward(self):
+        return self._sample_normal(self.prior.site_name)
+
 
 class LaplaceQ(NormalQ):
     def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
         super().__init__(prior, init_loc, init_scale)
-        self.name = "Laplace"
 
 
 class HorseshoeQ(NormalQ):
     def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
         super().__init__(prior, init_loc, init_scale)
-        self.name = "Horseshoe"
 
     def sample_global(self):
         if hasattr(self.prior, "tau_delta"):
@@ -189,7 +183,7 @@ class HorseshoeQ(NormalQ):
             return None
         return self._sample_log_normal(self.prior.thetas_site_name)
 
-    def sample_local(self):
+    def forward(self):
         self._sample_log_normal(self.prior.lambdas_site_name)
         if self.prior.regularized:
             self._sample_log_normal(self.prior.caux_site_name)
@@ -224,7 +218,7 @@ class Guide(PyroModule):
                 "Laplace": LaplaceQ,
                 "Horseshoe": HorseshoeQ,
                 # "SpikeAndSlab": SpikeAndSlabQ,
-            }[prior.name](prior=prior)
+            }[prior._pyro_name](prior=prior)
 
         return _q_dists
 
@@ -239,7 +233,7 @@ class Guide(PyroModule):
                 with plates[f"obs_{obs_group}"]:
                     self.sample_dict[
                         self.model.factor_priors[obs_group].site_name
-                    ] = factor_q_dist.sample_local()
+                    ] = factor_q_dist()
 
         for feature_group, weight_q_dist in self.weight_q_dists.items():
             weight_q_dist.sample_global()
@@ -248,11 +242,11 @@ class Guide(PyroModule):
                 with plates[f"feature_{feature_group}"]:
                     self.sample_dict[
                         self.model.weight_priors[feature_group].site_name
-                    ] = weight_q_dist.sample_local()
+                    ] = weight_q_dist()
 
             with plates[f"feature_{feature_group}"]:
                 self.sample_dict[
                     self.model.sigma_priors[feature_group].site_name
-                ] = self.sigma_q_dists[feature_group].sample_local()
+                ] = self.sigma_q_dists[feature_group]()
 
         return self.sample_dict

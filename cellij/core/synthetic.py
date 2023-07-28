@@ -248,8 +248,10 @@ class DataGenerator:
             A boolean array of groups times factors.
         """
         n_groups = self.n_sample_groups
+        group_factor_config = self.sample_group_factor_config
         if level == "features":
             n_groups = self.n_feature_groups
+            group_factor_config = self.feature_group_factor_config
 
         if all_combs and n_groups == 1:
             logger.warning(
