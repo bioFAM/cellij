@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class Prior(PyroModule):
-    def __init__(self, name, site_name: str, device=None):
+    def __init__(self, site_name: str, device=None, name="Prior"):
         super().__init__(name)
         self.site_name = site_name
         self.device = device
@@ -48,8 +48,8 @@ class Prior(PyroModule):
 
 
 class InverseGammaPrior(Prior):
-    def __init__(self, site_name: str, device=None):
-        super().__init__("InverseGamma", site_name, device)
+    def __init__(self, site_name: str, device=None, name="InverseGamma"):
+        super().__init__(site_name, device, name)
 
     def forward(self):
         return self._sample(
@@ -60,8 +60,8 @@ class InverseGammaPrior(Prior):
 
 
 class NormalPrior(Prior):
-    def __init__(self, site_name: str, device=None):
-        super().__init__("Normal", site_name, device)
+    def __init__(self, site_name: str, device=None, name="Normal"):
+        super().__init__(site_name, device, name)
 
     def forward(self):
         return self._sample(
@@ -72,8 +72,8 @@ class NormalPrior(Prior):
 
 
 class LaplacePrior(Prior):
-    def __init__(self, site_name: str, scale: float = 1.0, device=None):
-        super().__init__("Laplace", site_name, device)
+    def __init__(self, site_name: str, scale: float = 1.0, device=None, name="Laplace"):
+        super().__init__(site_name, device, name)
         self.scale = self._const(scale)
 
     def forward(self):
@@ -95,8 +95,9 @@ class HorseshoePrior(Prior):
         regularized: bool = True,
         ard: bool = True,
         device=None,
+        name="Horseshoe",
     ):
-        super().__init__("Horseshoe", site_name, device)
+        super().__init__(site_name, device, name)
 
         self.tau_site_name = self.site_name + "_tau"
         self.thetas_site_name = self.site_name + "_thetas"

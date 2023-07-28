@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 class Q(PyroModule):
-    def __init__(self, prior, init_loc: float = 0.0, init_scale: float = 0.1):
-        super().__init__("Q")
+    def __init__(self, prior, init_loc: float = 0.0, init_scale: float = 0.1, name="Q"):
+        super().__init__(name)
 
         self.locs = PyroModule()
         self.scales = PyroModule()
@@ -88,7 +88,8 @@ class Q(PyroModule):
         return None
 
     def _mean_normal(self, site_name):
-        return self.locs[site_name]
+        loc, scale = self._get_loc_and_scale(site_name)
+        return loc
 
     def _median_normal(self, site_name):
         return self._mean_normal(site_name)
@@ -125,8 +126,10 @@ class Q(PyroModule):
 
 
 class InverseGammaQ(Q):
-    def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
-        super().__init__(prior, init_loc, init_scale)
+    def __init__(
+        self, prior, init_loc: float = 0, init_scale: float = 0.1, name="InverseGamma"
+    ):
+        super().__init__(prior, init_loc, init_scale, name)
 
     @torch.no_grad()
     def mean(self):
@@ -145,8 +148,10 @@ class InverseGammaQ(Q):
 
 
 class NormalQ(Q):
-    def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
-        super().__init__(prior, init_loc, init_scale)
+    def __init__(
+        self, prior, init_loc: float = 0, init_scale: float = 0.1, name="Normal"
+    ):
+        super().__init__(prior, init_loc, init_scale, name)
 
     @torch.no_grad()
     def mean(self):
@@ -165,13 +170,17 @@ class NormalQ(Q):
 
 
 class LaplaceQ(NormalQ):
-    def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
-        super().__init__(prior, init_loc, init_scale)
+    def __init__(
+        self, prior, init_loc: float = 0, init_scale: float = 0.1, name="Laplace"
+    ):
+        super().__init__(prior, init_loc, init_scale, name)
 
 
 class HorseshoeQ(NormalQ):
-    def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
-        super().__init__(prior, init_loc, init_scale)
+    def __init__(
+        self, prior, init_loc: float = 0, init_scale: float = 0.1, name="Horseshoe"
+    ):
+        super().__init__(prior, init_loc, init_scale, name)
 
     def sample_global(self):
         if hasattr(self.prior, "tau_delta"):
