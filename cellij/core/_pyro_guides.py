@@ -10,8 +10,8 @@ from pyro.nn import PyroModule, PyroParam
 logger = logging.getLogger(__name__)
 
 
-class Q(PyroModule):
-    def __init__(self, prior, init_loc: float = 0.0, init_scale: float = 0.1, name="Q"):
+class QDist(PyroModule):
+    def __init__(self, name, prior, init_loc: float = 0.0, init_scale: float = 0.1):
         super().__init__(name)
 
         self.locs = PyroModule()
@@ -111,25 +111,23 @@ class Q(PyroModule):
 
     @torch.no_grad()
     def mean(self):
-        return None
+        return self._mean_normal(self.prior.site_name)
 
     @torch.no_grad()
     def median(self):
-        return None
+        return self._median_normal(self.prior.site_name)
 
     @torch.no_grad()
     def mode(self):
-        return None
+        return self._mode_normal(self.prior.site_name)
 
     def forward(self):
         return None
 
 
-class InverseGammaQ(Q):
-    def __init__(
-        self, prior, init_loc: float = 0, init_scale: float = 0.1, name="InverseGamma"
-    ):
-        super().__init__(prior, init_loc, init_scale, name)
+class InverseGammaQ(QDist):
+    def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("InverseGammaQ", prior, init_loc, init_scale)
 
     @torch.no_grad()
     def mean(self):
@@ -147,40 +145,25 @@ class InverseGammaQ(Q):
         return self._sample_log_normal(self.prior.site_name)
 
 
-class NormalQ(Q):
-    def __init__(
-        self, prior, init_loc: float = 0, init_scale: float = 0.1, name="Normal"
-    ):
-        super().__init__(prior, init_loc, init_scale, name)
-
-    @torch.no_grad()
-    def mean(self):
-        return self._mean_normal(self.prior.site_name)
-
-    @torch.no_grad()
-    def median(self):
-        return self._median_normal(self.prior.site_name)
-
-    @torch.no_grad()
-    def mode(self):
-        return self._mode_normal(self.prior.site_name)
+class NormalQ(QDist):
+    def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("NormalQ", prior, init_loc, init_scale)
 
     def forward(self):
         return self._sample_normal(self.prior.site_name)
 
 
-class LaplaceQ(NormalQ):
-    def __init__(
-        self, prior, init_loc: float = 0, init_scale: float = 0.1, name="Laplace"
-    ):
-        super().__init__(prior, init_loc, init_scale, name)
+class LaplaceQ(QDist):
+    def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("LaplaceQ", prior, init_loc, init_scale)
+
+    def forward(self):
+        return self._sample_normal(self.prior.site_name)
 
 
-class HorseshoeQ(NormalQ):
-    def __init__(
-        self, prior, init_loc: float = 0, init_scale: float = 0.1, name="Horseshoe"
-    ):
-        super().__init__(prior, init_loc, init_scale, name)
+class HorseshoeQ(QDist):
+    def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("HorseshoeQ", prior, init_loc, init_scale)
 
     def sample_global(self):
         if hasattr(self.prior, "tau_delta"):
@@ -222,10 +205,10 @@ class Guide(PyroModule):
         for group, prior in priors.items():
             # Replace strings with actuals priors
             _q_dists[group] = {
-                "InverseGamma": InverseGammaQ,
-                "Normal": NormalQ,
-                "Laplace": LaplaceQ,
-                "Horseshoe": HorseshoeQ,
+                "InverseGammaP": InverseGammaQ,
+                "NormalP": NormalQ,
+                "LaplaceP": LaplaceQ,
+                "HorseshoeP": HorseshoeQ,
                 # "SpikeAndSlab": SpikeAndSlabQ,
             }[prior._pyro_name](prior=prior)
 

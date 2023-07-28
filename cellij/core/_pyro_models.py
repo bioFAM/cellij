@@ -9,8 +9,8 @@ from pyro.nn import PyroModule
 logger = logging.getLogger(__name__)
 
 
-class Prior(PyroModule):
-    def __init__(self, site_name: str, device=None, name="Prior"):
+class PDist(PyroModule):
+    def __init__(self, name, site_name: str, device=None):
         super().__init__(name)
         self.site_name = site_name
         self.device = device
@@ -47,9 +47,9 @@ class Prior(PyroModule):
         return None
 
 
-class InverseGammaPrior(Prior):
-    def __init__(self, site_name: str, device=None, name="InverseGamma"):
-        super().__init__(site_name, device, name)
+class InverseGammaP(PDist):
+    def __init__(self, site_name: str, device=None):
+        super().__init__("InverseGammaP", site_name, device)
 
     def forward(self):
         return self._sample(
@@ -59,9 +59,9 @@ class InverseGammaPrior(Prior):
         )
 
 
-class NormalPrior(Prior):
-    def __init__(self, site_name: str, device=None, name="Normal"):
-        super().__init__(site_name, device, name)
+class NormalP(PDist):
+    def __init__(self, site_name: str, device=None):
+        super().__init__("NormalP", site_name, device)
 
     def forward(self):
         return self._sample(
@@ -71,9 +71,9 @@ class NormalPrior(Prior):
         )
 
 
-class LaplacePrior(Prior):
-    def __init__(self, site_name: str, scale: float = 1.0, device=None, name="Laplace"):
-        super().__init__(site_name, device, name)
+class LaplaceP(PDist):
+    def __init__(self, site_name: str, scale: float = 1.0, device=None):
+        super().__init__("LaplaceP", site_name, device)
         self.scale = self._const(scale)
 
     def forward(self):
@@ -84,7 +84,7 @@ class LaplacePrior(Prior):
         )
 
 
-class HorseshoePrior(Prior):
+class HorseshoeP(PDist):
     def __init__(
         self,
         site_name: str,
@@ -95,9 +95,8 @@ class HorseshoePrior(Prior):
         regularized: bool = True,
         ard: bool = True,
         device=None,
-        name="Horseshoe",
     ):
-        super().__init__(site_name, device, name)
+        super().__init__("HorseshoeP", site_name, device)
 
         self.tau_site_name = self.site_name + "_tau"
         self.thetas_site_name = self.site_name + "_thetas"
@@ -167,7 +166,7 @@ class HorseshoePrior(Prior):
         )
 
 
-class SpikeAndSlabPrior(Prior):
+class SpikeAndSlabP(PDist):
     def __init__(
         self,
         site_name: str,
@@ -277,11 +276,11 @@ class Generative(PyroModule):
         for group, prior in priors.items():
             # Replace strings with actuals priors
             _priors[group] = {
-                "InverseGamma": InverseGammaPrior,
-                "Normal": NormalPrior,
-                "Laplace": LaplacePrior,
-                "Horseshoe": HorseshoePrior,
-                "SpikeAndSlab": SpikeAndSlabPrior,
+                "InverseGamma": InverseGammaP,
+                "Normal": NormalP,
+                "Laplace": LaplaceP,
+                "Horseshoe": HorseshoeP,
+                "SpikeAndSlab": SpikeAndSlabP,
             }[prior](site_name=f"{site_name}_{group}", device=self.device)
 
         return _priors
@@ -360,7 +359,7 @@ class Generative(PyroModule):
 
 
 if __name__ == "__main__":
-    hs = HorseshoePrior(
+    hs = HorseshoeP(
         "z",
         tau_scale=1.0,
         tau_delta=None,
