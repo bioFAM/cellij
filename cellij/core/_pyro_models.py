@@ -27,13 +27,15 @@ class Prior(PyroModule):
     def _const(self, value, size=1):
         return value * self._ones(size)
 
-    def _sample(self, name, dist, dist_kwargs={}, sample_kwargs={}):
-        self.sample_dict[name] = pyro.sample(name, dist(**dist_kwargs), **sample_kwargs)
-        return self.sample_dict[name]
+    def _sample(self, site_name, dist, dist_kwargs={}, sample_kwargs={}):
+        self.sample_dict[site_name] = pyro.sample(
+            site_name, dist(**dist_kwargs), **sample_kwargs
+        )
+        return self.sample_dict[site_name]
 
-    def _deterministic(self, name, value, event_dim=None):
-        self.sample_dict[name] = pyro.deterministic(name, value, event_dim)
-        return self.sample_dict[name]
+    def _deterministic(self, site_name, value, event_dim=None):
+        self.sample_dict[site_name] = pyro.deterministic(site_name, value, event_dim)
+        return self.sample_dict[site_name]
 
     def sample_global(self):
         return None
@@ -45,9 +47,23 @@ class Prior(PyroModule):
         return None
 
 
+class InverseGammaPrior(Prior):
+    def __init__(self, site_name: str, device=None):
+        super().__init__(site_name, device)
+        self.name = "InverseGamma"
+
+    def sample_local(self):
+        return self._sample(
+            self.site_name,
+            dist.InverseGamma,
+            dist_kwargs={"concentration": self._ones(1), "rate": self._ones(1)},
+        )
+
+
 class NormalPrior(Prior):
     def __init__(self, site_name: str, device=None):
         super().__init__(site_name, device)
+        self.name = "Normal"
 
     def sample_local(self):
         return self._sample(
@@ -60,6 +76,7 @@ class NormalPrior(Prior):
 class LaplacePrior(Prior):
     def __init__(self, site_name: str, scale: float = 1.0, device=None):
         super().__init__(site_name, device)
+        self.name = "Laplace"
         self.scale = self._const(scale)
 
     def sample_local(self):
@@ -78,11 +95,12 @@ class HorseshoePrior(Prior):
         tau_delta: float = None,
         lambdas_scale: float = 1.0,
         thetas_scale: float = 1.0,
-        regularized: bool = False,
-        ard: bool = False,
+        regularized: bool = True,
+        ard: bool = True,
         device=None,
     ):
         super().__init__(site_name, device)
+        self.name = "Horseshoe"
 
         self.tau_site_name = self.site_name + "_tau"
         self.thetas_site_name = self.site_name + "_thetas"
@@ -162,6 +180,7 @@ class SpikeAndSlabPrior(Prior):
         device=None,
     ):
         super().__init__(site_name, device)
+        self.name = "SpikeAndSlab"
 
         self.thetas_site_name = self.site_name + "_thetas"
         self.alphas_site_name = self.site_name + "_alphas"
@@ -190,7 +209,7 @@ class SpikeAndSlabPrior(Prior):
             self._deterministic(self.alphas_site_name, self._ones(1))
 
         # how can we also return alphas...
-        # they are still accessible via self.sample_dict, 
+        # they are still accessible via self.sample_dict,
         # but still would be nice to return them
         return self._sample(
             self.thetas_site_name,
@@ -236,7 +255,7 @@ class Generative(PyroModule):
         weight_priors: Dict[str, str] = None,
         device=None,
     ):
-        super().__init__(name="Generative")
+        super().__init__("Generative")
         self.n_samples = sum(obs_dict.values())
         self.n_factors = n_factors
         self.feature_dict = feature_dict
@@ -248,6 +267,9 @@ class Generative(PyroModule):
         self.device = device
         self.to(self.device)
 
+        self.sigma_priors = self._get_priors(
+            {k: "InverseGamma" for k in weight_priors}, "sigma"
+        )
         self.factor_priors = self._get_priors(factor_priors, "z")
         self.weight_priors = self._get_priors(weight_priors, "w")
 
@@ -259,6 +281,7 @@ class Generative(PyroModule):
         for group, prior in priors.items():
             # Replace strings with actuals priors
             _priors[group] = {
+                "InverseGamma": InverseGammaPrior,
                 "Normal": NormalPrior,
                 "Laplace": LaplacePrior,
                 "Horseshoe": HorseshoePrior,
@@ -280,16 +303,7 @@ class Generative(PyroModule):
 
         return plates
 
-    def sample_sigma(self, feature_group: str = None):
-        return pyro.sample(
-            f"sigma_{feature_group}",
-            dist.InverseGamma(
-                concentration=torch.ones(1, device=self.device),
-                rate=torch.ones(1, device=self.device),
-            ),
-        )
-
-    def forward(self, data: torch.Tensor = None, **kwargs):
+    def forward(self, data: torch.Tensor = None):
         plates = self.get_plates()
 
         for obs_group, factor_prior in self.factor_priors.items():
@@ -307,7 +321,9 @@ class Generative(PyroModule):
                     self.sample_dict[f"w_{feature_group}"] = weight_prior.sample_local()
 
             with plates[f"feature_{feature_group}"]:
-                self.sample_dict[f"sigma_{feature_group}"] = self.sample_sigma(feature_group)
+                self.sample_dict[f"sigma_{feature_group}"] = self.sigma_priors[
+                    feature_group
+                ].sample_local()
 
         for obs_group, factor_prior in self.factor_priors.items():
             for feature_group, weight_prior in self.weight_priors.items():

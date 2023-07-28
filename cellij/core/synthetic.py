@@ -1,7 +1,6 @@
 """Data module."""
 import itertools
 import logging
-import math
 from typing import List, Optional, Tuple
 
 import anndata as ad
@@ -18,16 +17,14 @@ class DataGenerator:
 
     def __init__(
         self,
-        n_samples: int,
+        n_samples: List[int],
         n_features: List[int],
         likelihoods: Optional[List[str]] = None,
-        n_fully_shared_factors: int = 2,
-        n_partially_shared_factors: int = 15,
-        n_private_factors: int = 3,
+        sample_group_factor_config: Optional[Tuple[int]] = None,
+        feature_group_factor_config: Optional[Tuple[int]] = None,
         n_covariates: int = 0,
         factor_size_dist: str = "uniform",
         factor_size_params: Optional[Tuple[float, float]] = None,
-        n_active_factors: float = 1.0,
         **kwargs,
     ):
         """Generate synthetic data.
@@ -41,14 +38,16 @@ class DataGenerator:
         likelihoods : List[str], optional
             Likelihoods for each feature group,
             "Normal" or "Bernoulli", by default None.
-        n_fully_shared_factors : int, optional
-            Number of fully shared latent factors,
-            by default 2.
-        n_partially_shared_factors : int, optional
-            Number of partially shared factors,
-            by default 15.
-        n_private_factors : int, optional
-            Number of private factors, by default 3.
+        sample_group_factor_config: Tuple[int], optional
+            Configuration of the factors across sample groups
+            as a triplet of integers,
+            (fully shared, partially shared, private),
+            by default (10, 0, 0).
+        feature_group_factor_config: Tuple[int], optional
+            Configuration of the factors across feature groups
+            as a triplet of integers,
+            (fully shared, partially shared, private),
+            by default (10, 0, 0).
         n_covariates : int, optional
             Number of additional covariates, by default 0.
         factor_size_dist : str, optional
@@ -59,16 +58,26 @@ class DataGenerator:
             Parameters for the distribution of the number
             of active factor loadings for the latent factors,
             by default None.
-        n_active_factors : float, optional
-            Number or fraction of active factors,
-            by default 1.0 (all).
         """
         self.n_samples = n_samples
         self.n_features = n_features
+        self.n_sample_groups = len(self.n_samples)
         self.n_feature_groups = len(self.n_features)
-        self.n_fully_shared_factors = n_fully_shared_factors
-        self.n_partially_shared_factors = n_partially_shared_factors
-        self.n_private_factors = n_private_factors
+
+        if sample_group_factor_config is None:
+            sample_group_factor_config = (10, 0, 0)
+        if feature_group_factor_config is None:
+            feature_group_factor_config = (10, 0, 0)
+
+        if sum(sample_group_factor_config) != sum(feature_group_factor_config):
+            raise ValueError(
+                "Total number of factors must be the same "
+                "for sample groups and feature groups."
+            )
+
+        self.sample_group_factor_config = sample_group_factor_config
+        self.feature_group_factor_config = feature_group_factor_config
+
         self.n_covariates = n_covariates
 
         if factor_size_params is None:
@@ -98,23 +107,21 @@ class DataGenerator:
             likelihoods = ["Normal" for _ in range(self.n_feature_groups)]
         self.likelihoods = likelihoods
 
-        self.n_active_factors = n_active_factors
-
         # set upon data generation, see `generate`
         # covariates
-        self.x = None
+        self.xs = None
         # covariate coefficients
         self.betas = None
         # latent factors
-        self.z = None
+        self.zs = None
         # factor loadings
         self.ws = None
+        self.w_masks = None
+        self.noisy_w_masks = None
         self.sigmas = None
         self.ys = None
 
-        self.w_masks = None
-        self.noisy_w_masks = None
-        self.active_factor_indices = None
+        self.sample_group_factor_mask = None
         self.feature_group_factor_mask = None
         # set when introducing missingness
         self.presence_masks = None
@@ -128,31 +135,7 @@ class DataGenerator:
         int
             Number of factors.
         """
-        return (
-            self.n_fully_shared_factors
-            + self.n_partially_shared_factors
-            + self.n_private_factors
-        )
-
-    def _attr_to_matrix(self, attr_name: str, axis: int = 1) -> ArrayLike:
-        """Concatenate list of attributes into a single array.
-
-        Parameters
-        ----------
-        attr_name : str
-            Name of an attribute, e.g. ys for data.
-        axis : int, optional
-            Axis on which to concatenate arrays, by default 1.
-
-        Returns
-        -------
-        ArrayLike
-            Concatenated attributes as a single array.
-        """
-        attr = getattr(self, attr_name)
-        if attr is not None:
-            attr = np.concatenate(attr, axis=axis)
-        return attr
+        return sum(self.sample_group_factor_config)
 
     def _mask_to_nan(self):
         """Replace missing values with NaNs."""
@@ -190,27 +173,56 @@ class DataGenerator:
     @property
     def y(self):
         """Data without any missing values."""
-        return self._attr_to_matrix("ys")
+        return np.concatenate(
+            [np.concatenate(self.ys[g], axis=0) for g in range(self.n_sample_groups)],
+            axis=1,
+        )
 
     @property
     def missing_y(self):
         """Data without missing values."""
-        return self._attr_to_matrix("missing_ys")
+        return np.concatenate(
+            [
+                np.concatenate(self.missing_ys[g], axis=0)
+                for g in range(self.n_sample_groups)
+            ],
+            axis=1,
+        )
+
+    @property
+    def z(self):
+        """Factor scores."""
+        return np.concatenate(self.zs, axis=0)
+
+    @property
+    def x(self):
+        """Covariates."""
+        return np.concatenate(self.xs, axis=0)
 
     @property
     def w(self):
         """Factor loadings."""
-        return self._attr_to_matrix("ws")
+        return np.concatenate(self.ws, axis=1)
 
     @property
     def w_mask(self):
         """Factor loadings activity mask."""
-        return self._attr_to_matrix("w_masks")
+        return np.concatenate(self.w_masks, axis=1)
 
     @property
     def noisy_w_mask(self):
         """Noisy factor loadings activity mask."""
-        return self._attr_to_matrix("noisy_w_masks")
+        return np.concatenate(self.noisy_w_masks, axis=1)
+
+    @property
+    def beta(self):
+        """Factor loadings."""
+        return np.concatenate(self.betas, axis=1)
+
+    @property
+    def sigma(self):
+        """Factor loadings."""
+        return np.concatenate(self.sigmas)
 
     def _generate_factor_mask(
         self,
@@ -235,7 +247,7 @@ class DataGenerator:
         ArrayLike
             A boolean array of groups times factors.
         """
-        # n_groups = self.n_sample_groups
+        n_groups = self.n_sample_groups
         if level == "features":
             n_groups = self.n_feature_groups
 
@@ -250,15 +262,18 @@ class DataGenerator:
                 "Generating all possible binary combinations of "
                 f"{n_groups} variables."
             )
-            self.n_fully_shared_factors = 1
-            self.n_private_factors = n_groups
-            self.n_partially_shared_factors = 2**n_groups - 2 - self.n_private_factors
+            group_factor_config = (1, 2**n_groups - 2 - n_groups, n_groups)
             logger.warning(
                 f"New factor configuration across `{level}` groups: "
-                f"{self.n_fully_shared_factors} fully shared, "
-                f"{self.n_partially_shared_factors} partially shared, "
-                f"{self.n_private_factors} private factors."
+                f"{group_factor_config[0]} fully shared, "
+                f"{group_factor_config[1]} partially shared, "
+                f"{group_factor_config[2]} private factors."
             )
+
+            if level == "features":
+                self.feature_group_factor_config = group_factor_config
+            else:
+                self.sample_group_factor_config = group_factor_config
 
             return np.array(
                 [list(i) for i in itertools.product([1, 0], repeat=n_groups)]
@@ -269,12 +284,9 @@ class DataGenerator:
 
         factor_mask = np.ones([n_groups, self.n_factors])
 
-        for factor_idx in range(self.n_fully_shared_factors, self.n_factors):
+        for factor_idx in range(group_factor_config[0], self.n_factors):
             # exclude group subsets for partially shared factors
-            if (
-                factor_idx
-                < self.n_fully_shared_factors + self.n_partially_shared_factors
-            ):
+            if factor_idx < group_factor_config[0] + group_factor_config[1]:
                 exclude_group_subset_size = (
                     rng.integers(1, n_groups - 1) if n_groups > 2 else 0
                 )
@@ -292,7 +304,7 @@ class DataGenerator:
             for g in exclude_group_subset:
                 factor_mask[g, factor_idx] = 0
 
-        if self.n_private_factors >= n_groups:
+        if group_factor_config[2] >= n_groups:
             factor_mask[-n_groups:, -n_groups:] = np.eye(n_groups)
 
         return factor_mask
@@ -305,14 +317,15 @@ class DataGenerator:
         with_std : bool, optional
             Whether to standardize the data, by default False
         """
-        for m in range(self.n_feature_groups):
-            if self.likelihoods[m] == "Normal":
-                y = np.array(self.ys[m], dtype=np.float32, copy=True)
-                y -= y.mean(axis=0)
-                if with_std:
-                    y_std = y.std(axis=0)
-                    y = np.divide(y, y_std, out=np.zeros_like(y), where=y_std != 0)
-                self.ys[m] = y
+        for g in range(self.n_sample_groups):
+            for m in range(self.n_feature_groups):
+                if self.likelihoods[m] == "Normal":
+                    y = np.array(self.ys[g][m], dtype=np.float32, copy=True)
+                    y -= y.mean(axis=0)
+                    if with_std:
+                        y_std = y.std(axis=0)
+                        y = np.divide(y, y_std, out=np.zeros_like(y), where=y_std != 0)
+                    self.ys[g][m] = y
 
     def sigmoid(self, x):
         """Sigmoid transformation."""
@@ -321,7 +334,7 @@ class DataGenerator:
     def generate(
         self,
         seed: int = None,
-        all_feature_group_combs: bool = False,
+        all_combs: bool = False,
         overwrite: bool = False,
     ) -> Generator:
         """Generate synthetic data.
@@ -350,41 +363,49 @@ class DataGenerator:
             )
             return rng
 
+        xs = []
         betas = []
+        zs = []
         ws = []
+        w_masks = []
+        betas = []
         sigmas = []
         ys = []
-        w_masks = []
 
-        # may change the number of factors if all_feature_group_combs is True
+        # may change the number of factors if all_combs is True
+        sample_group_factor_mask = self._generate_factor_mask(
+            rng, all_combs=all_combs, level="samples"
+        )
         feature_group_factor_mask = self._generate_factor_mask(
-            rng, all_combs=all_feature_group_combs, level="features"
+            rng, all_combs=all_combs, level="features"
         )
 
-        # generate factor scores which lie in the latent space
-        z = rng.standard_normal((self.n_samples, self.n_factors))
+        for g in range(self.n_sample_groups):
+            n_samples = self.n_samples[g]
+            z_shape = (n_samples, self.n_factors)
+            z = rng.standard_normal(z_shape)
+            z_mask = np.zeros(z_shape)
 
-        if self.n_covariates > 0:
-            x = rng.standard_normal((self.n_samples, self.n_covariates))
+            for factor_idx in range(self.n_factors):
+                if sample_group_factor_mask[g, factor_idx] > 0:
+                    z_mask[:, factor_idx] = 1.0
 
-        n_active_factors = self.n_active_factors
-        if n_active_factors <= 1.0:
-            # if fraction of active factors convert to int
-            n_active_factors = int(n_active_factors * self.n_factors)
+            # set small values to zero
+            tiny_threshold = 0.1
+            z_mask[np.abs(z) < tiny_threshold] = 0.0
+            z_mask = z_mask.astype(bool)
+            # add some noise to avoid exactly zero values
+            z = np.where(z_mask, z, rng.standard_normal(z_shape) / 100)
+            assert ((np.abs(z) > tiny_threshold) == z_mask).all()
 
-        active_factor_indices = sorted(
-            rng.choice(
-                self.n_factors,
-                size=math.ceil(n_active_factors),
-                replace=False,
-            )
-        )
+            zs.append(z)
 
-        for factor_idx in range(self.n_factors):
-            if factor_idx not in active_factor_indices:
-                feature_group_factor_mask[:, factor_idx] = 0.0
+            if self.n_covariates > 0:
+                x = rng.standard_normal((n_samples, self.n_covariates))
+                xs.append(x)
 
         for m in range(self.n_feature_groups):
+            print(m)
             n_features = self.n_features[m]
             w_shape = (self.n_factors, n_features)
             w = rng.standard_normal(w_shape)
@@ -405,44 +426,51 @@ class DataGenerator:
                     w_mask[factor_idx] = rng.choice(2, n_features, p=[1 - faft, faft])
 
             # set small values to zero
-            tiny_w_threshold = 0.1
-            w_mask[np.abs(w) < tiny_w_threshold] = 0.0
+            tiny_threshold = 0.1
+            w_mask[np.abs(w) < tiny_threshold] = 0.0
             w_mask = w_mask.astype(bool)
             # add some noise to avoid exactly zero values
             w = np.where(w_mask, w, rng.standard_normal(w_shape) / 100)
-            assert ((np.abs(w) > tiny_w_threshold) == w_mask).all()
+            assert ((np.abs(w) > tiny_threshold) == w_mask).all()
 
-            y_loc = np.matmul(z, w)
+            ws.append(w)
+            w_masks.append(w_mask)
+
+            # generate feature sigmas
+            sigma = 1.0 / np.sqrt(rng.gamma(10.0, 1.0, n_features))
+
+            sigmas.append(sigma)
 
             if self.n_covariates > 0:
                 beta_shape = (self.n_covariates, n_features)
                 # reduce effect of betas by scaling them down
                 beta = rng.standard_normal(beta_shape) / 10
-                y_loc = y_loc + np.matmul(x, beta)
                 betas.append(beta)
 
-            # generate feature sigmas
-            sigma = 1.0 / np.sqrt(rng.gamma(10.0, 1.0, n_features))
+        for g in range(self.n_sample_groups):
+            feature_group_ys = []
+            for m in range(self.n_feature_groups):
+                y_loc = np.matmul(zs[g], ws[m])
+                if self.n_covariates > 0:
+                    y_loc = y_loc + np.matmul(xs[g], betas[m])
+                if self.likelihoods[m] == "Normal":
+                    y = rng.normal(loc=y_loc, scale=sigmas[m])
+                else:
+                    y = rng.binomial(1, self.sigmoid(y_loc))
 
-            if self.likelihoods[m] == "Normal":
-                y = rng.normal(loc=y_loc, scale=sigma)
-            else:
-                y = rng.binomial(1, self.sigmoid(y_loc))
+                feature_group_ys.append(y)
 
-            ws.append(w)
-            sigmas.append(sigma)
-            ys.append(y)
-            w_masks.append(w_mask)
+            ys.append(feature_group_ys)
 
-        if self.n_covariates > 0:
-            self.x = x
-            self.betas = betas
-        self.z = z
+        self.xs = xs
+        self.betas = betas
+
+        self.zs = zs
         self.ws = ws
         self.w_masks = w_masks
         self.sigmas = sigmas
         self.ys = ys
-        self.active_factor_indices = active_factor_indices
+        self.sample_group_factor_mask = sample_group_factor_mask
         self.feature_group_factor_mask = feature_group_factor_mask
 
         return rng
@@ -635,7 +663,6 @@ class DataGenerator:
 
         mdata = mu.MuData(ad_dict)
         mdata.uns["likelihoods"] = dict(zip(feature_group_names, self.likelihoods))
-        mdata.uns["n_active_factors"] = self.n_active_factors
 
         mdata.obsm["z"] = self.z
 

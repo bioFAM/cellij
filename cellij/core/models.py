@@ -1,5 +1,5 @@
 from cellij.core._factormodel import FactorModel
-from cellij.core._pyro_guides import HorseshoeGuide, NormalGuide
+# from cellij.core._pyro_guides import HorseshoeGuide, NormalGuide
 # from cellij.core._pyro_models import (
 #     # HorseshoeStandaloneGenerative,
 #     HorseshoeGenerative,
