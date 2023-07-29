@@ -72,7 +72,7 @@ class NormalP(PDist):
 
 
 class LaplaceP(PDist):
-    def __init__(self, site_name: str, scale: float = 1.0, device=None):
+    def __init__(self, site_name: str, scale: float = 0.1, device=None):
         super().__init__("LaplaceP", site_name, device)
         self.scale = self._const(scale)
 
@@ -326,18 +326,22 @@ class Generative(PyroModule):
                 n_features = self.feature_dict[feature_group]
 
                 with plates[f"obs_{obs_group}"], plates[f"feature_{feature_group}"]:
+                    z_shape = (-1, n_obs, self.n_factors, 1)
+                    w_shape = (-1, 1, self.n_factors, n_features)
+                    sigma_shape = (-1, 1, 1, n_features)
+                    obs_shape = (-1, n_obs, 1, n_features)
+
                     obs = None
                     if data is not None:
-                        obs = data[obs_group][feature_group]
+                        obs = data[obs_group][feature_group].view(obs_shape)
 
-                    loc = torch.einsum(
-                        "...ikj,...kj->...ij",
-                        self.sample_dict[f"z_{obs_group}"],
-                        self.sample_dict[f"w_{feature_group}"],
-                    ).view(-1, n_obs, 1, n_features)
+                    z = self.sample_dict[f"z_{obs_group}"].view(z_shape)
+                    w = self.sample_dict[f"w_{feature_group}"].view(w_shape)
+
+                    loc = torch.einsum("...ikj,...ikj->...ij", z, w).view(obs_shape)
 
                     scale = torch.sqrt(self.sample_dict[f"sigma_{feature_group}"]).view(
-                        -1, 1, 1, n_features
+                        sigma_shape
                     )
 
                     site_name = f"x_{obs_group}_{feature_group}"
@@ -353,7 +357,7 @@ class Generative(PyroModule):
                             dist.Normal(loc, scale),
                             obs=obs,
                             infer={"is_auxiliary": True},
-                        ).view(n_obs, n_features)
+                        )
 
         return self.sample_dict
 

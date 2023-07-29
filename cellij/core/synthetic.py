@@ -174,8 +174,8 @@ class DataGenerator:
     def y(self):
         """Data without any missing values."""
         return np.concatenate(
-            [np.concatenate(self.ys[g], axis=0) for g in range(self.n_sample_groups)],
-            axis=1,
+            [np.concatenate(self.ys[g], axis=1) for g in range(self.n_sample_groups)],
+            axis=0,
         )
 
     @property
@@ -407,7 +407,6 @@ class DataGenerator:
                 xs.append(x)
 
         for m in range(self.n_feature_groups):
-            print(m)
             n_features = self.n_features[m]
             w_shape = (self.n_factors, n_features)
             w = rng.standard_normal(w_shape)
