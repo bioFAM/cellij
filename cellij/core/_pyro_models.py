@@ -92,7 +92,7 @@ class HorseshoeP(PDist):
         tau_delta: float = None,
         lambdas_scale: float = 1.0,
         thetas_scale: float = 1.0,
-        regularized: bool = True,
+        regularized: bool = False,
         ard: bool = True,
         device=None,
     ):
@@ -172,15 +172,15 @@ class SpikeAndSlabP(PDist):
         site_name: str,
         relaxed_bernoulli: bool = True,
         temperature: float = 0.1,
-        ard: bool = False,
+        ard: bool = True,
         device=None,
     ):
-        super().__init__("SpikeAndSlab", site_name, device)
+        super().__init__("SpikeAndSlabP", site_name, device)
 
         self.thetas_site_name = self.site_name + "_thetas"
         self.alphas_site_name = self.site_name + "_alphas"
         self.lambdas_site_name = self.site_name + "_lambdas"
-        self.unconstrained_site_name = self.site_name + "_unconstrained"
+        self.untransformed_site_name = self.site_name + "_untransformed"
 
         self.relaxed_bernoulli = relaxed_bernoulli
         self.temperature = temperature
@@ -226,8 +226,8 @@ class SpikeAndSlabP(PDist):
             dist_kwargs=dist_kwargs,
         )
 
-        unconstrained_samples = self._sample(
-            self.unconstrained_site_name,
+        untransformed_samples = self._sample(
+            self.untransformed_site_name,
             dist.Normal,
             dist_kwargs={
                 "loc": self._zeros(1),
@@ -235,7 +235,7 @@ class SpikeAndSlabP(PDist):
             },
         )
         return self._deterministic(
-            self.site_name, unconstrained_samples * lambdas_samples
+            self.site_name, untransformed_samples * lambdas_samples
         )
 
 

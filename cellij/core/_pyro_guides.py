@@ -182,6 +182,60 @@ class HorseshoeQ(QDist):
         return self._sample_normal(self.prior.site_name)
 
 
+class SpikeAndSlabQ(QDist):
+    def __init__(self, prior, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("SpikeAndSlabQ", prior, init_loc, init_scale)
+        self.sigmoid_transform = dist.transforms.SigmoidTransform()
+
+    def _sample_transformed_beta(self, site_name: str):
+        loc, scale = self._get_loc_and_scale(site_name)
+        unconstrained_latent = pyro.sample(
+            site_name + "_unconstrained",
+            dist.Normal(
+                loc,
+                scale,
+            ),
+            infer={"is_auxiliary": True},
+        )
+
+        value = self.sigmoid_transform(unconstrained_latent)
+        log_density = self.sigmoid_transform.inv.log_abs_det_jacobian(
+            value,
+            unconstrained_latent,
+        )
+        delta_dist = dist.Delta(value, log_density=log_density)
+
+        return pyro.sample(site_name, delta_dist)
+
+    def sample_inter(self):
+        if self.prior.ard:
+            self._sample_log_normal(self.prior.alphas_site_name)
+        return self._sample_transformed_beta(self.prior.thetas_site_name)
+
+    def forward(self):
+        self._sample_transformed_beta(self.prior.lambdas_site_name)
+        return self._sample_normal(self.prior.untransformed_site_name)
+
+    def _get_mean(self):
+        return self._mean_normal(self.prior.untransformed_site_name), self._mean_normal(
+            self.prior.lambdas_site_name
+        )
+
+    @torch.no_grad()
+    def mean(self):
+        untransformed_mean, lambdas_mean = self._get_mean()
+        return untransformed_mean * lambdas_mean
+
+    @torch.no_grad()
+    def median(self):
+        untransformed_mean, lambdas_mean = self._get_mean()
+        return untransformed_mean * (lambdas_mean > 0.0)
+
+    @torch.no_grad()
+    def mode(self):
+        return self.median()
+
+
 class Guide(PyroModule):
     def __init__(self, model):
         super().__init__("Guide")
@@ -209,7 +263,7 @@ class Guide(PyroModule):
                 "NormalP": NormalQ,
                 "LaplaceP": LaplaceQ,
                 "HorseshoeP": HorseshoeQ,
-                # "SpikeAndSlab": SpikeAndSlabQ,
+                "SpikeAndSlabP": SpikeAndSlabQ,
             }[prior._pyro_name](prior=prior)
 
         return _q_dists
