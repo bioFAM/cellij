@@ -1,6 +1,7 @@
 import logging
 from typing import Dict
 
+import gpytorch
 import pyro
 import pyro.distributions as dist
 import torch
@@ -9,8 +10,43 @@ from pyro.nn import PyroModule
 logger = logging.getLogger(__name__)
 
 
+class PseudotimeGP(gpytorch.models.ApproximateGP):
+    def __init__(
+        self,
+        inducing_points: torch.Tensor,
+        n_factors: int,
+        init_lengthscale=5.0,
+    ) -> None:
+        n_inducing = len(inducing_points)
+
+        variational_distribution = gpytorch.variational.CholeskyVariationalDistribution(
+            num_inducing_points=n_inducing,
+            batch_shape=torch.Size([n_factors]),
+        )
+
+        variational_strategy = gpytorch.variational.VariationalStrategy(
+            model=self,
+            inducing_points=inducing_points,
+            variational_distribution=variational_distribution,
+            learn_inducing_locations=False,
+        )
+
+        super().__init__(variational_strategy=variational_strategy)
+        self.mean_module = gpytorch.means.ZeroMean(
+            batch_shape=torch.Size([n_factors]),
+        )
+        self.kernel = gpytorch.kernels.RBFKernel(batch_shape=torch.Size([n_factors]))
+        self.covar_module = gpytorch.kernels.ScaleKernel(self.kernel)
+        self.covar_module.base_kernel.lengthscale = torch.tensor(init_lengthscale)
+
+    def forward(self, x) -> gpytorch.distributions.MultivariateNormal:
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+
 class PDist(PyroModule):
-    def __init__(self, name, site_name: str, device=None):
+    def __init__(self, name, site_name: str, device=None, **kwargs):
         super().__init__(name)
         self.site_name = site_name
         self.device = device
@@ -43,15 +79,15 @@ class PDist(PyroModule):
     def sample_inter(self):
         return None
 
-    def forward(self):
+    def forward(self, *args, **kwargs):
         return None
 
 
 class InverseGammaP(PDist):
-    def __init__(self, site_name: str, device=None):
+    def __init__(self, site_name: str, device=None, **kwargs):
         super().__init__("InverseGammaP", site_name, device)
 
-    def forward(self):
+    def forward(self, *args, **kwargs):
         return self._sample(
             self.site_name,
             dist.InverseGamma,
@@ -60,10 +96,10 @@ class InverseGammaP(PDist):
 
 
 class NormalP(PDist):
-    def __init__(self, site_name: str, device=None):
+    def __init__(self, site_name: str, device=None, **kwargs):
         super().__init__("NormalP", site_name, device)
 
-    def forward(self):
+    def forward(self, *args, **kwargs):
         return self._sample(
             self.site_name,
             dist.Normal,
@@ -71,12 +107,25 @@ class NormalP(PDist):
         )
 
 
+class GaussianProcessP(PDist):
+    def __init__(self, site_name: str, device=None, **kwargs):
+        super().__init__("GaussianProcessP", site_name, device)
+        self.gp = PseudotimeGP(**kwargs)
+
+    def forward(self, covariate, *args, **kwargs):
+        return self._sample(
+            self.site_name,
+            self.gp.pyro_model,
+            dist_kwargs={"input": covariate},
+        )
+
+
 class LaplaceP(PDist):
-    def __init__(self, site_name: str, scale: float = 0.1, device=None):
+    def __init__(self, site_name: str, scale: float = 0.1, device=None, **kwargs):
         super().__init__("LaplaceP", site_name, device)
         self.scale = self._const(scale)
 
-    def forward(self):
+    def forward(self, *args, **kwargs):
         return self._sample(
             self.site_name,
             dist.SoftLaplace,
@@ -95,6 +144,7 @@ class HorseshoeP(PDist):
         regularized: bool = False,
         ard: bool = True,
         device=None,
+        **kwargs,
     ):
         super().__init__("HorseshoeP", site_name, device)
 
@@ -133,7 +183,7 @@ class HorseshoeP(PDist):
             dist_kwargs={"scale": self.thetas_scale},
         )
 
-    def forward(self):
+    def forward(self, *args, **kwargs):
         lambdas_samples = self._sample(
             self.lambdas_site_name,
             dist.HalfCauchy,
@@ -174,6 +224,7 @@ class SpikeAndSlabP(PDist):
         temperature: float = 0.1,
         ard: bool = True,
         device=None,
+        **kwargs,
     ):
         super().__init__("SpikeAndSlabP", site_name, device)
 
@@ -215,7 +266,7 @@ class SpikeAndSlabP(PDist):
             },
         )
 
-    def forward(self):
+    def forward(self, *args, **kwargs):
         dist_kwargs = {"probs": self.sample_dict[self.thetas_site_name]}
         if self.relaxed_bernoulli:
             dist_kwargs["temperature"] = self._const(self.temperature)
@@ -270,7 +321,7 @@ class Generative(PyroModule):
 
         self.sample_dict = {}
 
-    def _get_priors(self, priors, site_name):
+    def _get_priors(self, priors, site_name, **kwargs):
         _priors = {}
 
         for group, prior in priors.items():
@@ -278,10 +329,11 @@ class Generative(PyroModule):
             _priors[group] = {
                 "InverseGamma": InverseGammaP,
                 "Normal": NormalP,
+                "GaussianProcess": GaussianProcessP,
                 "Laplace": LaplaceP,
                 "Horseshoe": HorseshoeP,
                 "SpikeAndSlab": SpikeAndSlabP,
-            }[prior](site_name=f"{site_name}_{group}", device=self.device)
+            }[prior](site_name=f"{site_name}_{group}", device=self.device, **kwargs)
 
         return _priors
 
@@ -298,7 +350,7 @@ class Generative(PyroModule):
 
         return plates
 
-    def forward(self, data: torch.Tensor = None):
+    def forward(self, data: torch.Tensor = None, covariate: torch.Tensor = None):
         plates = self.get_plates()
 
         for obs_group, factor_prior in self.factor_priors.items():
@@ -306,7 +358,7 @@ class Generative(PyroModule):
             with plates["factor"]:
                 factor_prior.sample_inter()
                 with plates[f"obs_{obs_group}"]:
-                    self.sample_dict[f"z_{obs_group}"] = factor_prior()
+                    self.sample_dict[f"z_{obs_group}"] = factor_prior(covariate)
 
         for feature_group, weight_prior in self.weight_priors.items():
             weight_prior.sample_global()
