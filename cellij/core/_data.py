@@ -38,6 +38,10 @@ class DataContainer:
     @property
     def values(self):
         return self._values
+    
+    @property
+    def shape(self):
+        return len(self._merged_obs_names), len(self._merged_feature_names)
 
     @property
     def feature_groups(self):
@@ -115,44 +119,55 @@ class DataContainer:
 
     def merge_data(self, **kwargs):
         """Merges all feature_groups into a single tensor."""
-        feature_groups = {}
-        obs_names = []
-        for name in self._names:
-            feature_groups[name] = self._feature_groups[name].to_df()
-
-        merged_feature_group = pd.concat(list(feature_groups.values()), axis=1, join='outer')
-        merged_obs_names = merged_feature_group.index.to_list()
-        merged_feature_names = merged_feature_group.columns
-
-        na_strategy = kwargs.get("na_strategy", None)
-        if na_strategy is None:
-            self._values = merged_feature_group.values
-
+        
+        if len(self._feature_groups) == 0:
+            raise ValueError("No data to merge.")
+        
+        if len(self._feature_groups) == 1:
+            name = self._names[0]
+            self._merged_obs_names = self._feature_groups[name].to_df().index.to_list()
+            self._merged_feature_names = self._feature_groups[name].to_df().columns
+            
         else:
-            self._values = cellij.impute_data(
-                data=merged_feature_group,
-                strategy=na_strategy,
-                kwargs=kwargs,
-            )
+            
+            feature_groups = {}
+            obs_names = []
+            for name in self._names:
+                feature_groups[name] = self._feature_groups[name].to_df()
 
-        self._merged_obs_names = merged_obs_names
-        self._merged_feature_names = merged_feature_names
+            merged_feature_group = pd.concat(list(feature_groups.values()), axis=1, join='outer')
+            merged_obs_names = merged_feature_group.index.to_list()
+            merged_feature_names = merged_feature_group.columns
 
-        for name in self._names:
-            feature_group_obs_names = self._feature_groups[name].obs_names.to_list()
-            feature_group_feature_names = self._feature_groups[name].var_names.to_list()
+            na_strategy = kwargs.get("na_strategy", None)
+            if na_strategy is None:
+                self._values = merged_feature_group.values
 
-            self._obs_idx[name] = [
-                i
-                for i, val in enumerate(merged_obs_names)
-                if val in feature_group_obs_names
-            ]
+            else:
+                self._values = cellij.impute_data(
+                    data=merged_feature_group,
+                    strategy=na_strategy,
+                    kwargs=kwargs,
+                )
 
-            self._feature_idx[name] = [
-                i
-                for i, val in enumerate(merged_feature_names)
-                if val in feature_group_feature_names
-            ]
+            self._merged_obs_names = merged_obs_names
+            self._merged_feature_names = merged_feature_names
+
+            for name in self._names:
+                feature_group_obs_names = self._feature_groups[name].obs_names.to_list()
+                feature_group_feature_names = self._feature_groups[name].var_names.to_list()
+
+                self._obs_idx[name] = [
+                    i
+                    for i, val in enumerate(merged_obs_names)
+                    if val in feature_group_obs_names
+                ]
+
+                self._feature_idx[name] = [
+                    i
+                    for i, val in enumerate(merged_feature_names)
+                    if val in feature_group_feature_names
+                ]
 
     def to_df(self) -> pd.DataFrame:
         """Returns a 'pandas.DataFrame' representation of the contained data with feature and observation names."""

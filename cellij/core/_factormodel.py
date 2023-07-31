@@ -267,15 +267,15 @@ class FactorModel(PyroModule, gpytorch.Module):
 
         self._covariate = torch.Tensor(covariate.values)
 
-        if cols == 1:
-            unique_points = covariate.drop_duplicates().values
-            if len(unique_points) > num_inducing_points:
-                unique_points = unique_points[
-                    rng.choice(
-                        len(unique_points), size=num_inducing_points, replace=False
-                    )
-                ]
-            self._inducing_points = torch.Tensor(unique_points)
+        unique_points = covariate.drop_duplicates().values
+        if len(unique_points) > num_inducing_points:
+            unique_points = unique_points[
+                rng.choice(
+                    len(unique_points), size=num_inducing_points, replace=False
+                )
+            ]
+        self._inducing_points = torch.Tensor(unique_points)
+            
 
     def _setup_guide(self, guide, kwargs):
         if isinstance(guide, str):
@@ -327,7 +327,7 @@ class FactorModel(PyroModule, gpytorch.Module):
         merge: bool = True,
         **kwargs,
     ):
-        # TODO: Add a check that no name is "all"
+
         valid_types = (pd.DataFrame, anndata.AnnData, muon.MuData)
         metadata = None
 
@@ -342,12 +342,8 @@ class FactorModel(PyroModule, gpytorch.Module):
             )
 
         if isinstance(data, pd.DataFrame):
-            data = anndata.AnnData(
-                X=data.values,
-                obs=pd.DataFrame(data.index),
-                var=pd.DataFrame(data.columns),
-                dtype=self._dtype,
-            )
+            data = anndata.AnnData(data)
+            self._add_data(data=data, name=name)
 
         elif isinstance(data, anndata.AnnData):
             self._add_data(data=data, name=name)
@@ -653,7 +649,7 @@ class FactorModel(PyroModule, gpytorch.Module):
 
         # Initialize class objects with correct data-related parameters
         self._model = self._model(
-            n_samples=self._data._values.shape[0],
+            n_samples=len(self._data._merged_obs_names),
             n_factors=self.n_factors,
             feature_dict=feature_dict,
             likelihoods=None,
@@ -694,7 +690,7 @@ class FactorModel(PyroModule, gpytorch.Module):
         # models/datasets
         scaling_constant = 1.0
         if scale_gradients:
-            scaling_constant = 1.0 / self._data.values.shape[1]
+            scaling_constant = 1.0 / self._data.shape[1]
 
         optim = pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)})
         if optimizer.lower() == "clipped":
