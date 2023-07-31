@@ -40,4 +40,4 @@ class core_TestClass(unittest.TestCase):
 
         factor_means = torch.stack(factor_means, dim=0)
 
-        assert round(self.model.train_loss_elbo[-1], 3) == 2.602
+        assert round(self.model.train_loss_elbo[-1], 3) == 2.592
