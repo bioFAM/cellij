@@ -14,6 +14,7 @@ import pyro
 import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
+from tqdm import trange
 
 import cellij
 from cellij.core._data import DataContainer
@@ -576,7 +577,7 @@ class FactorModel(PyroModule, gpytorch.Module):
 
         if not isinstance(likelihoods, (str, dict)):
             raise ValueError(
-                f"Parameter 'likelihoods' must either be a string or a dictionary "
+                "Parameter 'likelihoods' must either be a string or a dictionary "
                 f"mapping the modalities to strings, got {type(likelihoods)}."
             )
 
@@ -648,18 +649,19 @@ class FactorModel(PyroModule, gpytorch.Module):
             self._kwargs["covariate"] = self.covariate
 
         # Initialize class objects with correct data-related parameters
-        self._model = self._model(
-            n_samples=len(self._data._merged_obs_names),
-            n_factors=self.n_factors,
-            feature_dict=feature_dict,
-            likelihoods=None,
-            device=self.device,
-            **self._kwargs,
-        )
+        if not self._is_trained:
+          self._model = self._model(
+              n_samples=len(self._data._merged_obs_names),
+              n_factors=self.n_factors,
+              feature_dict=feature_dict,
+              likelihoods=None,
+              device=self.device,
+              **self._kwargs,
+          )
 
-        for key, value in self._kwargs.items():
-            if key in ["init_loc", "init_scale"]:
-                self._guide_kwargs[key] = value
+#         for key, value in self._kwargs.items():
+#             if key in ["init_loc", "init_scale"]:
+#                 self._guide_kwargs[key] = value
 
         if self.covariate is not None:
             self._guide_kwargs["gp"] = self.gp
@@ -715,36 +717,40 @@ class FactorModel(PyroModule, gpytorch.Module):
 
         self.train_loss_elbo = []
         time_start = timer()
-        verbose_time_start = time_start
-        print("Training Model...")
-        for i in range(epochs + 1):
-            loss = svi.step(data=data)
-            self.train_loss_elbo.append(loss)
+        loss: int = 0
 
-            if early_stopping and earlystopper.step(loss):
-                print(f"Early stopping of training due to convergence at step {i}")
-                break
+        with trange(
+            epochs, unit="epoch", miniters=verbose_epochs, maxinterval=99999
+        ) as pbar:
+            pbar.set_description("Training")
+            for i in pbar:
+                loss = svi.step(data=data)
+                self.train_loss_elbo.append(loss)
 
-            if i % verbose_epochs == 0:
-                log = f"- Epoch {i:>6}/{epochs} | Train Loss: {loss:>14.2f} \t"
-                if i >= 1:
-                    decrease_pct = (
-                        100
-                        - 100
-                        * self.train_loss_elbo[i]
-                        / self.train_loss_elbo[i - verbose_epochs]
+                if early_stopping and earlystopper.step(loss):
+                    logger.warning(
+                        f"Early stopping of training due to convergence at step {i}"
                     )
-                    log += f"| Decrease: {decrease_pct:>6.2f}%\t"
-                    log += f"| Time: {(timer() - verbose_time_start):>6.2f}s"
+                    break
 
-                verbose_time_start = timer()
+                if i % verbose_epochs == 0:
+                    if i == 0:
+                        decrease_pct = 0.0
+                    else:
+                        decrease_pct = (
+                            100
+                            - 100
+                            * self.train_loss_elbo[i]
+                            / self.train_loss_elbo[i - verbose_epochs]
+                        )
 
-                print(log)
+                    pbar.set_postfix(
+                        loss=f"{loss:>14.2f}", decrease=f"{decrease_pct:>6.2f} %"
+                    )
 
         self._is_trained = True
-        print("Training finished.")
-        print(f"- Final loss: {loss:.2f}")
-        print(f"- Training took {(timer() - time_start):.2f}s")
+        logger.warning(f"Final loss: {loss:.2f}")
+        logger.warning(f"Training took {(timer() - time_start):.2f}s")
 
     def save(self, filename: str, overwrite: bool = False):
         if not self._is_trained:
