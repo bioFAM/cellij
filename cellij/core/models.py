@@ -23,6 +23,9 @@ class MOFA(FactorModel):
     def __init__(self, n_factors, sparsity_prior="SpikeNSlab", **kwargs):
         prior = NormalGenerative
         guide = "AutoNormal"
+        if sparsity_prior == "Normal":
+            prior = NormalGenerative
+            guide = NormalGuide
         if sparsity_prior == "Lasso":
             prior = LassoGenerative
             guide = NormalGuide
@@ -45,4 +48,26 @@ class MOFA(FactorModel):
 
         kwargs = {**mofa_defaults, **kwargs}
 
-        super(MOFA, self).__init__(n_factors=n_factors, **kwargs)
+        super().__init__(n_factors=n_factors, **kwargs)
+
+
+class SimpleGP(FactorModel):
+    """
+    A simple Gaussian Process Factor Model.
+
+    Parameters
+    ----------
+    n_factors : int
+        The number of latent factors in the model.
+
+    **kwargs : dict
+        Additional keyword arguments passed to the FactorModel constructor.
+    """
+
+    def __init__(self, n_factors, **kwargs):
+        prior = NormalGenerative
+        guide = NormalGuide
+
+        kwargs = {"model": prior, "guide": guide, **kwargs}
+
+        super().__init__(n_factors=n_factors, **kwargs)
