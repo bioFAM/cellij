@@ -3,7 +3,7 @@ import os
 import pickle
 from pathlib import Path
 from timeit import default_timer as timer
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 import anndata
 import muon
@@ -13,6 +13,7 @@ import pyro
 import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
+from tqdm import trange
 
 import cellij
 from cellij.core._data import DataContainer
@@ -179,32 +180,28 @@ class FactorModel(PyroModule):
         )
 
     def _setup_guide(self, guide, kwargs):
-        
-        
         if isinstance(guide, str):
-
             # Implement some default guides
             if guide == "AutoDelta":
-                guide = pyro.infer.autoguide.AutoDelta  # type: ignore
+                guide = pyro.infer.autoguide.AutoDelta
             if guide == "AutoNormal":
-                guide = pyro.infer.autoguide.AutoNormal  # type: ignore
+                guide = pyro.infer.autoguide.AutoNormal
             if guide == "AutoLowRankMultivariateNormal":
-                guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal  # type: ignore
+                guide = pyro.infer.autoguide.AutoLowRankMultivariateNormal
 
             # TODO: return proper kwargs
             return guide, {}
-    
-    
+
         guide_kwargs = {}
         # TODO: implement init_loc_fn instead of init_loc
         for arg in ["init_loc", "init_scale"]:
             if arg in kwargs:
                 guide_kwargs[arg] = kwargs[arg]
-        
+
         if issubclass(guide, cellij.core._pyro_guides.Guide):
-            print("Using custom guide.")
+            logger.info("Using custom guide.")
             return guide, guide_kwargs
-        
+
         raise ValueError(f"Unknown guide: {guide}")
 
     def _setup_device(self, device):
@@ -251,11 +248,11 @@ class FactorModel(PyroModule):
                 X=data.values,
                 obs=pandas.DataFrame(data.index),
                 var=pandas.DataFrame(data.columns),
-                dtype=self._dtype,  # type: ignore
+                dtype=self._dtype,
             )
 
         elif isinstance(data, anndata.AnnData):
-            self._add_data(data=data, name=name)  # type: ignore
+            self._add_data(data=data, name=name)
 
         elif isinstance(data, muon.MuData):
             if not data.obs.empty:
@@ -338,11 +335,11 @@ class FactorModel(PyroModule):
         self,
         name: str,
         param: str = "locs",
-        views: Optional[Union[str, List[str]]] = "all",
-        groups: Optional[Union[str, List[str]]] = "all",
+        views: Optional[Union[str, list[str]]] = "all",
+        groups: Optional[Union[str, list[str]]] = "all",
         format: str = "numpy",
     ) -> np.ndarray:
-        """Pulls a parameter from the pyro parameter storage.
+        """Pull a parameter from the pyro parameter storage.
 
         TODO: Get all parameters, but in a dict.
         TODO: Add full support for group selection.
@@ -422,7 +419,8 @@ class FactorModel(PyroModule):
 
                 if key not in list(pyro.get_param_store().keys()):
                     raise ValueError(
-                        f"Parameter '{key}' not found in parameter storage. Available choices are: {', '.join(list(pyro.get_param_store().keys()))}"
+                        f"Parameter '{key}' not found in parameter storage. "
+                        f"Available choices are: {', '.join(list(pyro.get_param_store().keys()))}"
                     )
 
                 data = pyro.get_param_store()[key]
@@ -438,12 +436,12 @@ class FactorModel(PyroModule):
 
         return result
 
-    def get_weights(self, views: Union[str, List[str]] = "all", format: str = "numpy"):
+    def get_weights(self, views: Union[str, list[str]] = "all", format: str = "numpy"):
         return self._get_from_param_storage(
             name="w", param="locs", views=views, groups=None, format=format
         )
 
-    def get_factors(self, groups: Union[str, List[str]] = "all", format: str = "numpy"):
+    def get_factors(self, groups: Union[str, list[str]] = "all", format: str = "numpy"):
         return self._get_from_param_storage(
             name="z", param="locs", views=None, groups=groups, format=format
         )
@@ -485,7 +483,8 @@ class FactorModel(PyroModule):
 
         if not isinstance(likelihoods, (str, dict)):
             raise ValueError(
-                f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
+                "Parameter 'likelihoods' must either be a string or a dictionary "
+                f"mapping the modalities to strings, got {type(likelihoods)}."
             )
 
         for arg_name, arg in zip(
@@ -525,11 +524,11 @@ class FactorModel(PyroModule):
                     distribution = "Normal"
 
                 try:
-                    likelihoods[name] = getattr(pyro.distributions, distribution)  # type: ignore
-                except AttributeError:
+                    likelihoods[name] = getattr(pyro.distributions, distribution)
+                except AttributeError as e:
                     raise AttributeError(
                         f"Could not find valid Pyro distribution for {distribution}."
-                    )
+                    ) from e
 
         # Raise error if likelihoods are not set for all modalities
         if len(likelihoods.keys()) != len(self._data.feature_groups):
@@ -548,19 +547,22 @@ class FactorModel(PyroModule):
         }
 
         # Initialize class objects with correct data-related parameters
-        self._model = self._model(
-            n_samples=self._data._values.shape[0],
-            n_factors=self.n_factors,
-            feature_dict=feature_dict,
-            likelihoods=None,
-            device=self.device,
-            **self._kwargs,
-        )
+        if not self._is_trained:
+            self._model = self._model(
+                n_samples=self._data._values.shape[0],
+                n_factors=self.n_factors,
+                feature_dict=feature_dict,
+                likelihoods=None,
+                device=self.device,
+                **self._kwargs,
+            )
 
-        self._guide = self._guide(self._model, **self._guide_kwargs)
+            self._guide = self._guide(self._model, **self._guide_kwargs)
+
         if not isinstance(likelihoods, (str, dict)):
             raise ValueError(
-                f"Parameter 'likelihoods' must either be a string or a dictionary mapping the modalities to strings, got {type(likelihoods)}."
+                "Parameter 'likelihoods' must either be a string or a dictionary "
+                f"mapping the modalities to strings, got {type(likelihoods)}."
             )
 
         # # Provide data information to generative model
@@ -592,7 +594,7 @@ class FactorModel(PyroModule):
             model=pyro.poutine.scale(self._model, scale=scaling_constant),
             guide=pyro.poutine.scale(self._guide, scale=scaling_constant),
             optim=optim,
-            # loss=pyro.infer.Trace_ELBO(),  # type: ignore
+            # loss=pyro.infer.Trace_ELBO(),
             loss=pyro.infer.Trace_ELBO(
                 retain_graph=True,
                 num_particles=num_particles,
@@ -606,30 +608,40 @@ class FactorModel(PyroModule):
 
         self.train_loss_elbo = []
         time_start = timer()
-        verbose_time_start = time_start
-        print("Training Model...")
-        for i in range(epochs + 1):
-            loss = svi.step(data=data)
-            self.train_loss_elbo.append(loss)
+        loss: int = 0
 
-            if early_stopping and earlystopper.step(loss):
-                print(f"Early stopping of training due to convergence at step {i}")
-                break
+        with trange(
+            epochs, unit="epoch", miniters=verbose_epochs, maxinterval=99999
+        ) as pbar:
+            pbar.set_description("Training")
+            for i in pbar:
+                loss = svi.step(data=data)
+                self.train_loss_elbo.append(loss)
 
-            if i % verbose_epochs == 0:
-                log = f"- Epoch {i:>6}/{epochs} | Train Loss: {loss:>14.2f} \t"
-                if i >= 1:
-                    log += f"| Decrease: {100 - 100*self.train_loss_elbo[i]/self.train_loss_elbo[i - verbose_epochs]:>6.2f}%\t"
-                    log += f"| Time: {(timer() - verbose_time_start):>6.2f}s"
+                if early_stopping and earlystopper.step(loss):
+                    logger.warning(
+                        f"Early stopping of training due to convergence at step {i}"
+                    )
+                    break
 
-                verbose_time_start = timer()
+                if i % verbose_epochs == 0:
+                    if i == 0:
+                        decrease_pct = 0.0
+                    else:
+                        decrease_pct = (
+                            100
+                            - 100
+                            * self.train_loss_elbo[i]
+                            / self.train_loss_elbo[i - verbose_epochs]
+                        )
 
-                print(log)
+                    pbar.set_postfix(
+                        loss=f"{loss:>14.2f}", decrease=f"{decrease_pct:>6.2f} %"
+                    )
 
         self._is_trained = True
-        print("Training finished.")
-        print(f"- Final loss: {loss:.2f}")
-        print(f"- Training took {(timer() - time_start):.2f}s")
+        logger.warning(f"Final loss: {loss:.2f}")
+        logger.warning(f"Training took {(timer() - time_start):.2f}s")
 
     def save(self, filename: str, overwrite: bool = False):
         if not self._is_trained:

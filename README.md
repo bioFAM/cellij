@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/logo.png" alt="logo" width="500"/>
+    <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/logo_black.png" alt="logo" width="500"/>
 </p>
 
 # cellij
@@ -8,14 +8,14 @@
 [![codecov](https://codecov.io/github/bioFAM/cellij/branch/main/graph/badge.svg?token=IJ4UMMUIW9)](https://codecov.io/github/bioFAM/cellij)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg?style=flat-square)](https://github.com/psf/black)
 
-Cellij is a versatile factor analysis framework for rapidly building and training a wide range of factor analysis models for multi-omics data. Cellij builds upon a Bayesian FA skeleton that is designed to provide wide-ranging customisability at all levels, ranging from likelihoods and optimisation procedures to sparsity-inducing priors. 
+Cellij is a versatile factor analysis framework for rapidly building and training a wide range of factor analysis models on multi-omics data. Cellij builds upon a Bayesian factor analysis skeleton that is designed to provide a wide-ranging customisability at all levels, ranging from likelihoods and optimisation procedures to sparsity-inducing priors. 
 
 <p align="center">
-    <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/schematic_view.png" alt="schematic" width="750"/>
+    <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/figure1_black.png" alt="schematic" width="750"/>
 </p>
 
-Cellij is designed for rapid prototyping of custom FA models, allowing users to efficiently define new models in an iterative fashion.
-```
+Cellij is designed for rapid prototyping of custom factor analysis models, allowing users to efficiently define new models in an iterative fashion.
+```python
 # First we create an instance of a MOFA class
 model = cellij.core.models.MOFA(n_factors=30, sparsity_prior="Horseshoe")
 
@@ -51,14 +51,14 @@ There are several alternative options to install cellij:
 <!--
 1) Install the latest release of `cellij` from `PyPI <https://pypi.org/project/cellij/>`_:
 
-```bash
+```sh
 pip install cellij
 ```
 -->
 
 1. Install the latest development version:
 
-```bash
+```sh
 pip install git+https://github.com/bioFAM/cellij.git@main
 ```
 
