@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/logo.png" alt="logo" width="500"/>
+    <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/logo_black.png" alt="logo" width="500"/>
 </p>
 
 # cellij
@@ -11,7 +11,7 @@
 Cellij is a versatile factor analysis framework for rapidly building and training a wide range of factor analysis models for multi-omics data. Cellij builds upon a Bayesian FA skeleton that is designed to provide wide-ranging customisability at all levels, ranging from likelihoods and optimisation procedures to sparsity-inducing priors. 
 
 <p align="center">
-    <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/schematic_view.png" alt="schematic" width="750"/>
+    <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/figure1_black.png" alt="schematic" width="750"/>
 </p>
 
 Cellij is designed for rapid prototyping of custom FA models, allowing users to efficiently define new models in an iterative fashion.
