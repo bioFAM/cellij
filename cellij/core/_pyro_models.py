@@ -1,118 +1,225 @@
 import logging
-from typing import Dict
+from typing import Any, Optional
 
-import gpytorch
 import pyro
 import pyro.distributions as dist
 import torch
 from pyro.nn import PyroModule
+from torch.types import _device, _size
+
+from cellij.core._gp import PseudotimeGP
 
 logger = logging.getLogger(__name__)
 
 
-class PseudotimeGP(gpytorch.models.ApproximateGP):
-    def __init__(
-        self,
-        inducing_points: torch.Tensor,
-        n_factors: int,
-        init_lengthscale=5.0,
-    ) -> None:
-        n_inducing = len(inducing_points)
-
-        variational_distribution = gpytorch.variational.CholeskyVariationalDistribution(
-            num_inducing_points=n_inducing,
-            batch_shape=torch.Size([n_factors]),
-        )
-
-        variational_strategy = gpytorch.variational.VariationalStrategy(
-            model=self,
-            inducing_points=inducing_points,
-            variational_distribution=variational_distribution,
-            learn_inducing_locations=False,
-        )
-
-        super().__init__(variational_strategy=variational_strategy)
-        self.mean_module = gpytorch.means.ZeroMean(
-            batch_shape=torch.Size([n_factors]),
-        )
-        self.kernel = gpytorch.kernels.RBFKernel(batch_shape=torch.Size([n_factors]))
-        self.covar_module = gpytorch.kernels.ScaleKernel(self.kernel)
-        self.covar_module.base_kernel.lengthscale = torch.tensor(init_lengthscale)
-
-    def forward(self, x) -> gpytorch.distributions.MultivariateNormal:
-        mean_x = self.mean_module(x)
-        covar_x = self.covar_module(x)
-        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-
-
 class PDist(PyroModule):
-    def __init__(self, name, site_name: str, device=None, **kwargs):
+    def __init__(
+        self, name: str, site_name: str, device: _device, **kwargs: dict[str, Any]
+    ):
+        """Instantiate a base prior distribution.
+
+        Parameters
+        ----------
+        name : str
+            Module name
+        site_name : str
+            Site name for the pyro.sample statement
+        device : _device
+            Torch device
+        """
         super().__init__(name)
         self.site_name = site_name
         self.device = device
         self.to(self.device)
 
-        self.sample_dict = {}
+        self.sample_dict: dict[str, torch.Tensor] = {}
 
-    def _zeros(self, size):
+    def _zeros(self, size: _size) -> torch.Tensor:
+        """Generate a tensor of zeros.
+
+        Parameters
+        ----------
+        size : _size
+            Size of the tensor
+
+        Returns
+        -------
+        torch.Tensor
+            Tensor of zeros
+        """
         return torch.zeros(size, device=self.device)
 
-    def _ones(self, size):
+    def _ones(self, size: _size) -> torch.Tensor:
+        """Generate a tensor of ones.
+
+        Parameters
+        ----------
+        size : _size
+            Size of the tensor
+
+        Returns
+        -------
+        torch.Tensor
+            Tensor of ones
+        """
         return torch.ones(size, device=self.device)
 
-    def _const(self, value, size=1):
+    def _const(self, value: float, size: _size = (1,)) -> torch.Tensor:
+        """Generate a tensor of constant values.
+
+        Parameters
+        ----------
+        value : float
+            Constant value
+        size : _size
+            Size of the tensor
+
+        Returns
+        -------
+        torch.Tensor
+            Tensor of constant values
+        """
         return value * self._ones(size)
 
-    def _sample(self, site_name, dist, dist_kwargs={}, sample_kwargs={}):
+    def _sample(
+        self,
+        site_name: str,
+        dist: dist.Distribution,
+        dist_kwargs: dict[str, torch.Tensor],
+        **kwargs: dict[str, Any],
+    ) -> torch.Tensor:
+        """Sample from a distribution.
+
+        Parameters
+        ----------
+        site_name : str
+            Site name for the pyro.sample statement
+        dist : dist.Distribution
+            Distribution class
+        dist_kwargs : dict[str, torch.Tensor]
+            Distribution keyword arguments
+
+        Returns
+        -------
+        torch.Tensor
+            Sampled values
+        """
         self.sample_dict[site_name] = pyro.sample(
-            site_name, dist(**dist_kwargs), **sample_kwargs
+            site_name, dist(**dist_kwargs), **kwargs
         )
         return self.sample_dict[site_name]
 
-    def _deterministic(self, site_name, value, event_dim=None):
+    def _deterministic(
+        self, site_name: str, value: torch.Tensor, event_dim: Optional[int] = None
+    ) -> torch.Tensor:
+        """Sample deterministic values.
+
+        Parameters
+        ----------
+        site_name : str
+            Site name for the pyro.sample statement
+        value : torch.Tensor
+            Value to be sampled
+        event_dim : Optional[int], optional
+            Event dimension, by default None
+
+        Returns
+        -------
+        torch.Tensor
+            Sampled values
+        """
         self.sample_dict[site_name] = pyro.deterministic(site_name, value, event_dim)
         return self.sample_dict[site_name]
 
-    def sample_global(self):
+    def sample_global(self) -> Optional[torch.Tensor]:
+        """Sample global variables.
+
+        Returns
+        -------
+        Optional[torch.Tensor]
+            Sampled values
+        """
         return None
 
-    def sample_inter(self):
+    def sample_inter(self) -> Optional[torch.Tensor]:
+        """Sample intermediate variables, typically across the factor dimension.
+
+        Returns
+        -------
+        Optional[torch.Tensor]
+            Sampled values
+        """
         return None
 
-    def forward(self, *args, **kwargs):
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+        """Sample local variables.
+
+        Returns
+        -------
+        Optional[torch.Tensor]
+            Sampled values
+        """
         return None
 
 
 class InverseGammaP(PDist):
-    def __init__(self, site_name: str, device=None, **kwargs):
+    def __init__(self, site_name: str, device: _device, **kwargs: dict[str, Any]):
+        """Instantiate an Inverse Gamma prior.
+
+        Parameters
+        ----------
+        site_name : str
+            Site name for the pyro.sample statement
+        device : _device
+            Torch device
+        """
         super().__init__("InverseGammaP", site_name, device)
 
-    def forward(self, *args, **kwargs):
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
         return self._sample(
             self.site_name,
             dist.InverseGamma,
-            dist_kwargs={"concentration": self._ones(1), "rate": self._ones(1)},
+            dist_kwargs={"concentration": self._ones((1,)), "rate": self._ones((1,))},
         )
 
 
 class NormalP(PDist):
-    def __init__(self, site_name: str, device=None, **kwargs):
+    def __init__(self, site_name: str, device: _device, **kwargs: dict[str, Any]):
+        """Instantiate a Normal prior.
+
+        Parameters
+        ----------
+        site_name : str
+            Site name for the pyro.sample statement
+        device : _device
+            Torch device
+        """
         super().__init__("NormalP", site_name, device)
 
-    def forward(self, *args, **kwargs):
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
         return self._sample(
             self.site_name,
             dist.Normal,
-            dist_kwargs={"loc": self._zeros(1), "scale": self._ones(1)},
+            dist_kwargs={"loc": self._zeros((1,)), "scale": self._ones((1,))},
         )
 
 
 class GaussianProcessP(PDist):
-    def __init__(self, site_name: str, device=None, **kwargs):
+    def __init__(self, site_name: str, device: _device, **kwargs: dict[str, Any]):
+        """Instantiate a Gaussian Process prior.
+
+        Parameters
+        ----------
+        site_name : str
+            Site name for the pyro.sample statement
+        device : _device
+            Torch device
+        """
         super().__init__("GaussianProcessP", site_name, device)
         self.gp = PseudotimeGP(**kwargs)
 
-    def forward(self, covariate, *args, **kwargs):
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+        covariate = args[0]
         return self._sample(
             self.site_name,
             self.gp.pyro_model,
@@ -121,15 +228,33 @@ class GaussianProcessP(PDist):
 
 
 class LaplaceP(PDist):
-    def __init__(self, site_name: str, scale: float = 0.1, device=None, **kwargs):
+    def __init__(
+        self,
+        site_name: str,
+        device: _device,
+        scale: float = 0.1,
+        **kwargs: dict[str, Any],
+    ):
+        """Instantiate a Laplace prior.
+
+        Parameters
+        ----------
+        site_name : str
+            Site name for the pyro.sample statement
+        device : _device
+            Torch device
+        scale : float, optional
+            Scale for the Laplace distribution, smaller leads to sparser solutions,
+            by default 0.1
+        """
         super().__init__("LaplaceP", site_name, device)
         self.scale = self._const(scale)
 
-    def forward(self, *args, **kwargs):
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
         return self._sample(
             self.site_name,
             dist.SoftLaplace,
-            dist_kwargs={"loc": self._zeros(1), "scale": self.scale},
+            dist_kwargs={"loc": self._zeros((1,)), "scale": self.scale},
         )
 
 
@@ -137,15 +262,45 @@ class HorseshoeP(PDist):
     def __init__(
         self,
         site_name: str,
-        tau_scale: float = 1.0,
-        tau_delta: float = None,
+        device: _device,
+        tau_scale: Optional[float] = 1.0,
+        tau_delta: Optional[float] = None,
         lambdas_scale: float = 1.0,
         thetas_scale: float = 1.0,
         regularized: bool = False,
         ard: bool = True,
-        device=None,
-        **kwargs,
+        **kwargs: dict[str, Any],
     ):
+        """Instantiate a Horseshoe prior.
+
+        Parameters
+        ----------
+        site_name : str
+            Site name for the pyro.sample statement
+        device : _device
+            Torch device
+        tau_scale : Optional[float], optional
+            Scale of the Cauchy+ for the global scale samples,
+            by default 1.0
+        tau_delta : Optional[float], optional
+            Deterministic scale, by default None
+        lambdas_scale : float, optional
+            Local scale, by default 1.0
+        thetas_scale : float, optional
+            Factor scale, irrelevant if ard set to False,
+            by default 1.0
+        regularized : bool, optional
+            Whether to apply the Finnish horseshoe prior,
+            by default False
+        ard : bool, optional
+            Whether to sparsify whole components (factors),
+            by default True
+
+        Raises
+        ------
+        ValueError
+            If both `tau_scale` and `tau_delta` are specified
+        """
         super().__init__("HorseshoeP", site_name, device)
 
         self.tau_site_name = self.site_name + "_tau"
@@ -167,23 +322,23 @@ class HorseshoeP(PDist):
         self.regularized = regularized
         self.ard = ard
 
-    def sample_global(self):
+    def sample_global(self) -> Optional[torch.Tensor]:
         if hasattr(self, "tau_delta"):
             return self._deterministic(self.tau_site_name, self.tau_delta)
         return self._sample(
             self.tau_site_name, dist.HalfCauchy, dist_kwargs={"scale": self.tau_scale}
         )
 
-    def sample_inter(self):
+    def sample_inter(self) -> Optional[torch.Tensor]:
         if not self.ard:
-            return self._deterministic(self.thetas_site_name, self._ones(1))
+            return self._deterministic(self.thetas_site_name, self._ones((1,)))
         return self._sample(
             self.thetas_site_name,
             dist.HalfCauchy,
             dist_kwargs={"scale": self.thetas_scale},
         )
 
-    def forward(self, *args, **kwargs):
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
         lambdas_samples = self._sample(
             self.lambdas_site_name,
             dist.HalfCauchy,
@@ -212,7 +367,7 @@ class HorseshoeP(PDist):
         return self._sample(
             self.site_name,
             dist.Normal,
-            dist_kwargs={"loc": self._zeros(1), "scale": lambdas_samples},
+            dist_kwargs={"loc": self._zeros((1,)), "scale": lambdas_samples},
         )
 
 
@@ -220,12 +375,30 @@ class SpikeAndSlabP(PDist):
     def __init__(
         self,
         site_name: str,
+        device: _device,
         relaxed_bernoulli: bool = True,
         temperature: float = 0.1,
         ard: bool = True,
-        device=None,
-        **kwargs,
+        **kwargs: dict[str, Any],
     ):
+        """Instantiate a Spike and Slab prior.
+
+        Parameters
+        ----------
+        site_name : str
+            Site name for the pyro.sample statement
+        device : _device
+            Torch device
+        relaxed_bernoulli : bool, optional
+            Whether to use the relaxed Bernoulli
+            as opposed to the continuous Bernoulli, by default True
+        temperature : float, optional
+            Temperature for the relaxed Bernoulli,
+            approaching zero gets closer to the discrete Bernoulli, by default 0.1
+        ard : bool, optional
+            Whether to sparsify whole components (factors),
+            by default True
+        """
         super().__init__("SpikeAndSlabP", site_name, device)
 
         self.thetas_site_name = self.site_name + "_thetas"
@@ -241,7 +414,7 @@ class SpikeAndSlabP(PDist):
         if self.relaxed_bernoulli:
             self.lambdas_dist = dist.RelaxedBernoulliStraightThrough
 
-    def sample_inter(self):
+    def sample_inter(self) -> Optional[torch.Tensor]:
         if self.ard:
             self._sample(
                 self.alphas_site_name,
@@ -252,7 +425,7 @@ class SpikeAndSlabP(PDist):
                 },
             )
         else:
-            self._deterministic(self.alphas_site_name, self._ones(1))
+            self._deterministic(self.alphas_site_name, self._ones((1,)))
 
         # how can we also return alphas...
         # they are still accessible via self.sample_dict,
@@ -266,7 +439,7 @@ class SpikeAndSlabP(PDist):
             },
         )
 
-    def forward(self, *args, **kwargs):
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
         dist_kwargs = {"probs": self.sample_dict[self.thetas_site_name]}
         if self.relaxed_bernoulli:
             dist_kwargs["temperature"] = self._const(self.temperature)
@@ -281,7 +454,7 @@ class SpikeAndSlabP(PDist):
             self.untransformed_site_name,
             dist.Normal,
             dist_kwargs={
-                "loc": self._zeros(1),
+                "loc": self._zeros((1,)),
                 "scale": self.sample_dict[self.alphas_site_name],
             },
         )
@@ -294,18 +467,37 @@ class Generative(PyroModule):
     def __init__(
         self,
         n_factors: int,
-        obs_dict: Dict[str, int],
-        feature_dict: Dict[str, int],
-        likelihoods: Dict[str, str],
-        factor_priors: Dict[str, str] = None,
-        weight_priors: Dict[str, str] = None,
-        device=None,
+        obs_dict: dict[str, int],
+        feature_dict: dict[str, int],
+        likelihoods: dict[str, str],
+        factor_priors: dict[str, str],
+        weight_priors: dict[str, str],
+        device: _device,
     ):
+        """Instantiate a generative model for the multi-group and multi-view FA.
+
+        Parameters
+        ----------
+        n_factors : int
+            Number of factors
+        obs_dict : dict[str, int]
+            Dictionary of observations per group
+        feature_dict : dict[str, int]
+            Dictionary of features per view
+        likelihoods : dict[str, str]
+            Likelihoods per view
+        factor_priors : dict[str, str]
+            Prior distributions for the factor scores
+        weight_priors : dict[str, str]
+            Prior distributions for the factor loadings
+        device : _device
+            Torch device
+        """
         super().__init__("Generative")
         self.n_samples = sum(obs_dict.values())
         self.n_factors = n_factors
-        self.feature_dict = feature_dict
         self.obs_dict = obs_dict
+        self.feature_dict = feature_dict
         self.n_feature_groups = len(feature_dict)
         self.n_obs_groups = len(obs_dict)
         self.likelihoods = likelihoods
@@ -319,9 +511,11 @@ class Generative(PyroModule):
         self.factor_priors = self._get_priors(factor_priors, "z")
         self.weight_priors = self._get_priors(weight_priors, "w")
 
-        self.sample_dict = {}
+        self.sample_dict: dict[str, torch.Tensor] = {}
 
-    def _get_priors(self, priors, site_name, **kwargs):
+    def _get_priors(
+        self, priors: dict[str, str], site_name: str, **kwargs: dict[str, Any]
+    ) -> dict[str, PDist]:
         _priors = {}
 
         for group, prior in priors.items():
@@ -337,7 +531,7 @@ class Generative(PyroModule):
 
         return _priors
 
-    def get_plates(self):
+    def get_plates(self) -> dict[str, pyro.plate]:
         plates = {
             "factor": pyro.plate("factor", self.n_factors, dim=-2),
         }
@@ -350,7 +544,11 @@ class Generative(PyroModule):
 
         return plates
 
-    def forward(self, data: torch.Tensor = None, covariate: torch.Tensor = None):
+    def forward(
+        self,
+        data: Optional[dict[str, dict[str, torch.Tensor]]] = None,
+        covariate: Optional[torch.Tensor] = None,
+    ) -> dict[str, torch.Tensor]:
         plates = self.get_plates()
 
         for obs_group, factor_prior in self.factor_priors.items():
@@ -372,11 +570,8 @@ class Generative(PyroModule):
                     feature_group
                 ]()
 
-        for obs_group, factor_prior in self.factor_priors.items():
-            for feature_group, weight_prior in self.weight_priors.items():
-                n_obs = self.obs_dict[obs_group]
-                n_features = self.feature_dict[feature_group]
-
+        for obs_group, n_obs in self.obs_dict.items():
+            for feature_group, n_features in self.feature_dict.items():
                 with plates[f"obs_{obs_group}"], plates[f"feature_{feature_group}"]:
                     z_shape = (-1, n_obs, self.n_factors, 1)
                     w_shape = (-1, 1, self.n_factors, n_features)
@@ -397,9 +592,9 @@ class Generative(PyroModule):
                     )
 
                     site_name = f"x_{obs_group}_{feature_group}"
-                    obs_mask = obs is None
-                    if not obs_mask:
-                        obs_mask = ~torch.isnan(obs)
+                    obs_mask = torch.ones_like(loc, dtype=torch.bool)
+                    if obs is not None:
+                        obs_mask = torch.logical_not(torch.isnan(obs))
                     with pyro.poutine.mask(mask=obs_mask):
                         if obs is not None:
                             obs = torch.nan_to_num(obs, nan=0.0)
@@ -412,40 +607,3 @@ class Generative(PyroModule):
                         )
 
         return self.sample_dict
-
-
-if __name__ == "__main__":
-    hs = HorseshoeP(
-        "z",
-        tau_scale=1.0,
-        tau_delta=None,
-        lambdas_scale=1.0,
-        thetas_scale=1.0,
-        regularized=True,
-        ard=True,
-        device=torch.device("cpu"),
-    )
-
-    hs.sample_global()
-    hs.sample_inter()
-    hs()
-
-    model = Generative(
-        n_factors=3,
-        obs_dict={"group_0": 5, "group_1": 7, "group_2": 9},
-        feature_dict={"view_0": 15, "view_1": 17, "view_2": 19},
-        likelihoods={"group_0": "Normal", "group_1": "Normal", "group_2": "Normal"},
-        factor_priors={
-            "group_0": "Laplace",
-            "group_1": "Horseshoe",
-            "group_2": "SpikeAndSlab",
-        },
-        weight_priors={
-            "view_0": "Laplace",
-            "view_1": "Horseshoe",
-            "view_2": "SpikeAndSlab",
-        },
-        device=torch.device("cpu"),
-    )
-    for k, v in model().items():
-        print(k, v.shape)
