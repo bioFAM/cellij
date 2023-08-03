@@ -162,7 +162,7 @@ class PDist(PyroModule):
         return None
 
 
-class InverseGammaP(PDist):
+class InverseGammaPrior(PDist):
     def __init__(self, site_name: str, device: _device, **kwargs: dict[str, Any]):
         """Instantiate an Inverse Gamma prior.
 
@@ -173,7 +173,7 @@ class InverseGammaP(PDist):
         device : _device
             Torch device
         """
-        super().__init__("InverseGammaP", site_name, device)
+        super().__init__("InverseGammaPrior", site_name, device)
 
     def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
         return self._sample(
@@ -183,9 +183,17 @@ class InverseGammaP(PDist):
         )
 
 
-class NormalP(PDist):
-    def __init__(self, site_name: str, device: _device, **kwargs: dict[str, Any]):
+class NormalPrior(PDist):
+    def __init__(
+        self,
+        site_name: str,
+        device: _device,
+        scale: float = 1.0,
+        **kwargs: dict[str, Any],
+    ):
         """Instantiate a Normal prior.
+
+        By default, we use a zero mean and unit variance, i.e. a standard normal distribution.
 
         Parameters
         ----------
@@ -194,17 +202,18 @@ class NormalP(PDist):
         device : _device
             Torch device
         """
-        super().__init__("NormalP", site_name, device)
+        super().__init__("NormalPrior", site_name, device)
+        self.scale = self._const(scale)
 
     def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
         return self._sample(
             self.site_name,
             dist.Normal,
-            dist_kwargs={"loc": self._zeros((1,)), "scale": self._ones((1,))},
+            dist_kwargs={"loc": self._zeros((1,)), "scale": self.scale},
         )
 
 
-class GaussianProcessP(PDist):
+class GaussianProcessPrior(PDist):
     def __init__(self, site_name: str, device: _device, **kwargs: dict[str, Any]):
         """Instantiate a Gaussian Process prior.
 
@@ -215,7 +224,7 @@ class GaussianProcessP(PDist):
         device : _device
             Torch device
         """
-        super().__init__("GaussianProcessP", site_name, device)
+        super().__init__("GaussianProcessPrior", site_name, device)
         self.gp = PseudotimeGP(**kwargs)
 
     def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
@@ -227,7 +236,7 @@ class GaussianProcessP(PDist):
         )
 
 
-class LaplaceP(PDist):
+class LaplacePrior(PDist):
     def __init__(
         self,
         site_name: str,
@@ -236,6 +245,9 @@ class LaplaceP(PDist):
         **kwargs: dict[str, Any],
     ):
         """Instantiate a Laplace prior.
+
+        Note that we sample from a SoftLaplace distribution, which is a differentiable
+        approximation of the Laplace distribution.
 
         Parameters
         ----------
@@ -247,7 +259,7 @@ class LaplaceP(PDist):
             Scale for the Laplace distribution, smaller leads to sparser solutions,
             by default 0.1
         """
-        super().__init__("LaplaceP", site_name, device)
+        super().__init__("LaplacePrior", site_name, device)
         self.scale = self._const(scale)
 
     def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
@@ -258,7 +270,7 @@ class LaplaceP(PDist):
         )
 
 
-class HorseshoeP(PDist):
+class HorseshoePrior(PDist):
     def __init__(
         self,
         site_name: str,
@@ -272,6 +284,10 @@ class HorseshoeP(PDist):
         **kwargs: dict[str, Any],
     ):
         """Instantiate a Horseshoe prior.
+        
+        For reference, see:
+          Carlos M Carvalho, Nicholas G Polson, and James G Scott. Handling sparsity
+          via the horseshoe. In Artificial Intelligence and Statistics, PMLR, 2009.
 
         Parameters
         ----------
@@ -301,7 +317,7 @@ class HorseshoeP(PDist):
         ValueError
             If both `tau_scale` and `tau_delta` are specified
         """
-        super().__init__("HorseshoeP", site_name, device)
+        super().__init__("HorseshoePrior", site_name, device)
 
         self.tau_site_name = self.site_name + "_tau"
         self.thetas_site_name = self.site_name + "_thetas"
@@ -371,7 +387,7 @@ class HorseshoeP(PDist):
         )
 
 
-class SpikeAndSlabP(PDist):
+class SpikeAndSlabPrior(PDist):
     def __init__(
         self,
         site_name: str,
@@ -382,6 +398,10 @@ class SpikeAndSlabP(PDist):
         **kwargs: dict[str, Any],
     ):
         """Instantiate a Spike and Slab prior.
+
+        For reference, see:
+          Toby J Mitchell and John J Beauchamp. Bayesian variable selection in
+          linear regression. Journal of the american statistical association, 1988
 
         Parameters
         ----------
@@ -399,7 +419,7 @@ class SpikeAndSlabP(PDist):
             Whether to sparsify whole components (factors),
             by default True
         """
-        super().__init__("SpikeAndSlabP", site_name, device)
+        super().__init__("SpikeAndSlabPrior", site_name, device)
 
         self.thetas_site_name = self.site_name + "_thetas"
         self.alphas_site_name = self.site_name + "_alphas"
@@ -427,9 +447,6 @@ class SpikeAndSlabP(PDist):
         else:
             self._deterministic(self.alphas_site_name, self._ones((1,)))
 
-        # how can we also return alphas...
-        # they are still accessible via self.sample_dict,
-        # but still would be nice to return them
         return self._sample(
             self.thetas_site_name,
             dist.Beta,
@@ -519,14 +536,14 @@ class Generative(PyroModule):
         _priors = {}
 
         for group, prior in priors.items():
-            # Replace strings with actuals priors
+            # Replace strings with actual priors
             _priors[group] = {
-                "InverseGamma": InverseGammaP,
-                "Normal": NormalP,
-                "GaussianProcess": GaussianProcessP,
-                "Laplace": LaplaceP,
-                "Horseshoe": HorseshoeP,
-                "SpikeAndSlab": SpikeAndSlabP,
+                "InverseGamma": InverseGammaPrior,
+                "Normal": NormalPrior,
+                "GaussianProcess": GaussianProcessPrior,
+                "Laplace": LaplacePrior,
+                "Horseshoe": HorseshoePrior,
+                "SpikeAndSlab": SpikeAndSlabPrior,
             }[prior](site_name=f"{site_name}_{group}", device=self.device, **kwargs)
 
         return _priors
