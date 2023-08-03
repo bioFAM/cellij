@@ -33,7 +33,7 @@ def get_prior_function(
     """
     view_shape = (-1, 1, n_factors, n_features)
 
-    def spikeandslabbeta_sample():
+    def spikeandslab_beta_sample():
         return pyro.sample(
             "w_scale", dist.Beta(torch.tensor(0.001), torch.tensor(0.001))
         ).view(view_shape)
@@ -86,7 +86,7 @@ def get_prior_function(
         return torch.ones(1)
 
     prior_functions = {
-        "Spikeandslab-Beta": spikeandslabbeta_sample,
+        "Spikeandslab-Beta": spikeandslab_beta_sample,
         "Spikeandslab-ContinuousBernoulli": spikeandslab_continousbernoulli_sample,
         "Spikeandslab-RelaxedBernoulli": spikeandslab_relaxedbernoulli_sample,
         "Horseshoe": horseshoe_sample,
