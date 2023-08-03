@@ -360,7 +360,7 @@ class Guide(PyroModule):
         _q_dists = {}
 
         for group, prior in priors.items():
-            # Replace strings with actuals priors
+            # Replace strings with actual priors
             _q_dists[group] = {
                 "InverseGammaP": InverseGammaQ,
                 "NormalP": NormalQ,
