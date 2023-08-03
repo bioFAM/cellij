@@ -15,16 +15,20 @@ def get_prior_function(
 ) -> Callable:
     """Return a function that samples the sparsity prior for each feature group.
 
-    Args:
-        sparsity_prior: The sparsity prior to use. If None, no sparsity prior is used.
-        n_factors: The number of factors.
-        n_features: The number of features.
-        feature_idx: A dictionary mapping feature group names to the indices of the features in the feature group.
-        feature_group_scale: A dictionary mapping feature group names to the scale of the features in the feature group.
-        feature_group_names: A list of feature group names.
+    Parameters
+    ----------
+    sparse_prior : Optional[str], The sparsity prior to use. If None, no sparsity prior is used.
+    n_factors : int, The number of factors.
+    n_features : int, The number of features.
+    feature_idx : dict, A dictionary mapping feature group names to the indices of the features
+        in the feature group.
+    feature_group_scale : dict, A dictionary mapping feature group names to the scale of the
+        features in the feature group.
+    feature_group_names : list, A list of feature group names.
 
     Returns
     -------
+    Callable
         A function that samples the sparsity prior for each feature group.
     """
     view_shape = (-1, 1, n_factors, n_features)
@@ -66,10 +70,8 @@ def get_prior_function(
         )
 
     def lasso_sample():
-        # TODO: Add source paper
         # Approximation to the Laplace density with a SoftLaplace,
         # see https://docs.pyro.ai/en/stable/_modules/pyro/distributions/softlaplace.html#SoftLaplace
-        #
         # Unlike the Laplace distribution, this distribution is infinitely differentiable everywhere
         return pyro.sample(
             "w_scale", dist.SoftLaplace(torch.tensor(0.0), torch.tensor(1.0))
@@ -93,10 +95,11 @@ def get_prior_function(
         None: no_sample,
     }
 
-    if not any([sparsity_prior == prior for prior in prior_functions]):
+    if not any((sparsity_prior == prior for prior in prior_functions)):
         valid_priors = list(prior_functions.keys())
         raise ValueError(
-            f"Sparsity prior '{sparsity_prior}' is not valid. Valid priors are {valid_priors}."
+            f"Sparsity prior '{sparsity_prior}' is not valid. Valid priors "
+            f"are: {', '.join(valid_priors)}."
         )
 
     return prior_functions[sparsity_prior]
