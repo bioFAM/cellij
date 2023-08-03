@@ -1,4 +1,5 @@
 import logging
+from typing import Any, Optional
 
 import pyro
 import pyro.distributions as dist
@@ -6,59 +7,60 @@ import torch
 from pyro.distributions import constraints
 from pyro.infer.autoguide.guides import deep_getattr, deep_setattr
 from pyro.nn import PyroModule, PyroParam
+from torch.types import _size
+
+from cellij.core._pyro_models import Generative, PDist
 
 logger = logging.getLogger(__name__)
 
 
-class Guide(PyroModule):
+class QDist(PyroModule):
     def __init__(
-        self,
-        model,
-        init_loc: float = 0.0,
-        init_scale: float = 0.1,
+        self, name: str, prior: PDist, init_loc: float = 0.0, init_scale: float = 0.1
     ):
-        super().__init__(name="Guide")
-        self.model = model
+        """Instantiate a base class for a variational distribution.
+
+        Parameters
+        ----------
+        name : str
+            Module name
+        prior : PDist
+            Prior distribution
+        init_loc : float, optional
+            Initial value for the loc (mean) of the distribution, by default 0.0
+        init_scale : float, optional
+            Initial value for the scale (std) of the distribution, by default 0.1
+        """
+        super().__init__(name)
+
         self.locs = PyroModule()
         self.scales = PyroModule()
 
+        self.prior = prior
         self.init_loc = init_loc
         self.init_scale = init_scale
-        self.device = model.device
+        self.device = prior.device
+        self.to(self.device)
 
-        self.site_to_shape = {}
-        self.sample_dict = {}
-
-        self.setup_shapes()
         self.setup_sites()
 
-    def _get_loc_and_scale(self, site_name: str):
-        """Get loc and scale parameters.
+        self.sample_dict: dict[str, torch.Tensor] = {}
+
+    def _set_loc_and_scale(self, site_name: str, site_shape: _size) -> None:
+        """Initialize loc and scale parameters.
 
         Parameters
         ----------
         site_name : str
-            Name of the sampling site
-
-        Returns
-        -------
-        tuple
-            Tuple of (loc, scale)
+            Site name for the pyro.sample statement
+        site_shape : _size
+            Shape of the site
         """
-        site_loc = deep_getattr(self.locs, site_name)
-        site_scale = deep_getattr(self.scales, site_name)
-        return site_loc, site_scale
-
-    def setup_shapes(self):
-        """Setup parameters and sampling sites."""
-        return self.site_to_shape
-
-    def _setup_site(self, site_name, shape):
         deep_setattr(
             self.locs,
             site_name,
             PyroParam(
-                self.init_loc * torch.ones(shape, device=self.device),
+                self.init_loc * torch.ones(site_shape, device=self.device),
                 constraints.real,
             ),
         )
@@ -66,201 +68,339 @@ class Guide(PyroModule):
             self.scales,
             site_name,
             PyroParam(
-                self.init_scale * torch.ones(shape, device=self.device),
+                self.init_scale * torch.ones(site_shape, device=self.device),
                 constraints.softplus_positive,
             ),
         )
 
-    def setup_sites(self):
-        """Setup parameters and sampling sites."""
-        for site_name, shape in self.site_to_shape.items():
-            self._setup_site(site_name, shape)
+    def _get_loc_and_scale(self, site_name: str) -> tuple[torch.Tensor, torch.Tensor]:
+        """Get loc and scale parameters.
 
-    @torch.no_grad()
-    def mode(self):
-        """Get the MAP estimates.
+        Parameters
+        ----------
+        site_name : str
+            Name of the site
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            loc and scale parameters
+        """
+        site_loc = deep_getattr(self.locs, site_name)
+        site_scale = deep_getattr(self.scales, site_name)
+        return (site_loc, site_scale)
+
+    def _sample(self, site_name: str, dist: dist.Distribution) -> torch.Tensor:
+        """Sample from a variational distribution.
+
+        Parameters
+        ----------
+        site_name : str
+            Site name for the pyro.sample statement
+        dist : dist.Distribution
+            Distribution class
 
         Returns
         -------
         torch.Tensor
-            MAP estimate
+            Sampled values
         """
-        modes = {}
-        for site_name, _ in self.site_to_shape.items():
-            mode, scale = self._get_loc_and_scale(site_name)
-            # TODO: This is a hack, but it works for now. Register
-            # sample sites with a log-normal distribution before and pull it here
-            not_z = site_name != "z"
-            not_w = "w_" not in site_name
-            not_nonnegative = isinstance(self, NonnegativeGuide)
-            if not_w and not_z and not_nonnegative:
-                mode = (mode - scale.pow(2)).exp()
-            modes[site_name] = mode.clone()
+        loc, scale = self._get_loc_and_scale(site_name)
+        self.sample_dict[site_name] = pyro.sample(site_name, dist(loc, scale))
+        return self.sample_dict[site_name]
 
-        return modes
+    def _sample_normal(self, site_name: str) -> torch.Tensor:
+        return self._sample(site_name, dist.Normal)
+
+    def _sample_log_normal(self, site_name: str) -> torch.Tensor:
+        return self._sample(site_name, dist.LogNormal)
+
+    def setup_sites(self) -> None:
+        """Set up the sample sites."""
+        for site_name, site_samples in self.prior.sample_dict.items():
+            self._set_loc_and_scale(site_name, site_samples.shape)
+
+    def _mean_normal(self, site_name: str) -> torch.Tensor:
+        loc, _ = self._get_loc_and_scale(site_name)
+        return loc
+
+    def _median_normal(self, site_name: str) -> torch.Tensor:
+        return self._mean_normal(site_name)
+
+    def _mode_normal(self, site_name: str) -> torch.Tensor:
+        return self._mean_normal(site_name)
+
+    def _mean_log_normal(self, site_name: str) -> torch.Tensor:
+        loc, scale = self._get_loc_and_scale(site_name)
+        return (loc + scale.pow(2) / 2).exp()
+
+    def _median_log_normal(self, site_name: str) -> torch.Tensor:
+        loc, scale = self._get_loc_and_scale(site_name)
+        return loc.exp()
+
+    def _mode_log_normal(self, site_name: str) -> torch.Tensor:
+        loc, scale = self._get_loc_and_scale(site_name)
+        return (loc - scale.square()).exp()
 
     @torch.no_grad()
-    def _get_map_estimate(self, param_name: str):
-        param = self.mode(param_name)
-        param = param.cpu().detach().numpy()
-        if param_name == "sigma":
-            param = param[None, :]
-        return param
+    def mean(self) -> torch.Tensor:
+        """Get the mean of the variational distribution.
 
-    def get_z(self):
-        """Get the factor scores."""
-        return self._get_map_estimate("z")
+        Returns
+        -------
+        torch.Tensor
+            Mean of the variational distribution
+        """
+        return self._mean_normal(self.prior.site_name)
 
-    def get_w(self):
-        """Get the factor loadings."""
-        return self._get_map_estimate("w")
+    @torch.no_grad()
+    def median(self) -> torch.Tensor:
+        """Get the median of the variational distribution.
 
-    def get_sigma(self):
-        """Get the marginal feature scales."""
-        return self._get_map_estimate("sigma")
+        Returns
+        -------
+        torch.Tensor
+            Median of the variational distribution
+        """
+        return self._median_normal(self.prior.site_name)
 
-    def _sample_site(
-        self,
-        site_name,
-        dist,
-    ):
+    @torch.no_grad()
+    def mode(self) -> torch.Tensor:
+        """Get the mode of the variational distribution.
+
+        Returns
+        -------
+        torch.Tensor
+            Mode of the variational distribution
+        """
+        return self._mode_normal(self.prior.site_name)
+
+    def sample_global(self) -> Optional[torch.Tensor]:
+        """Sample global variables.
+
+        Returns
+        -------
+        Optional[torch.Tensor]
+            Sampled values
+        """
+        return None
+
+    def sample_inter(self) -> Optional[torch.Tensor]:
+        """Sample intermediate variables, typically across the factor dimension.
+
+        Returns
+        -------
+        Optional[torch.Tensor]
+            Sampled values
+        """
+        return None
+
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+        """Sample local variables.
+
+        Returns
+        -------
+        Optional[torch.Tensor]
+            Sampled values
+        """
+        return None
+
+
+class InverseGammaQ(QDist):
+    def __init__(self, prior: PDist, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("InverseGammaQ", prior, init_loc, init_scale)
+
+    @torch.no_grad()
+    def mean(self) -> torch.Tensor:
+        return self._mean_log_normal(self.prior.site_name)
+
+    @torch.no_grad()
+    def median(self) -> torch.Tensor:
+        return self._median_log_normal(self.prior.site_name)
+
+    @torch.no_grad()
+    def mode(self) -> torch.Tensor:
+        return self._mode_log_normal(self.prior.site_name)
+
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+        return self._sample_log_normal(self.prior.site_name)
+
+
+class NormalQ(QDist):
+    def __init__(self, prior: PDist, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("NormalQ", prior, init_loc, init_scale)
+
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+        return self._sample_normal(self.prior.site_name)
+
+
+class GaussianProcessQ(QDist):
+    def __init__(self, prior: PDist, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("GaussianProcessQ", prior, init_loc, init_scale)
+
+    def _sample_gp(self, site_name: str, covariate: torch.Tensor) -> torch.Tensor:
+        self.sample_dict[site_name] = pyro.sample(
+            site_name, self.prior.gp.pyro_guide(covariate)
+        )
+        return self.sample_dict[site_name]
+
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+        covariate = args[0]
+        return self._sample_gp(self.prior.site_name, covariate)
+
+
+class LaplaceQ(QDist):
+    def __init__(self, prior: PDist, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("LaplaceQ", prior, init_loc, init_scale)
+
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+        return self._sample_normal(self.prior.site_name)
+
+
+class HorseshoeQ(QDist):
+    def __init__(self, prior: PDist, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("HorseshoeQ", prior, init_loc, init_scale)
+
+    def sample_global(self) -> Optional[torch.Tensor]:
+        if hasattr(self.prior, "tau_delta"):
+            return None
+        return self._sample_log_normal(self.prior.tau_site_name)
+
+    def sample_inter(self) -> Optional[torch.Tensor]:
+        if not self.prior.ard:
+            return None
+        return self._sample_log_normal(self.prior.thetas_site_name)
+
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+        self._sample_log_normal(self.prior.lambdas_site_name)
+        if self.prior.regularized:
+            self._sample_log_normal(self.prior.caux_site_name)
+        return self._sample_normal(self.prior.site_name)
+
+
+class SpikeAndSlabQ(QDist):
+    def __init__(self, prior: PDist, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("SpikeAndSlabQ", prior, init_loc, init_scale)
+        self.sigmoid_transform = dist.transforms.SigmoidTransform()
+
+    def _sample_transformed_beta(self, site_name: str) -> torch.Tensor:
         loc, scale = self._get_loc_and_scale(site_name)
-        samples = pyro.sample(site_name, dist(loc, scale))
-        self.sample_dict[site_name] = samples
-        return samples
+        unconstrained_latent = pyro.sample(
+            site_name + "_unconstrained",
+            dist.Normal(
+                loc,
+                scale,
+            ),
+            infer={"is_auxiliary": True},
+        )
 
-    def _sample_normal(self, site_name: str):
-        return self._sample_site(site_name, dist.Normal)
+        value = self.sigmoid_transform(unconstrained_latent)
+        log_density = self.sigmoid_transform.inv.log_abs_det_jacobian(
+            value,
+            unconstrained_latent,
+        )
+        delta_dist = dist.Delta(value, log_density=log_density)
 
-    def _sample_log_normal(self, site_name: str):
-        return self._sample_site(site_name, dist.LogNormal)
+        return pyro.sample(site_name, delta_dist)
 
-    def sample_latent(self):
-        return None
+    def _get_means(self) -> tuple[torch.Tensor, torch.Tensor]:
+        return self._mean_normal(self.prior.untransformed_site_name), self._mean_normal(
+            self.prior.lambdas_site_name
+        )
 
-    def sample_feature_group(self, feature_group: str = None):
-        return None
+    @torch.no_grad()
+    def mean(self) -> torch.Tensor:
+        untransformed_mean, lambdas_mean = self._get_means()
+        return untransformed_mean * lambdas_mean
 
-    def sample_feature_group_factor(self, feature_group: str = None):
-        return None
+    @torch.no_grad()
+    def median(self) -> torch.Tensor:
+        untransformed_mean, lambdas_mean = self._get_means()
+        return untransformed_mean * (lambdas_mean > 0.0)
 
-    def sample_weight(self, feature_group: str = None):
-        return None
+    @torch.no_grad()
+    def mode(self) -> torch.Tensor:
+        return self.median()
 
-    def sample_feature(self, feature_group: str = None):
-        return None
+    def sample_inter(self) -> Optional[torch.Tensor]:
+        if self.prior.ard:
+            self._sample_log_normal(self.prior.alphas_site_name)
+        return self._sample_transformed_beta(self.prior.thetas_site_name)
+
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+        self._sample_transformed_beta(self.prior.lambdas_site_name)
+        return self._sample_normal(self.prior.untransformed_site_name)
+
+
+class Guide(PyroModule):
+    def __init__(self, model: Generative):
+        """Approximate variational distribution for a generative model.
+
+        Parameters
+        ----------
+        model : Generative
+            Generative model
+        """
+        super().__init__("Guide")
+        self.model = model
+        self.device = model.device
+        self.to(self.device)
+
+        # dry run to setup shapes
+        # call before setting up q_dists
+        self.model()
+
+        self.sigma_q_dists = self._get_q_dists(self.model.sigma_priors)
+        self.factor_q_dists = self._get_q_dists(self.model.factor_priors)
+        self.weight_q_dists = self._get_q_dists(self.model.weight_priors)
+
+        self.sample_dict: dict[str, torch.Tensor] = {}
+
+    def _get_q_dists(self, priors: dict[str, PDist]) -> dict[str, QDist]:
+        _q_dists = {}
+
+        for group, prior in priors.items():
+            # Replace strings with actuals priors
+            _q_dists[group] = {
+                "InverseGammaP": InverseGammaQ,
+                "NormalP": NormalQ,
+                "GaussianProcessQ": GaussianProcessQ,
+                "LaplaceP": LaplaceQ,
+                "HorseshoeP": HorseshoeQ,
+                "SpikeAndSlabP": SpikeAndSlabQ,
+            }[prior._pyro_name](prior=prior)
+
+        return _q_dists
 
     def forward(
         self,
-        data: torch.Tensor,
-    ):
+        data: Optional[dict[str, dict[str, torch.Tensor]]] = None,
+        covariate: Optional[torch.Tensor] = None,
+    ) -> dict[str, torch.Tensor]:
         """Approximate posterior."""
         plates = self.model.get_plates()
 
-        with plates["sample"], plates["factor"]:
-            self.sample_latent()
-
-        for feature_group, _ in self.model.feature_dict.items():
-            self.sample_feature_group(feature_group=feature_group)
+        for obs_group, factor_q_dist in self.factor_q_dists.items():
+            factor_q_dist.sample_global()
             with plates["factor"]:
-                self.sample_feature_group_factor(feature_group=feature_group)
+                factor_q_dist.sample_inter()
+                with plates[f"obs_{obs_group}"]:
+                    self.sample_dict[
+                        self.model.factor_priors[obs_group].site_name
+                    ] = factor_q_dist()
+
+        for feature_group, weight_q_dist in self.weight_q_dists.items():
+            weight_q_dist.sample_global()
+            with plates["factor"]:
+                weight_q_dist.sample_inter()
                 with plates[f"feature_{feature_group}"]:
-                    self.sample_weight(feature_group=feature_group)
+                    self.sample_dict[
+                        self.model.weight_priors[feature_group].site_name
+                    ] = weight_q_dist()
 
             with plates[f"feature_{feature_group}"]:
-                self.sample_feature(feature_group=feature_group)
+                self.sample_dict[
+                    self.model.sigma_priors[feature_group].site_name
+                ] = self.sigma_q_dists[feature_group]()
 
         return self.sample_dict
-
-
-class NormalGuide(Guide):
-    def __init__(self, model, init_loc: float = 0, init_scale: float = 0.1):
-        super().__init__(model, init_loc, init_scale)
-
-    def setup_shapes(self):
-        """Setup parameters and sampling sites."""
-        self.site_to_shape["z"] = self.model.get_latent_shape()[1:]
-
-        for feature_group, _ in self.model.feature_dict.items():
-            self.site_to_shape[f"w_{feature_group}"] = self.model.get_weight_shape(
-                feature_group
-            )[1:]
-            self.site_to_shape[f"sigma_{feature_group}"] = self.model.get_feature_shape(
-                feature_group
-            )[1:]
-
-        return super().setup_shapes()
-
-    def sample_z(self):
-        return self._sample_normal("z")
-
-    def sample_w(self, feature_group=None):
-        return self._sample_normal(f"w_{feature_group}")
-
-    def sample_sigma(self, feature_group=None):
-        return self._sample_log_normal(f"sigma_{feature_group}")
-
-    def sample_latent(self):
-        return self.sample_z()
-
-    def sample_weight(self, feature_group: str = None):
-        return self.sample_w(feature_group=feature_group)
-
-    def sample_feature(self, feature_group: str = None):
-        return self.sample_sigma(feature_group=feature_group)
-
-
-class HorseshoeGuide(NormalGuide):
-    def __init__(self, model, init_loc: float = 0, init_scale: float = 0.1):
-        super().__init__(model, init_loc, init_scale)
-
-    def setup_shapes(self):
-        for feature_group, _ in self.model.feature_dict.items():
-            self.site_to_shape[
-                f"tau_{feature_group}"
-            ] = self.model.get_feature_group_shape()[1:]
-            self.site_to_shape[
-                f"theta_{feature_group}"
-            ] = self.model.get_factor_shape()[1:]
-            self.site_to_shape[f"caux_{feature_group}"] = self.model.get_weight_shape(
-                feature_group
-            )[1:]
-            self.site_to_shape[f"lambda_{feature_group}"] = self.model.get_weight_shape(
-                feature_group
-            )[1:]
-        return super().setup_shapes()
-
-    def sample_tau(self, feature_group=None):
-        if not self.model.delta_tau:
-            self._sample_log_normal(f"tau_{feature_group}")
-
-    def sample_theta(self, feature_group=None):
-        self._sample_log_normal(f"theta_{feature_group}")
-
-    def sample_caux(self, feature_group=None):
-        self._sample_log_normal(f"caux_{feature_group}")
-
-    def sample_lambda(self, feature_group=None):
-        self._sample_log_normal(f"lambda_{feature_group}")
-
-    def sample_feature_group(self, feature_group: str = None):
-        return self.sample_tau(feature_group=feature_group)
-
-    def sample_feature_group_factor(self, feature_group: str = None):
-        if self.model.ard:
-            return self.sample_theta(feature_group=feature_group)
-        return super().sample_feature_group_factor(feature_group=feature_group)
-
-    def sample_weight(self, feature_group: str = None):
-        self.sample_lambda(feature_group=feature_group)
-        if self.model.regularized:
-            self.sample_caux(feature_group=feature_group)
-        return super().sample_weight(feature_group=feature_group)
-
-
-class NonnegativeGuide(NormalGuide):
-    def __init__(self, model, init_loc: float = 0, init_scale: float = 0.1):
-        super().__init__(model, init_loc, init_scale)
-
-    def sample_w(self, feature_group=None):
-        return self._sample_log_normal(f"w_{feature_group}")
