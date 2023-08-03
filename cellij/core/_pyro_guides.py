@@ -135,7 +135,7 @@ class QDist(PyroModule):
         return (loc + scale.pow(2) / 2).exp()
 
     def _median_log_normal(self, site_name: str) -> torch.Tensor:
-        loc, scale = self._get_loc_and_scale(site_name)
+        loc, _ = self._get_loc_and_scale(site_name)
         return loc.exp()
 
     def _mode_log_normal(self, site_name: str) -> torch.Tensor:
@@ -360,7 +360,7 @@ class Guide(PyroModule):
         _q_dists = {}
 
         for group, prior in priors.items():
-            # Replace strings with actuals priors
+            # Replace strings with actual priors
             _q_dists[group] = {
                 "InverseGammaP": InverseGammaQ,
                 "NormalP": NormalQ,
