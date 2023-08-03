@@ -2,13 +2,13 @@
     <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/logo_black.png" alt="logo" width="500"/>
 </p>
 
-# cellij
+# Cellij
 
 [![tests](https://github.com/bioFAM/cellij/actions/workflows/package.yml/badge.svg)](https://github.com/bioFAM/cellij/actions/workflows/package.yml)
 [![codecov](https://codecov.io/github/bioFAM/cellij/branch/main/graph/badge.svg?token=IJ4UMMUIW9)](https://codecov.io/github/bioFAM/cellij)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg?style=flat-square)](https://github.com/psf/black)
 
-Cellij is a versatile factor analysis framework for rapidly building and training a wide range of factor analysis models on multi-omics data. Cellij builds upon a Bayesian factor analysis skeleton that is designed to provide a wide-ranging customisability at all levels, ranging from likelihoods and optimisation procedures to sparsity-inducing priors. 
+Cellij (pronounced as "XXX", derived from the mosaic style [Zellij](https://en.wikipedia.org/wiki/Zellij)) is a versatile factor analysis framework for rapidly building and training a wide range of factor analysis models on multi-omics data. Cellij builds upon a Bayesian factor analysis skeleton that is designed to provide a wide-ranging customisability at all levels, ranging from likelihoods and optimisation procedures to sparsity-inducing priors. 
 
 <p align="center">
     <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/figure1_black.png" alt="schematic" width="750"/>
