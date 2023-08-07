@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import pyro
 import pyro.distributions as dist
@@ -514,7 +514,10 @@ class Generative(PyroModule):
         self.sample_dict: Dict[str, torch.Tensor] = {}
 
     def _get_priors(
-        self, priors: Dict[str, str], site_name: str, **kwargs: Dict[str, Any]
+        self,
+        priors: Union[Dict[str, str], Dict[str, Dict[str, Any]]],
+        site_name: str,
+        **kwargs: Dict[str, Any],
     ) -> Dict[str, PDist]:
         prior_map = {
             "InverseGamma": InverseGammaP,
