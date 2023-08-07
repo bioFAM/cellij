@@ -2,8 +2,7 @@ import logging
 import os
 import pickle
 from pathlib import Path
-from timeit import default_timer as timer
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import anndata
 import muon
@@ -96,6 +95,10 @@ class FactorModel(PyroModule):
         self._is_trained = False
         self._feature_groups = {}
         self._obs_groups = {}
+
+        self._data_options: dict[str, Any] = {}
+        self._model_options: dict[str, Any] = {}
+        self._training_options: dict[str, Any] = {}
 
         # Save kwargs for later
         self._kwargs = kwargs
@@ -222,6 +225,231 @@ class FactorModel(PyroModule):
         logger.info(f"Running all computations on `{device}`.")
         return torch.device(device)
 
+    @property
+    def data_options(self):
+        return self._data_options
+
+    @data_options.setter
+    def data_options(self, *args):
+        raise AttributeError("Use `set_data_options()` to modify this property.")
+
+    def set_data_options(
+        self,
+        scale_views: bool = False,
+        scale_features: bool = False,
+        center_features: bool = True,
+        preview: bool = False,
+    ) -> Optional[dict[str, Any]]:
+        if not isinstance(scale_views, bool):
+            raise TypeError(
+                f"Parameter 'scale_views' must be bool, got '{type(scale_views)}'."
+            )
+
+        if not isinstance(scale_features, bool):
+            raise TypeError(
+                f"Parameter 'scale_features' must be bool, got '{type(scale_features)}'."
+            )
+
+        if not isinstance(center_features, bool):
+            raise TypeError(
+                f"Parameter 'center_features' must be bool, got '{type(center_features)}'."
+            )
+
+        if not isinstance(preview, bool):
+            raise TypeError(f"Parameter 'preview' must be bool, got '{type(preview)}'.")
+
+        options = {
+            "scale_views": scale_views,
+            "scale_features": scale_features,
+            "center_features": center_features,
+        }
+
+        if not preview:
+            self._data_options = options
+            return None
+
+        return options
+
+    @property
+    def model_options(self):
+        return self._model_options
+
+    @model_options.setter
+    def model_options(self, *args):
+        raise AttributeError("Use `set_model_options()` to modify this property.")
+
+    def set_model_options(
+        self,
+        likelihoods: Optional[Union[str, dict[str, str]]] = None,
+    ) -> None:
+        if likelihoods is not None:
+            if isinstance(likelihoods, str):
+                likelihoods = {
+                    modality: likelihoods for modality in self._data.feature_groups
+                }
+            elif isinstance(likelihoods, dict) and not all(
+                key in self._data._names for key in likelihoods
+            ):
+                raise ValueError(
+                    "All views must have a likelihood set.\n"
+                    + "  - Actual: "
+                    + ", ".join(likelihoods.keys())
+                    + "\n"
+                    + "  - Expected: "
+                    + ", ".join(self._data._names)
+                )
+
+            for name, distribution in likelihoods.items():
+                if isinstance(distribution, str):
+                    # Replace likelihood string with common synonyms and correct for align with Pyro
+                    distribution = distribution.title()
+                    if distribution == "Gaussian":
+                        distribution = "Normal"
+
+                    try:
+                        likelihoods[name] = getattr(pyro.distributions, distribution)
+                    except AttributeError as e:
+                        raise AttributeError(
+                            f"Could not find valid Pyro distribution for {distribution}."
+                        ) from e
+
+        options = {
+            "likelihoods": likelihoods,
+        }
+
+        self._model_options = options
+
+    @property
+    def training_options(self):
+        return self._training_options
+
+    @training_options.setter
+    def training_options(self, *args):
+        raise AttributeError("Use `set_training_options()` to modify this property.")
+
+    def set_training_options(
+        self,
+        early_stopping: bool = True,
+        verbose_epochs: int = 100,
+        patience: int = 500,
+        min_delta: float = 0.1,
+        percentage: bool = True,
+        scale_gradients: bool = True,
+        optimizer: str = "Clipped",
+        num_particles: int = 1,
+        learning_rate: float = 0.003,
+        preview: bool = False,
+    ) -> None:
+        if not isinstance(early_stopping, bool):
+            raise TypeError(
+                f"Parameter 'early_stopping' must be bool, got '{type(early_stopping)}'."
+            )
+
+        if not isinstance(verbose_epochs, int):
+            raise TypeError(
+                f"Parameter 'verbose_epochs' must be int, got '{type(verbose_epochs)}'."
+            )
+
+        if not isinstance(patience, int):
+            raise TypeError(
+                f"Parameter 'patience' must be int, got '{type(patience)}'."
+            )
+
+        if not isinstance(min_delta, float):
+            raise TypeError(
+                f"Parameter 'min_delta' must be float, got '{type(min_delta)}'."
+            )
+
+        if not isinstance(percentage, bool):
+            raise TypeError(
+                f"Parameter 'percentage' must be bool, got '{type(percentage)}'."
+            )
+
+        if not isinstance(scale_gradients, bool):
+            raise TypeError(
+                f"Parameter 'scale_gradients' must be bool, got '{type(scale_gradients)}'."
+            )
+
+        if not isinstance(optimizer, str):
+            raise TypeError(
+                f"Parameter 'optimizer' must be str, got '{type(optimizer)}'."
+            )
+
+        valid_optimizer = ["Adam", "Clipped"]
+        if optimizer.lower() not in valid_optimizer:
+            raise NotImplementedError(
+                "Currently, only the following optimizers are supported: "
+                + ", ".join(valid_optimizer)
+            )
+
+        if not isinstance(num_particles, int):
+            raise TypeError(
+                f"Parameter 'num_particles' must be int, got '{type(num_particles)}'."
+            )
+
+        if not isinstance(learning_rate, float):
+            raise TypeError(
+                f"Parameter 'learning_rate' must be float, got '{type(learning_rate)}'."
+            )
+
+        if not isinstance(preview, bool):
+            raise TypeError(f"Parameter 'preview' must be bool, got '{type(preview)}'.")
+
+        for param_name, param_value in zip(
+            [
+                "verbose_epochs",
+                "patience",
+                "min_delta",
+                "num_particles",
+                "learning_rate",
+            ],
+            [verbose_epochs, patience, min_delta, num_particles, learning_rate],
+        ):
+            if param_value <= 0:
+                raise ValueError(
+                    f"Parameter '{param_name}' must be positive, got '{param_value}'."
+                )
+
+        options = {
+            "early_stopping": early_stopping,
+            "verbose_epochs": verbose_epochs,
+            "patience": patience,
+            "min_delta": min_delta,
+            "percentage": percentage,
+            "scale_gradients": scale_gradients,
+            "optimizer": optimizer,
+            "num_particles": num_particles,
+            "learning_rate": learning_rate,
+        }
+
+        if not preview:
+            self._training_options = options
+            return None
+
+        return options
+
+    def _init_from_config(
+        self,
+        data_options: dict[str, Any],
+        model_options: dict[str, Any],
+        training_options: dict[str, Any],
+    ) -> None:
+        data_option_defaults = self.set_data_options(preview=True)
+        model_option_defaults = self.set_model_options(preview=True)
+        training_option_defaults = self.set_training_options(preview=True)
+
+        for key in data_option_defaults:
+            if key not in data_options.keys():
+                self._data_options[key] = data_option_defaults[key]
+
+        for key in model_option_defaults:
+            if key not in model_options.keys():
+                self._model_options[key] = model_option_defaults[key]
+
+        for key in training_option_defaults:
+            if key not in training_options.keys():
+                self._training_options[key] = training_option_defaults[key]
+
     def add_data(
         self,
         data: Union[pandas.DataFrame, anndata.AnnData, muon.MuData],
@@ -244,12 +472,8 @@ class FactorModel(PyroModule):
             )
 
         if isinstance(data, pandas.DataFrame):
-            data = anndata.AnnData(
-                X=data.values,
-                obs=pandas.DataFrame(data.index),
-                var=pandas.DataFrame(data.columns),
-                dtype=self._dtype,
-            )
+            data = anndata.AnnData(data)
+            self._add_data(data=data, name=name)
 
         elif isinstance(data, anndata.AnnData):
             self._add_data(data=data, name=name)
@@ -276,9 +500,6 @@ class FactorModel(PyroModule):
         name: str,
     ):
         self._data(data=data, name=name)
-
-    def remove_data(self, name, **kwargs):
-        pass
 
     def add_feature_group(self, name, features, **kwargs):
         self._add_group(name=name, features=features, level="feature", **kwargs)
@@ -448,31 +669,31 @@ class FactorModel(PyroModule):
 
     def fit(
         self,
-        likelihoods: Union[str, dict],
         epochs: int = 1000,
-        num_particles: int = 1,
-        learning_rate: float = 0.003,
-        optimizer: str = "Clipped",
-        verbose_epochs: int = 100,
-        early_stopping: bool = True,
-        patience: int = 500,
-        min_delta: float = 0.1,
-        percentage: bool = True,
-        scale_gradients: bool = True,
-        center_features: bool = True,
-        scale_features: bool = False,
-        scale_views: bool = False,
-        sample_groups: str = None
+        # likelihoods: Union[str, dict],
+        # num_particles: int = 1,
+        # # learning_rate: float = 0.003,
+        # optimizer: str = "Clipped",
+        # verbose_epochs: int = 100,
+        # early_stopping: bool = True,
+        # patience: int = 500,
+        # min_delta: float = 0.1,
+        # percentage: bool = True,
+        # scale_gradients: bool = True,
+        # center_features: bool = True,
+        # scale_features: bool = False,
+        # scale_views: bool = False,
+        sample_groups: str = None,
     ):
         # Clear pyro param
         pyro.clear_param_store()
 
         # If early stopping is set, check if it is a valid value
-        if early_stopping:
-            if min_delta < 0:
-                raise ValueError("min_delta must be positive.")
+        if self._training_options["early_stopping"]:
             earlystopper = EarlyStopper(
-                patience=patience, min_delta=min_delta, percentage=percentage
+                patience=self._training_options["patience"],
+                min_delta=self._training_options["min_delta"],
+                percentage=self._training_options["percentage"],
             )
         else:
             earlystopper = None
@@ -481,61 +702,9 @@ class FactorModel(PyroModule):
         if self._data is None:
             raise ValueError("No data set.")
 
-        if not isinstance(likelihoods, (str, dict)):
-            raise ValueError(
-                "Parameter 'likelihoods' must either be a string or a dictionary "
-                f"mapping the modalities to strings, got {type(likelihoods)}."
-            )
-
-        for arg_name, arg in zip(
-            [
-                "early_stopping",
-                "scale_gradients",
-                "center_features",
-                "scale_features",
-                "scale_views",
-            ],
-            [
-                early_stopping,
-                scale_gradients,
-                center_features,
-                scale_features,
-                scale_views,
-            ],
-        ):
-            if not isinstance(arg, bool):
-                raise TypeError(f"Parameter '{arg_name}' must be of type bool.")
-
         # Prepare likelihoods
         # TODO: If string is passed, check if string corresponds to a valid pyro distribution
         # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
-
-        # If user passed strings, replace the likelihood strings with the actual distributions
-        if isinstance(likelihoods, str):
-            likelihoods = {
-                modality: likelihoods for modality in self._data.feature_groups
-            }
-
-        for name, distribution in likelihoods.items():
-            if isinstance(distribution, str):
-                # Replace likelihood string with common synonyms and correct for align with Pyro
-                distribution = distribution.title()
-                if distribution == "Gaussian":
-                    distribution = "Normal"
-
-                try:
-                    likelihoods[name] = getattr(pyro.distributions, distribution)
-                except AttributeError as e:
-                    raise AttributeError(
-                        f"Could not find valid Pyro distribution for {distribution}."
-                    ) from e
-
-        # Raise error if likelihoods are not set for all modalities
-        if len(likelihoods.keys()) != len(self._data.feature_groups):
-            raise ValueError(
-                f"Likelihoods must be set for all modalities. Got {len(likelihoods.keys())} likelihood "
-                f"and {len(self._data.feature_groups)} data modalities."
-            )
 
         # Provide data information to generative model
         feature_dict = {
@@ -559,12 +728,6 @@ class FactorModel(PyroModule):
 
             self._guide = self._guide(self._model, **self._guide_kwargs)
 
-        if not isinstance(likelihoods, (str, dict)):
-            raise ValueError(
-                "Parameter 'likelihoods' must either be a string or a dictionary "
-                f"mapping the modalities to strings, got {type(likelihoods)}."
-            )
-
         # # Provide data information to generative model
         # self._model._setup(
         #     data=self._data,
@@ -581,23 +744,27 @@ class FactorModel(PyroModule):
         # We scale the gradients by the number of total samples to allow a better comparison across
         # models/datasets
         scaling_constant = 1.0
-        if scale_gradients:
+        if self._training_options["scale_gradients"]:
             scaling_constant = 1.0 / self._data.values.shape[1]
 
-        optim = pyro.optim.Adam({"lr": learning_rate, "betas": (0.95, 0.999)})
-        if optimizer.lower() == "clipped":
+        if self._training_options["optimizer"].lower() == "adam":
+            optim = pyro.optim.Adam(
+                {"lr": self._training_options["learning_rate"], "betas": (0.95, 0.999)}
+            )
+        elif self._training_options["optimizer"].lower() == "clipped":
             gamma = 0.1
             lrd = gamma ** (1 / epochs)
-            optim = pyro.optim.ClippedAdam({"lr": learning_rate, "lrd": lrd})
+            optim = pyro.optim.ClippedAdam(
+                {"lr": self._training_options["learning_rate"], "lrd": lrd}
+            )
 
         svi = SVI(
             model=pyro.poutine.scale(self._model, scale=scaling_constant),
             guide=pyro.poutine.scale(self._guide, scale=scaling_constant),
             optim=optim,
-            # loss=pyro.infer.Trace_ELBO(),
             loss=pyro.infer.Trace_ELBO(
                 retain_graph=True,
-                num_particles=num_particles,
+                num_particles=self._training_options["num_particles"],
                 vectorize_particles=True,
             ),
         )
@@ -607,24 +774,26 @@ class FactorModel(PyroModule):
         # data = self._model.values
 
         self.train_loss_elbo = []
-        time_start = timer()
         loss: int = 0
 
         with trange(
-            epochs, unit="epoch", miniters=verbose_epochs, maxinterval=99999
+            epochs,
+            unit="epoch",
+            miniters=self._training_options["verbose_epochs"],
+            maxinterval=99999,
         ) as pbar:
             pbar.set_description("Training")
             for i in pbar:
                 loss = svi.step(data=data)
                 self.train_loss_elbo.append(loss)
 
-                if early_stopping and earlystopper.step(loss):
+                if self._training_options["early_stopping"] and earlystopper.step(loss):
                     logger.warning(
                         f"Early stopping of training due to convergence at step {i}"
                     )
                     break
 
-                if i % verbose_epochs == 0:
+                if i % self._training_options["verbose_epochs"] == 0:
                     if i == 0:
                         decrease_pct = 0.0
                     else:
@@ -632,7 +801,9 @@ class FactorModel(PyroModule):
                             100
                             - 100
                             * self.train_loss_elbo[i]
-                            / self.train_loss_elbo[i - verbose_epochs]
+                            / self.train_loss_elbo[
+                                i - self._training_options["verbose_epochs"]
+                            ]
                         )
 
                     pbar.set_postfix(
@@ -640,8 +811,6 @@ class FactorModel(PyroModule):
                     )
 
         self._is_trained = True
-        logger.warning(f"Final loss: {loss:.2f}")
-        logger.warning(f"Training took {(timer() - time_start):.2f}s")
 
     def save(self, filename: str, overwrite: bool = False):
         if not self._is_trained:
