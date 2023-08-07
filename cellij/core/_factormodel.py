@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class FactorModel(PyroModule):
-    """Base class for all estimators in cellij.
+    """Base class for all estimators in Cellij.
 
     Attributes
     ----------
@@ -597,7 +597,7 @@ class FactorModel(PyroModule):
                 raise TypeError("Parameter 'views' must be of type str or list.")
 
             if isinstance(views, list) and not all(
-                [isinstance(view, str) for view in views]
+                (isinstance(view, str) for view in views)
             ):
                 raise TypeError("Parameter 'views' must be a list of strings.")
 
@@ -606,7 +606,7 @@ class FactorModel(PyroModule):
                 raise TypeError("Parameter 'groups' must be of type str or list.")
 
             if isinstance(groups, list) and not all(
-                [isinstance(view, str) for view in groups]
+                (isinstance(view, str) for view in groups)
             ):
                 raise TypeError("Parameter 'groups' must be a list of strings.")
 
