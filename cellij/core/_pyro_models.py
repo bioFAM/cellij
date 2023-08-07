@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import pyro
 import pyro.distributions as dist
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class PDist(PyroModule):
     def __init__(
-        self, name: str, site_name: str, device: _device, **kwargs: dict[str, Any]
+        self, name: str, site_name: str, device: _device, **kwargs: Dict[str, Any]
     ):
         """Instantiate a base prior distribution.
 
@@ -32,7 +32,7 @@ class PDist(PyroModule):
         self.device = device
         self.to(self.device)
 
-        self.sample_dict: dict[str, torch.Tensor] = {}
+        self.sample_dict: Dict[str, torch.Tensor] = {}
 
     def _zeros(self, size: _size) -> torch.Tensor:
         """Generate a tensor of zeros.
@@ -85,8 +85,8 @@ class PDist(PyroModule):
         self,
         site_name: str,
         dist: dist.Distribution,
-        dist_kwargs: dict[str, torch.Tensor],
-        **kwargs: dict[str, Any],
+        dist_kwargs: Dict[str, torch.Tensor],
+        **kwargs: Dict[str, Any],
     ) -> torch.Tensor:
         """Sample from a distribution.
 
@@ -96,7 +96,7 @@ class PDist(PyroModule):
             Site name for the pyro.sample statement
         dist : dist.Distribution
             Distribution class
-        dist_kwargs : dict[str, torch.Tensor]
+        dist_kwargs : Dict[str, torch.Tensor]
             Distribution keyword arguments
 
         Returns
@@ -151,7 +151,7 @@ class PDist(PyroModule):
         """
         return None
 
-    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+    def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
         """Sample local variables.
 
         Returns
@@ -163,7 +163,7 @@ class PDist(PyroModule):
 
 
 class InverseGammaP(PDist):
-    def __init__(self, site_name: str, device: _device, **kwargs: dict[str, Any]):
+    def __init__(self, site_name: str, device: _device, **kwargs: Dict[str, Any]):
         """Instantiate an Inverse Gamma prior.
 
         Parameters
@@ -175,7 +175,7 @@ class InverseGammaP(PDist):
         """
         super().__init__("InverseGammaP", site_name, device)
 
-    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+    def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
         return self._sample(
             self.site_name,
             dist.InverseGamma,
@@ -184,7 +184,7 @@ class InverseGammaP(PDist):
 
 
 class NormalP(PDist):
-    def __init__(self, site_name: str, device: _device, **kwargs: dict[str, Any]):
+    def __init__(self, site_name: str, device: _device, **kwargs: Dict[str, Any]):
         """Instantiate a Normal prior.
 
         Parameters
@@ -196,7 +196,7 @@ class NormalP(PDist):
         """
         super().__init__("NormalP", site_name, device)
 
-    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+    def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
         return self._sample(
             self.site_name,
             dist.Normal,
@@ -205,7 +205,7 @@ class NormalP(PDist):
 
 
 class GaussianProcessP(PDist):
-    def __init__(self, site_name: str, device: _device, **kwargs: dict[str, Any]):
+    def __init__(self, site_name: str, device: _device, **kwargs: Dict[str, Any]):
         """Instantiate a Gaussian Process prior.
 
         Parameters
@@ -218,7 +218,7 @@ class GaussianProcessP(PDist):
         super().__init__("GaussianProcessP", site_name, device)
         self.gp = PseudotimeGP(**kwargs)
 
-    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+    def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
         covariate = args[0]
         return self._sample(
             self.site_name,
@@ -233,7 +233,7 @@ class LaplaceP(PDist):
         site_name: str,
         device: _device,
         scale: float = 0.1,
-        **kwargs: dict[str, Any],
+        **kwargs: Dict[str, Any],
     ):
         """Instantiate a Laplace prior.
 
@@ -250,7 +250,7 @@ class LaplaceP(PDist):
         super().__init__("LaplaceP", site_name, device)
         self.scale = self._const(scale)
 
-    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+    def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
         return self._sample(
             self.site_name,
             dist.SoftLaplace,
@@ -269,7 +269,7 @@ class HorseshoeP(PDist):
         thetas_scale: float = 1.0,
         regularized: bool = False,
         ard: bool = True,
-        **kwargs: dict[str, Any],
+        **kwargs: Dict[str, Any],
     ):
         """Instantiate a Horseshoe prior.
 
@@ -338,7 +338,7 @@ class HorseshoeP(PDist):
             dist_kwargs={"scale": self.thetas_scale},
         )
 
-    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+    def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
         lambdas_samples = self._sample(
             self.lambdas_site_name,
             dist.HalfCauchy,
@@ -379,7 +379,7 @@ class SpikeAndSlabP(PDist):
         relaxed_bernoulli: bool = True,
         temperature: float = 0.1,
         ard: bool = True,
-        **kwargs: dict[str, Any],
+        **kwargs: Dict[str, Any],
     ):
         """Instantiate a Spike and Slab prior.
 
@@ -439,7 +439,7 @@ class SpikeAndSlabP(PDist):
             },
         )
 
-    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+    def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
         dist_kwargs = {"probs": self.sample_dict[self.thetas_site_name]}
         if self.relaxed_bernoulli:
             dist_kwargs["temperature"] = self._const(self.temperature)
@@ -467,11 +467,11 @@ class Generative(PyroModule):
     def __init__(
         self,
         n_factors: int,
-        obs_dict: dict[str, int],
-        feature_dict: dict[str, int],
-        likelihoods: dict[str, str],
-        factor_priors: dict[str, str],
-        weight_priors: dict[str, str],
+        obs_dict: Dict[str, int],
+        feature_dict: Dict[str, int],
+        likelihoods: Dict[str, str],
+        factor_priors: Dict[str, str],
+        weight_priors: Dict[str, str],
         device: _device,
     ):
         """Instantiate a generative model for the multi-group and multi-view FA.
@@ -480,15 +480,15 @@ class Generative(PyroModule):
         ----------
         n_factors : int
             Number of factors
-        obs_dict : dict[str, int]
+        obs_dict : Dict[str, int]
             Dictionary of observations per group
-        feature_dict : dict[str, int]
+        feature_dict : Dict[str, int]
             Dictionary of features per view
-        likelihoods : dict[str, str]
+        likelihoods : Dict[str, str]
             Likelihoods per view
-        factor_priors : dict[str, str]
+        factor_priors : Dict[str, str]
             Prior distributions for the factor scores
-        weight_priors : dict[str, str]
+        weight_priors : Dict[str, str]
             Prior distributions for the factor loadings
         device : _device
             Torch device
@@ -511,27 +511,53 @@ class Generative(PyroModule):
         self.factor_priors = self._get_priors(factor_priors, "z")
         self.weight_priors = self._get_priors(weight_priors, "w")
 
-        self.sample_dict: dict[str, torch.Tensor] = {}
+        self.sample_dict: Dict[str, torch.Tensor] = {}
 
     def _get_priors(
-        self, priors: dict[str, str], site_name: str, **kwargs: dict[str, Any]
-    ) -> dict[str, PDist]:
+        self, priors: Dict[str, str], site_name: str, **kwargs: Dict[str, Any]
+    ) -> Dict[str, PDist]:
+        prior_map = {
+            "InverseGamma": InverseGammaP,
+            "Normal": NormalP,
+            "GaussianProcess": GaussianProcessP,
+            "Laplace": LaplaceP,
+            "Horseshoe": HorseshoeP,
+            "SpikeAndSlab": SpikeAndSlabP,
+        }
         _priors = {}
 
-        for group, prior in priors.items():
-            # Replace strings with actuals priors
-            _priors[group] = {
-                "InverseGamma": InverseGammaP,
-                "Normal": NormalP,
-                "GaussianProcess": GaussianProcessP,
-                "Laplace": LaplaceP,
-                "Horseshoe": HorseshoeP,
-                "SpikeAndSlab": SpikeAndSlabP,
-            }[prior](site_name=f"{site_name}_{group}", device=self.device, **kwargs)
+        for group, prior_config in priors.items():
+            # Replace prior config with actuals priors
+            prior = None
+            prior_kwargs = {}
+            if isinstance(prior_config, str):
+                prior = prior_map[prior_config]
+            if isinstance(prior_config, dict):
+                if "name" not in prior_config:
+                    raise ValueError(
+                        f"Prior `{prior_config}` must contain a `name` key."
+                    )
+                try:
+                    prior = prior_map[prior_config["name"]]
+                except KeyError:
+                    logger.warning(
+                        f"Prior `{prior_config['name']}` is not supported. "
+                        "Using `Normal` prior instead."
+                    )
+                    prior = prior_map["Normal"]
+                prior_kwargs = prior_config
+            if prior is None:
+                raise ValueError(
+                    f"Prior `{prior_config}` is not supported, "
+                    "please provide a string or a dictionary."
+                )
+            _priors[group] = prior(
+                site_name=f"{site_name}_{group}", device=self.device, **prior_kwargs
+            )
 
         return _priors
 
-    def get_plates(self) -> dict[str, pyro.plate]:
+    def get_plates(self) -> Dict[str, pyro.plate]:
         plates = {
             "factor": pyro.plate("factor", self.n_factors, dim=-2),
         }
@@ -546,9 +572,9 @@ class Generative(PyroModule):
 
     def forward(
         self,
-        data: Optional[dict[str, dict[str, torch.Tensor]]] = None,
+        data: Optional[Dict[str, Dict[str, torch.Tensor]]] = None,
         covariate: Optional[torch.Tensor] = None,
-    ) -> dict[str, torch.Tensor]:
+    ) -> Dict[str, torch.Tensor]:
         plates = self.get_plates()
 
         for obs_group, factor_prior in self.factor_priors.items():
