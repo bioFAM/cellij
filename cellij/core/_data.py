@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 
 import os
 from functools import reduce
@@ -12,6 +13,7 @@ import torch
 
 import cellij
 
+logger = logging.getLogger(__name__)
 
 class DataContainer:
     """Container to hold all data for a FactorModel.
@@ -95,9 +97,9 @@ class DataContainer:
             raise TypeError("Data must be a anndata.AnnData.")
 
         if name in self._names:
-            raise ValueError(f"Data with name {name} already exists.")
-
-        self._names.append(name)
+            logger.warning(f"Data with name '{name}' already existed - overwriting.")
+        else:
+            self._names.append(name)
 
         has_metadata = data.obs is not None and len(data.obs) > 0
 

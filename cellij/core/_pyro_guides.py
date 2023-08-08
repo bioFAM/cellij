@@ -9,14 +9,14 @@ from pyro.infer.autoguide.guides import deep_getattr, deep_setattr
 from pyro.nn import PyroModule, PyroParam
 from torch.types import _size
 
-from cellij.core._pyro_models import Generative, PDist
+from cellij.core._pyro_models import Generative, PriorDist
 
 logger = logging.getLogger(__name__)
 
 
 class QDist(PyroModule):
     def __init__(
-        self, name: str, prior: PDist, init_loc: float = 0.0, init_scale: float = 0.1
+        self, name: str, prior: PriorDist, init_loc: float = 0.0, init_scale: float = 0.1
     ):
         """Instantiate a base class for a variational distribution.
 
@@ -24,7 +24,7 @@ class QDist(PyroModule):
         ----------
         name : str
             Module name
-        prior : PDist
+        prior : PriorDist
             Prior distribution
         init_loc : float, optional
             Initial value for the loc (mean) of the distribution, by default 0.0
@@ -207,7 +207,7 @@ class QDist(PyroModule):
 
 
 class InverseGammaQ(QDist):
-    def __init__(self, prior: PDist, init_loc: float = 0, init_scale: float = 0.1):
+    def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
         super().__init__("InverseGammaQ", prior, init_loc, init_scale)
 
     @torch.no_grad()
@@ -227,7 +227,7 @@ class InverseGammaQ(QDist):
 
 
 class NormalQ(QDist):
-    def __init__(self, prior: PDist, init_loc: float = 0, init_scale: float = 0.1):
+    def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
         super().__init__("NormalQ", prior, init_loc, init_scale)
 
     def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
@@ -235,7 +235,7 @@ class NormalQ(QDist):
 
 
 class GaussianProcessQ(QDist):
-    def __init__(self, prior: PDist, init_loc: float = 0, init_scale: float = 0.1):
+    def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
         super().__init__("GaussianProcessQ", prior, init_loc, init_scale)
 
     def _sample_gp(self, site_name: str, covariate: torch.Tensor) -> torch.Tensor:
@@ -250,7 +250,7 @@ class GaussianProcessQ(QDist):
 
 
 class LaplaceQ(QDist):
-    def __init__(self, prior: PDist, init_loc: float = 0, init_scale: float = 0.1):
+    def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
         super().__init__("LaplaceQ", prior, init_loc, init_scale)
 
     def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
@@ -258,7 +258,7 @@ class LaplaceQ(QDist):
 
 
 class HorseshoeQ(QDist):
-    def __init__(self, prior: PDist, init_loc: float = 0, init_scale: float = 0.1):
+    def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
         super().__init__("HorseshoeQ", prior, init_loc, init_scale)
 
     def sample_global(self) -> Optional[torch.Tensor]:
@@ -279,7 +279,7 @@ class HorseshoeQ(QDist):
 
 
 class SpikeAndSlabQ(QDist):
-    def __init__(self, prior: PDist, init_loc: float = 0, init_scale: float = 0.1):
+    def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
         super().__init__("SpikeAndSlabQ", prior, init_loc, init_scale)
         self.sigmoid_transform = dist.transforms.SigmoidTransform()
 
@@ -356,7 +356,7 @@ class Guide(PyroModule):
 
         self.sample_dict: dict[str, torch.Tensor] = {}
 
-    def _get_q_dists(self, priors: Dict[str, PDist]) -> Dict[str, QDist]:
+    def _get_q_dists(self, priors: Dict[str, PriorDist]) -> Dict[str, QDist]:
         _q_dists = {}
 
         for group, prior in priors.items():

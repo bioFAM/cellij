@@ -1,7 +1,7 @@
 import logging
 import os
 import pickle
-from collections.abs import Iterable
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -18,6 +18,7 @@ from tqdm import trange
 import cellij
 from cellij.core._data import DataContainer
 from cellij.core.utils import EarlyStopper
+from cellij.core._pyro_models import Generative
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +76,8 @@ class FactorModel(PyroModule):
 
     def __init__(
         self,
-        model,
-        guide,
+        # model,
+        # guide,
         n_factors,
         dtype: torch.dtype = torch.float32,
         device="cpu",
@@ -84,8 +85,8 @@ class FactorModel(PyroModule):
     ):
         super().__init__(name="FactorModel")
 
-        self._model = model
-        self._guide, self._guide_kwargs = self._setup_guide(guide, kwargs)
+        # self._model = model
+        # self._guide, self._guide_kwargs = self._setup_guide(guide, kwargs)
         self._n_factors = n_factors
         self._dtype = dtype
 
@@ -164,7 +165,7 @@ class FactorModel(PyroModule):
 
     @property
     def feature_groups(self):
-        return self._feature_groups
+        return self.data._feature_groups
 
     @feature_groups.setter
     def feature_groups(self, *args):
@@ -175,8 +176,17 @@ class FactorModel(PyroModule):
 
     @property
     def obs_groups(self):
-        return self._obs_groups
 
+        try:
+            groups = self._model_options["groups"] 
+        except KeyError:
+            groups = None
+
+        if groups is None:
+            return {"all_observations": self._data._merged_obs_names}
+        elif isinstance(groups, dict):
+            return groups
+            
     @obs_groups.setter
     def obs_groups(self, *args):
         raise AttributeError(
@@ -281,47 +291,123 @@ class FactorModel(PyroModule):
 
     def set_model_options(
         self,
-        likelihoods: Optional[Union[str, dict[str, str]]] = None,
+        likelihoods: Union[str, dict[str, str]] = "Normal",
         factor_priors: Optional[Union[str, dict[str, str]]] = None,
         weight_priors: Optional[Union[str, dict[str, str]]] = None,
         groups: Optional[dict[str, Iterable]] = None,
+        preview: bool = False,
     ) -> Optional[dict[str, Any]]:
-        if likelihoods is not None:
-            if isinstance(likelihoods, str):
-                likelihoods = {
-                    modality: likelihoods for modality in self._data.feature_groups
-                }
-            elif isinstance(likelihoods, dict) and not all(
-                key in self._data._names for key in likelihoods
-            ):
-                raise ValueError(
-                    "All views must have a likelihood set.\n"
-                    + "  - Actual: "
-                    + ", ".join(likelihoods.keys())
-                    + "\n"
-                    + "  - Expected: "
-                    + ", ".join(self._data._names)
-                )
+        if isinstance(likelihoods, str):
+            likelihoods = {
+                view: likelihoods for view in self.feature_groups
+            }
+        elif isinstance(likelihoods, dict) and not all(
+            key in self._data._names for key in likelihoods
+        ):
+            raise ValueError(
+                "All views must have a likelihood set.\n"
+                + "  - Actual: "
+                + ", ".join(likelihoods.keys())
+                + "\n"
+                + "  - Expected: "
+                + ", ".join(self._data._names)
+            )
 
-            for name, distribution in likelihoods.items():
-                if isinstance(distribution, str):
-                    # Replace likelihood string with common synonyms used in Pyro
-                    distribution = distribution.title()
-                    if distribution == "Gaussian":
-                        distribution = "Normal"
+        for name, distribution in likelihoods.items():
+            if isinstance(distribution, str):
+                # Replace likelihood string with common synonyms used in Pyro
+                distribution = distribution.title()
+                if distribution == "Gaussian":
+                    distribution = "Normal"
 
-                    try:
-                        likelihoods[name] = getattr(pyro.distributions, distribution)
-                    except AttributeError as e:
-                        raise AttributeError(
-                            f"Could not find valid Pyro distribution for {distribution}."
-                        ) from e
+                try:
+                    likelihoods[name] = distribution
+                except AttributeError as e:
+                    raise AttributeError(
+                        f"Could not find valid Pyro distribution for {distribution}."
+                    ) from e
+
+        if factor_priors is None:
+            factor_priors = "Normal"
+            
+        if isinstance(factor_priors, str):
+            factor_priors = {
+                view: factor_priors for view in self.feature_groups
+            }
+        elif isinstance(factor_priors, dict) and not all(
+            key in self._data._names for key in factor_priors
+        ):
+            raise ValueError(
+                "When manually specifiyng 'factor_priors', all views must be assigned a prior.\n"
+                + "  - Actual: "
+                + ", ".join(factor_priors.keys())
+                + "\n"
+                + "  - Expected: "
+                + ", ".join(self._data._names)
+            )
+
+        for name, prior in factor_priors.items():
+            if isinstance(prior, str):
+                # Replace likelihood string with common synonyms used in Pyro
+                prior = prior.title()
+                if prior == "Gaussian":
+                    prior = "Normal"
+
+                try:
+                    factor_priors[name] = prior
+                except AttributeError as e:
+                    raise AttributeError(
+                        f"Could not find valid prior for '{prior}'."
+                    ) from e
+
+        if weight_priors is None:
+            weight_priors = "Normal"
+            
+        if isinstance(weight_priors, str):
+            print(self.obs_groups)
+            weight_priors = {
+                group: weight_priors for group in self.obs_groups
+            }
+        elif isinstance(weight_priors, dict) and not all(
+            prior_group in self.obs_groups for prior_group in weight_priors
+        ):
+            raise ValueError(
+                "When manually specifiyng 'weight_priors', all groups must be assigned a prior.\n"
+                + "  - Actual: "
+                + ", ".join(weight_priors.keys())
+                + "\n"
+                + "  - Expected: "
+                + ", ".join(self.obs_groups)
+            )
+
+        for name, prior in weight_priors.items():
+            if isinstance(prior, str):
+                # Replace likelihood string with common synonyms used in Pyro
+                prior = prior.title()
+                if prior == "Gaussian":
+                    prior = "Normal"
+
+                try:
+                    weight_priors[name] = prior
+                except AttributeError as e:
+                    raise AttributeError(
+                        f"Could not find valid prior for '{prior}'."
+                    ) from e
+
+        groups = self.obs_groups if groups is None else groups
 
         options = {
             "likelihoods": likelihoods,
+            "factor_priors": factor_priors,
+            "weight_priors": weight_priors,
+            "groups": groups,
         }
 
-        self._model_options = options
+        if not preview:
+            self._model_options = options
+            return None
+
+        return options
 
     @property
     def training_options(self):
@@ -445,7 +531,7 @@ class FactorModel(PyroModule):
         for key in data_option_defaults:
             if key not in data_options.keys():
                 self._data_options[key] = data_option_defaults[key]
-
+                
         for key in model_option_defaults:
             if key not in model_options.keys():
                 self._model_options[key] = model_option_defaults[key]
@@ -503,7 +589,7 @@ class FactorModel(PyroModule):
         data: anndata.AnnData,
         name: str,
     ):
-        self._data(data=data, name=name)
+        self._data.add_data(data=data, name=name)
 
     def add_feature_group(self, name, features, **kwargs):
         self._add_group(name=name, features=features, level="feature", **kwargs)
@@ -679,6 +765,36 @@ class FactorModel(PyroModule):
         # Clear pyro param
         pyro.clear_param_store()
 
+        # Initialize model from config dicts
+        self._init_from_config(
+            data_options=self._data_options,
+            model_options=self._model_options,
+            training_options=self._training_options,
+        )
+
+        print(self._data_options)
+        print(self._model_options)
+        print(self._training_options)
+
+        if len(self.feature_groups) == 0:
+            raise ValueError("No data has been added yet.")
+                
+        obs_dict = {f"group_{name}": obs_names for name, obs_names in self.obs_groups.items()}
+            
+        feature_dict = {f"view_{name}": list(adata.var_names) for name, adata in self.feature_groups.items()}
+
+        self._model = Generative(
+            n_factors=self.n_factors,
+            obs_dict=obs_dict,
+            feature_dict=feature_dict,
+            likelihoods=self._model_options["likelihoods"],
+            factor_priors=self._model_options["factor_priors"],
+            weight_priors=self._model_options["weight_priors"],
+            device=self.device,
+        )
+        self._guide = cellij.core._pyro_guides.Guide(self._model)
+
+
         # If early stopping is set, check if it is a valid value
         if self._training_options["early_stopping"]:
             earlystopper = EarlyStopper(
@@ -698,26 +814,26 @@ class FactorModel(PyroModule):
         # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
 
         # Provide data information to generative model
-        feature_dict = {
-            k: len(feature_idx) for k, feature_idx in self._data._feature_idx.items()
-        }
-        data_dict = {
-            k: torch.tensor(self._data._values[:, feature_idx], device=self.device)
-            for k, feature_idx in self._data._feature_idx.items()
-        }
+        # feature_dict = {
+        #     k: len(feature_idx) for k, feature_idx in self._data._feature_idx.items()
+        # }
+        # data_dict = {
+        #     k: torch.tensor(self._data._values[:, feature_idx], device=self.device)
+        #     for k, feature_idx in self._data._feature_idx.items()
+        # }
 
-        # Initialize class objects with correct data-related parameters
-        if not self._is_trained:
-            self._model = self._model(
-                n_samples=self._data._values.shape[0],
-                n_factors=self.n_factors,
-                feature_dict=feature_dict,
-                likelihoods=None,
-                device=self.device,
-                **self._kwargs,
-            )
+        # # Initialize class objects with correct data-related parameters
+        # if not self._is_trained:
+        #     self._model = self._model(
+        #         n_samples=self._data._values.shape[0],
+        #         n_factors=self.n_factors,
+        #         feature_dict=feature_dict,
+        #         likelihoods=None,
+        #         device=self.device,
+        #         **self._kwargs,
+        #     )
 
-            self._guide = self._guide(self._model, **self._guide_kwargs)
+        #     self._guide = self._guide(self._model, **self._guide_kwargs)
 
         # # Provide data information to generative model
         # self._model._setup(
