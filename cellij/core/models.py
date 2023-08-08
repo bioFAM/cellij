@@ -1,4 +1,4 @@
-from cellij.core._factormodel import FactorModel
+from cellij.core.factormodel import FactorModel
 
 
 class MOFA(FactorModel):

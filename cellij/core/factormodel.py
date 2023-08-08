@@ -1,6 +1,7 @@
 import logging
 import os
 import pickle
+from collections.abs import Iterable
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -16,7 +17,7 @@ from tqdm import trange
 
 import cellij
 from cellij.core._data import DataContainer
-from cellij.core.utils_training import EarlyStopper
+from cellij.core.utils import EarlyStopper
 
 logger = logging.getLogger(__name__)
 
@@ -236,8 +237,8 @@ class FactorModel(PyroModule):
     def set_data_options(
         self,
         scale_views: bool = False,
-        scale_features: bool = False,
-        center_features: bool = True,
+        scale_groups: bool = False,
+        center_groups: bool = True,
         preview: bool = False,
     ) -> Optional[dict[str, Any]]:
         if not isinstance(scale_views, bool):
@@ -245,14 +246,14 @@ class FactorModel(PyroModule):
                 f"Parameter 'scale_views' must be bool, got '{type(scale_views)}'."
             )
 
-        if not isinstance(scale_features, bool):
+        if not isinstance(scale_groups, bool):
             raise TypeError(
-                f"Parameter 'scale_features' must be bool, got '{type(scale_features)}'."
+                f"Parameter 'scale_groups' must be bool, got '{type(scale_groups)}'."
             )
 
-        if not isinstance(center_features, bool):
+        if not isinstance(center_groups, bool):
             raise TypeError(
-                f"Parameter 'center_features' must be bool, got '{type(center_features)}'."
+                f"Parameter 'center_groups' must be bool, got '{type(center_groups)}'."
             )
 
         if not isinstance(preview, bool):
@@ -260,8 +261,8 @@ class FactorModel(PyroModule):
 
         options = {
             "scale_views": scale_views,
-            "scale_features": scale_features,
-            "center_features": center_features,
+            "scale_features": scale_groups,
+            "center_features": center_groups,
         }
 
         if not preview:
@@ -281,7 +282,10 @@ class FactorModel(PyroModule):
     def set_model_options(
         self,
         likelihoods: Optional[Union[str, dict[str, str]]] = None,
-    ) -> None:
+        factor_priors: Optional[Union[str, dict[str, str]]] = None,
+        weight_priors: Optional[Union[str, dict[str, str]]] = None,
+        groups: Optional[dict[str, Iterable]] = None,
+    ) -> Optional[dict[str, Any]]:
         if likelihoods is not None:
             if isinstance(likelihoods, str):
                 likelihoods = {
@@ -301,7 +305,7 @@ class FactorModel(PyroModule):
 
             for name, distribution in likelihoods.items():
                 if isinstance(distribution, str):
-                    # Replace likelihood string with common synonyms and correct for align with Pyro
+                    # Replace likelihood string with common synonyms used in Pyro
                     distribution = distribution.title()
                     if distribution == "Gaussian":
                         distribution = "Normal"
@@ -335,11 +339,11 @@ class FactorModel(PyroModule):
         min_delta: float = 0.1,
         percentage: bool = True,
         scale_gradients: bool = True,
-        optimizer: str = "Clipped",
+        optimizer: str = "ClippedAdam",
         num_particles: int = 1,
         learning_rate: float = 0.003,
         preview: bool = False,
-    ) -> None:
+    ) -> Optional[dict[str, Any]]:
         if not isinstance(early_stopping, bool):
             raise TypeError(
                 f"Parameter 'early_stopping' must be bool, got '{type(early_stopping)}'."
@@ -375,7 +379,7 @@ class FactorModel(PyroModule):
                 f"Parameter 'optimizer' must be str, got '{type(optimizer)}'."
             )
 
-        valid_optimizer = ["Adam", "Clipped"]
+        valid_optimizer = ["adam", "clippedadam"]
         if optimizer.lower() not in valid_optimizer:
             raise NotImplementedError(
                 "Currently, only the following optimizers are supported: "
@@ -597,7 +601,7 @@ class FactorModel(PyroModule):
                 raise TypeError("Parameter 'views' must be of type str or list.")
 
             if isinstance(views, list) and not all(
-                (isinstance(view, str) for view in views)
+                isinstance(view, str) for view in views
             ):
                 raise TypeError("Parameter 'views' must be a list of strings.")
 
@@ -606,7 +610,7 @@ class FactorModel(PyroModule):
                 raise TypeError("Parameter 'groups' must be of type str or list.")
 
             if isinstance(groups, list) and not all(
-                (isinstance(view, str) for view in groups)
+                isinstance(view, str) for view in groups
             ):
                 raise TypeError("Parameter 'groups' must be a list of strings.")
 
@@ -670,20 +674,7 @@ class FactorModel(PyroModule):
     def fit(
         self,
         epochs: int = 1000,
-        # likelihoods: Union[str, dict],
-        # num_particles: int = 1,
-        # # learning_rate: float = 0.003,
-        # optimizer: str = "Clipped",
-        # verbose_epochs: int = 100,
-        # early_stopping: bool = True,
-        # patience: int = 500,
-        # min_delta: float = 0.1,
-        # percentage: bool = True,
-        # scale_gradients: bool = True,
-        # center_features: bool = True,
-        # scale_features: bool = False,
-        # scale_views: bool = False,
-        sample_groups: str = None,
+        verbose: int = 1,
     ):
         # Clear pyro param
         pyro.clear_param_store()
