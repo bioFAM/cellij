@@ -46,7 +46,8 @@ class Generative(PyroModule):
             Torch device
         """
         super().__init__("Generative")
-        self.n_samples = sum(len(obs) for obs in obs_dict.values())  # type: ignore
+        self.n_samples = sum(obs_dict.values())
+        # self.n_samples = sum(len(obs) for obs in obs_dict.values())  # type: ignore
         self.n_factors = n_factors
         self.obs_dict = obs_dict
         self.feature_dict = feature_dict

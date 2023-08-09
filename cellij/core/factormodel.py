@@ -330,10 +330,13 @@ class FactorModel(PyroModule):
         if factor_priors is None:
             factor_priors = "Normal"
             
+            # {f"group_{name}": len(obs_names) for name, obs_names in self.obs_groups.items()}
+            
         if isinstance(factor_priors, str):
             factor_priors = {
-                view: factor_priors for view in self.feature_groups
+                view: factor_priors for view in self.obs_groups
             }
+            print("ff", factor_priors)
         elif isinstance(factor_priors, dict) and not all(
             key in self._data._names for key in factor_priors
         ):
@@ -366,7 +369,7 @@ class FactorModel(PyroModule):
         if isinstance(weight_priors, str):
             print(self.obs_groups)
             weight_priors = {
-                group: weight_priors for group in self.obs_groups
+                group: weight_priors for group in self.feature_groups
             }
         elif isinstance(weight_priors, dict) and not all(
             prior_group in self.obs_groups for prior_group in weight_priors
@@ -772,16 +775,11 @@ class FactorModel(PyroModule):
             training_options=self._training_options,
         )
 
-        print(self._data_options)
-        print(self._model_options)
-        print(self._training_options)
-
         if len(self.feature_groups) == 0:
             raise ValueError("No data has been added yet.")
                 
-        obs_dict = {f"group_{name}": obs_names for name, obs_names in self.obs_groups.items()}
-            
-        feature_dict = {f"view_{name}": list(adata.var_names) for name, adata in self.feature_groups.items()}
+        obs_dict = {f"{name}": len(obs_names) for name, obs_names in self.obs_groups.items()}
+        feature_dict = {f"{name}": len(adata.var_names) for name, adata in self.feature_groups.items()}
 
         self._model = Generative(
             n_factors=self.n_factors,
@@ -793,7 +791,6 @@ class FactorModel(PyroModule):
             device=self.device,
         )
         self._guide = cellij.core._pyro_guides.Guide(self._model)
-
 
         # If early stopping is set, check if it is a valid value
         if self._training_options["early_stopping"]:
