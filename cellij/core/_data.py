@@ -1,8 +1,7 @@
 from __future__ import annotations
-import logging
 
+import logging
 import os
-from functools import reduce
 from importlib import resources
 
 import anndata
@@ -14,6 +13,7 @@ import torch
 import cellij
 
 logger = logging.getLogger(__name__)
+
 
 class DataContainer:
     """Container to hold all data for a FactorModel.
@@ -118,13 +118,14 @@ class DataContainer:
     def merge_data(self, **kwargs):
         """Merges all feature_groups into a single tensor."""
         feature_groups = {}
-        obs_names = []
         for name in self._names:
             feature_groups[name] = self._feature_groups[name].to_df()
 
-        merged_feature_group = pd.concat(list(feature_groups.values()), axis=1, join='outer')
+        merged_feature_group = pd.concat(
+            list(feature_groups.values()), axis=1, join="outer"
+        )
         merged_obs_names = merged_feature_group.index.to_list()
-        merged_feature_names = merged_feature_group.columns
+        merged_feature_names = merged_feature_group.columns.to_list()
 
         na_strategy = kwargs.get("na_strategy", None)
         if na_strategy is None:
@@ -349,14 +350,22 @@ class Importer:
                 encoding=self.encoding,
             )
             cell_labels = modality.index.values.tolist()
-            modality.index = [i.replace(" ", "_") for i in modality.index.values.tolist()]
-            modality.index = [f"obs{idx}_{name}" for name, idx in zip(modality.index, range(len(modality.index)))]
+            modality.index = [
+                i.replace(" ", "_") for i in modality.index.values.tolist()
+            ]
+            modality.index = [
+                f"obs{idx}_{name}"
+                for name, idx in zip(modality.index, range(len(modality.index)))
+            ]
             modalities["qPCR"] = anndata.AnnData(X=modality, dtype="float32")
 
             mdata = mu.MuData(modalities)
             metadata = pd.DataFrame()
             metadata["n_cells"] = [int(label.split(" ")[0]) for label in cell_labels]
-            metadata["label"] = [label.split(" ")[1] if len(label.split(" ")) == 2 else None for label in cell_labels]
+            metadata["label"] = [
+                label.split(" ")[1] if len(label.split(" ")) == 2 else None
+                for label in cell_labels
+            ]
             metadata["division"] = np.log2(metadata["n_cells"]).astype(int)
             metadata["division_scaled"] = metadata["division"] / 6
             metadata.index = mdata.obs.index

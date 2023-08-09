@@ -17,8 +17,9 @@ from tqdm import trange
 
 import cellij
 from cellij.core._data import DataContainer
-from cellij.core.utils import EarlyStopper
+from cellij.core._pyro_guides import Guide
 from cellij.core._pyro_models import Generative
+from cellij.core.utils import EarlyStopper
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,10 @@ class FactorModel(PyroModule):
 
     @property
     def feature_groups(self):
-        return self.data._feature_groups
+        return {
+            group_name: list(group.var_names)
+            for group_name, group in self.data._feature_groups.items()
+        }
 
     @feature_groups.setter
     def feature_groups(self, *args):
@@ -176,9 +180,8 @@ class FactorModel(PyroModule):
 
     @property
     def obs_groups(self):
-
         try:
-            groups = self._model_options["groups"] 
+            groups = self._model_options["groups"]
         except KeyError:
             groups = None
 
@@ -186,7 +189,7 @@ class FactorModel(PyroModule):
             return {"all_observations": self._data._merged_obs_names}
         elif isinstance(groups, dict):
             return groups
-            
+
     @obs_groups.setter
     def obs_groups(self, *args):
         raise AttributeError(
@@ -298,9 +301,7 @@ class FactorModel(PyroModule):
         preview: bool = False,
     ) -> Optional[dict[str, Any]]:
         if isinstance(likelihoods, str):
-            likelihoods = {
-                view: likelihoods for view in self.feature_groups
-            }
+            likelihoods = {view: likelihoods for view in self.feature_groups}
         elif isinstance(likelihoods, dict) and not all(
             key in self._data._names for key in likelihoods
         ):
@@ -329,14 +330,11 @@ class FactorModel(PyroModule):
 
         if factor_priors is None:
             factor_priors = "Normal"
-            
+
             # {f"group_{name}": len(obs_names) for name, obs_names in self.obs_groups.items()}
-            
+
         if isinstance(factor_priors, str):
-            factor_priors = {
-                view: factor_priors for view in self.obs_groups
-            }
-            print("ff", factor_priors)
+            factor_priors = {view: factor_priors for view in self.obs_groups}
         elif isinstance(factor_priors, dict) and not all(
             key in self._data._names for key in factor_priors
         ):
@@ -365,12 +363,9 @@ class FactorModel(PyroModule):
 
         if weight_priors is None:
             weight_priors = "Normal"
-            
+
         if isinstance(weight_priors, str):
-            print(self.obs_groups)
-            weight_priors = {
-                group: weight_priors for group in self.feature_groups
-            }
+            weight_priors = {group: weight_priors for group in self.feature_groups}
         elif isinstance(weight_priors, dict) and not all(
             prior_group in self.obs_groups for prior_group in weight_priors
         ):
@@ -534,7 +529,7 @@ class FactorModel(PyroModule):
         for key in data_option_defaults:
             if key not in data_options.keys():
                 self._data_options[key] = data_option_defaults[key]
-                
+
         for key in model_option_defaults:
             if key not in model_options.keys():
                 self._model_options[key] = model_option_defaults[key]
@@ -777,9 +772,13 @@ class FactorModel(PyroModule):
 
         if len(self.feature_groups) == 0:
             raise ValueError("No data has been added yet.")
-                
-        obs_dict = {f"{name}": len(obs_names) for name, obs_names in self.obs_groups.items()}
-        feature_dict = {f"{name}": len(adata.var_names) for name, adata in self.feature_groups.items()}
+
+        obs_dict = {
+            f"{name}": len(obs_names) for name, obs_names in self.obs_groups.items()
+        }
+        feature_dict = {
+            f"{name}": len(var_names) for name, var_names in self.feature_groups.items()
+        }
 
         self._model = Generative(
             n_factors=self.n_factors,
@@ -790,7 +789,7 @@ class FactorModel(PyroModule):
             weight_priors=self._model_options["weight_priors"],
             device=self.device,
         )
-        self._guide = cellij.core._pyro_guides.Guide(self._model)
+        guide = Guide(self._model)
 
         # If early stopping is set, check if it is a valid value
         if self._training_options["early_stopping"]:
@@ -806,56 +805,17 @@ class FactorModel(PyroModule):
         if self._data is None:
             raise ValueError("No data set.")
 
-        # Prepare likelihoods
-        # TODO: If string is passed, check if string corresponds to a valid pyro distribution
-        # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
-
-        # Provide data information to generative model
-        # feature_dict = {
-        #     k: len(feature_idx) for k, feature_idx in self._data._feature_idx.items()
-        # }
-        # data_dict = {
-        #     k: torch.tensor(self._data._values[:, feature_idx], device=self.device)
-        #     for k, feature_idx in self._data._feature_idx.items()
-        # }
-
-        # # Initialize class objects with correct data-related parameters
-        # if not self._is_trained:
-        #     self._model = self._model(
-        #         n_samples=self._data._values.shape[0],
-        #         n_factors=self.n_factors,
-        #         feature_dict=feature_dict,
-        #         likelihoods=None,
-        #         device=self.device,
-        #         **self._kwargs,
-        #     )
-
-        #     self._guide = self._guide(self._model, **self._guide_kwargs)
-
-        # # Provide data information to generative model
-        # self._model._setup(
-        #     data=self._data,
-        #     likelihoods=likelihoods,
-        #     center_features=center_features,
-        #     scale_features=scale_features,
-        #     scale_views=scale_views,
-        # )
-
-        # Prepare likelihoods
-        # TODO: If string is passed, check if string corresponds to a valid pyro distribution
-        # TODO: If custom distribution is passed, check if it provides arg_constraints parameter
-
         # We scale the gradients by the number of total samples to allow a better comparison across
         # models/datasets
         scaling_constant = 1.0
         if self._training_options["scale_gradients"]:
-            scaling_constant = 1.0 / self._data.values.shape[1]
+            scaling_constant = 1.0 / self._data._values.shape[1]
 
         if self._training_options["optimizer"].lower() == "adam":
             optim = pyro.optim.Adam(
                 {"lr": self._training_options["learning_rate"], "betas": (0.95, 0.999)}
             )
-        elif self._training_options["optimizer"].lower() == "clipped":
+        elif self._training_options["optimizer"].lower() == "clippedadam":
             gamma = 0.1
             lrd = gamma ** (1 / epochs)
             optim = pyro.optim.ClippedAdam(
@@ -864,7 +824,7 @@ class FactorModel(PyroModule):
 
         svi = SVI(
             model=pyro.poutine.scale(self._model, scale=scaling_constant),
-            guide=pyro.poutine.scale(self._guide, scale=scaling_constant),
+            guide=pyro.poutine.scale(guide, scale=scaling_constant),
             optim=optim,
             loss=pyro.infer.Trace_ELBO(
                 retain_graph=True,
@@ -873,9 +833,30 @@ class FactorModel(PyroModule):
             ),
         )
 
-        # TOOD: Preprocess data
-        data = data_dict
-        # data = self._model.values
+        # get indicies for each view and group and subset merged data with them
+        obs_idx = {
+            group_name: [self._data._merged_obs_names.index(obs) for obs in obs_list]
+            for group_name, obs_list in self.obs_groups.items()
+        }
+        feature_idx = {
+            view_name: [
+                self._data._merged_feature_names.index(feature)
+                for feature in feature_list
+            ]
+            for view_name, feature_list in self.feature_groups.items()
+        }
+        data = {
+            group_name: {
+                view_name: torch.tensor(
+                    [
+                        [self._data._values[i][j] for j in feature_idx[view_name]]
+                        for i in obs_idx[group_name]
+                    ]
+                )
+                for view_name in feature_idx
+            }
+            for group_name in obs_idx
+        }
 
         self.train_loss_elbo = []
         loss: int = 0
