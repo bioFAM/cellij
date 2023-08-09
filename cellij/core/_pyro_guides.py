@@ -9,7 +9,8 @@ from pyro.infer.autoguide.guides import deep_getattr, deep_setattr
 from pyro.nn import PyroModule, PyroParam
 from torch.types import _size
 
-from cellij.core._pyro_models import Generative, PriorDist
+from cellij.core._pyro_models import Generative
+from cellij.core._priors import PriorDist
 
 logger = logging.getLogger(__name__)
 
