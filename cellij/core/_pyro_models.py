@@ -5,14 +5,11 @@ import pyro
 import pyro.distributions as dist
 import torch
 from pyro.nn import PyroModule
-from torch.types import _device, _size
+from torch.types import _device
 
-import cellij
-from cellij.core._gp import PseudotimeGP
 from cellij.core._priors import PRIOR_MAP, PriorDist
 
 logger = logging.getLogger(__name__)
-
 
 
 class Generative(PyroModule):
@@ -66,46 +63,42 @@ class Generative(PyroModule):
 
         self.sample_dict: dict[str, torch.Tensor] = {}
 
+    def _get_prior(
+        self, prior_config: Union[PriorDist, str, dict[str, Any]], site_name: str
+    ) -> PriorDist:
+        if isinstance(prior_config, PriorDist):
+            return prior_config
+
+        if isinstance(prior_config, str):
+            prior_config = {"name": prior_config}
+        elif isinstance(prior_config, dict):
+            if "name" not in prior_config:
+                raise ValueError(f"Prior `{prior_config}` must contain a `name` key.")
+        else:
+            raise ValueError(
+                f"Prior `{prior_config}` is not supported, please provide a string or a dictionary."
+            )
+
+        if prior_config["name"] not in PRIOR_MAP:
+            raise ValueError(
+                f"Prior `{prior_config['name']}` is not supported, "
+                f"please provide one of {', '.join(PRIOR_MAP.keys())}."
+            )
+
+        prior = PRIOR_MAP[prior_config["name"]]
+        prior_config.pop("name")
+        return prior(site_name=site_name, device=self.device, **prior_config)
+
     def _get_priors(
         self,
         priors: Union[dict[str, str], dict[str, dict[str, Any]]],
         site_name: str,
         **kwargs: dict[str, Any],
     ) -> dict[str, PriorDist]:
-        
-        _priors = {}
-
-        for group, prior_config in priors.items():
-            # Replace prior config with actual priors
-            prior = None
-            prior_kwargs = {}
-            print(group, prior_config)
-            if isinstance(prior_config, str):
-                prior = PRIOR_MAP[prior_config]
-            if isinstance(prior_config, dict):
-                if "name" not in prior_config:
-                    raise ValueError(
-                        f"Prior `{prior_config}` must contain a `name` key."
-                    )
-                try:
-                    prior = PRIOR_MAP[prior_config["name"]]
-                except KeyError:
-                    logger.warning(
-                        f"Prior `{prior_config['name']}` is not supported. "
-                        "Using `Normal` prior instead."
-                    )
-                    prior = PRIOR_MAP["Normal"]
-                prior_kwargs = prior_config
-            if prior is None:
-                raise ValueError(
-                    f"Prior `{prior_config}` is not supported, "
-                    "please provide a string or a dictionary."
-                )
-            _priors[group] = prior(
-                site_name=f"{site_name}_{group}", device=self.device, **prior_kwargs
-            )
-
-        return _priors
+        return {
+            group: self._get_prior(prior_config, f"{site_name}_{group}")
+            for group, prior_config in priors.items()
+        }
 
     def get_plates(self) -> dict[str, pyro.plate]:
         plates = {
