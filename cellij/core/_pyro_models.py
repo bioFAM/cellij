@@ -7,7 +7,7 @@ import torch
 from pyro.nn import PyroModule
 from torch.types import _device
 
-from cellij.core._priors import PRIOR_MAP, PriorDist
+from cellij.core._pyro_priors import PRIOR_MAP, PriorDist
 
 logger = logging.getLogger(__name__)
 

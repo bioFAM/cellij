@@ -10,14 +10,18 @@ from pyro.nn import PyroModule, PyroParam
 from torch.types import _size
 
 from cellij.core._pyro_models import Generative
-from cellij.core._priors import PriorDist
+from cellij.core._pyro_priors import PriorDist
 
 logger = logging.getLogger(__name__)
 
 
 class QDist(PyroModule):
     def __init__(
-        self, name: str, prior: PriorDist, init_loc: float = 0.0, init_scale: float = 0.1
+        self,
+        name: str,
+        prior: PriorDist,
+        init_loc: float = 0.0,
+        init_scale: float = 0.1,
     ):
         """Instantiate a base class for a variational distribution.
 

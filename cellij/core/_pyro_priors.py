@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import pyro
 import pyro.distributions as dist
@@ -7,12 +7,7 @@ import torch
 from pyro.nn import PyroModule
 from torch.types import _device, _size
 
-import cellij
-from cellij.core._gp import PseudotimeGP
-
 logger = logging.getLogger(__name__)
-
-
 
 
 class PriorDist(PyroModule):
@@ -464,6 +459,7 @@ class SpikeAndSlabPrior(PriorDist):
         return self._deterministic(
             self.site_name, untransformed_samples * lambdas_samples
         )
+
 
 PRIOR_MAP = {
     "InverseGamma": InverseGammaPrior,
