@@ -106,21 +106,6 @@ class FactorModel(PyroModule):
         # Save kwargs for later
         self._kwargs = kwargs
 
-    @property
-    def model(self):
-        pass
-
-    @model.setter
-    def model(self, model):
-        pass
-
-    @property
-    def guide(self):
-        pass
-
-    @guide.setter
-    def guide(self, guide):
-        self._guide = guide
 
     @property
     def n_factors(self):
@@ -177,7 +162,15 @@ class FactorModel(PyroModule):
             "Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` "
             "to modify this property."
         )
-
+        
+    @property
+    def model(self):
+        return self._model[0]
+    
+    @property
+    def guide(self):
+        return self._guide[0]
+        
     @property
     def obs_groups(self):
         try:
@@ -780,7 +773,7 @@ class FactorModel(PyroModule):
             f"{name}": len(var_names) for name, var_names in self.feature_groups.items()
         }
 
-        self._model = Generative(
+        model = Generative(
             n_factors=self.n_factors,
             obs_dict=obs_dict,
             feature_dict=feature_dict,
@@ -789,7 +782,12 @@ class FactorModel(PyroModule):
             weight_priors=self._model_options["weight_priors"],
             device=self.device,
         )
-        guide = Guide(self._model)
+        guide = Guide(model)
+        model = (model,)
+        guide = (guide,)
+        
+        self._model = model
+        self._guide = guide
 
         # If early stopping is set, check if it is a valid value
         if self._training_options["early_stopping"]:
@@ -823,8 +821,8 @@ class FactorModel(PyroModule):
             )
 
         svi = SVI(
-            model=pyro.poutine.scale(self._model, scale=scaling_constant),
-            guide=pyro.poutine.scale(guide, scale=scaling_constant),
+            model=pyro.poutine.scale(self.model, scale=scaling_constant),
+            guide=pyro.poutine.scale(self.guide, scale=scaling_constant),
             optim=optim,
             loss=pyro.infer.Trace_ELBO(
                 retain_graph=True,
