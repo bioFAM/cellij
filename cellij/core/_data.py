@@ -132,7 +132,7 @@ class DataContainer:
             self._values = merged_feature_group.values
 
         else:
-            self._values = cellij.impute_data(
+            self._values = cellij.core.utils.impute_data(
                 data=merged_feature_group,
                 strategy=na_strategy,
                 kwargs=kwargs,
