@@ -1,3 +1,12 @@
-from .core import _data, _factormodel, _pyro_models, _pyro_guides, models, synthetic
+from .core import (
+    _data,
+    _pyro_guides,
+    _pyro_models,
+    _pyro_priors,
+    factormodel,
+    models,
+    synthetic,
+)
+from .core._data import Importer  # for cellij.Importer() import
+from .core.factormodel import FactorModel  # for cellij.FactorModel() import
 from .tools import evaluation
-from .utils import impute_data, load_model, nanstd
