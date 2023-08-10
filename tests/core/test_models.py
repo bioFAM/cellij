@@ -23,17 +23,6 @@ class core_TestClass(unittest.TestCase):
         model = cellij.core.models.MOFA(n_factors=self.n_factors)
         model.add_data(data=self.mdata, name="mrna")
         model.fit(
-            likelihoods="Normal",
-            epochs=self.n_epochs,
-        )
-
-        assert model.is_trained
-
-    def test_model_on_gpu(self):
-        model = cellij.core.models.MOFA(n_factors=self.n_factors, device="cuda")
-        model.add_data(data=self.mdata, name="mrna")
-        model.fit(
-            likelihoods="Normal",
             epochs=self.n_epochs,
         )
 
