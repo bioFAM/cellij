@@ -8,7 +8,7 @@
 [![codecov](https://codecov.io/github/bioFAM/cellij/branch/main/graph/badge.svg?token=IJ4UMMUIW9)](https://codecov.io/github/bioFAM/cellij)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg?style=flat-square)](https://github.com/psf/black)
 
-Cellij (pronounced as "XXX", derived from the mosaic style [Zellij](https://en.wikipedia.org/wiki/Zellij)) is a versatile factor analysis framework for rapidly building and training a wide range of factor analysis models on multi-omics data. Cellij builds upon a Bayesian factor analysis skeleton that is designed to provide a wide-ranging customisability at all levels, ranging from likelihoods and optimisation procedures to sparsity-inducing priors. 
+Cellij (pronounced as "zillīj", derived from [Zellij](https://en.wikipedia.org/wiki/Zellij): a style of mosaic tilework made from individually hand-chiseled tile pieces) is a versatile factor analysis framework for rapidly building and training a wide range of factor analysis models on multi-omics data. Cellij builds upon a Bayesian factor analysis skeleton that is designed to provide a wide-ranging customisability at all levels, ranging from likelihoods and optimisation procedures to sparsity-inducing priors. 
 
 <p align="center">
     <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/figure1_black.png" alt="schematic" width="750"/>
@@ -74,12 +74,12 @@ If you found a bug, please use the [issue tracker][issue-tracker].
 
 If you use Cellij, please consider citing:
 ```
-@article{bingham2019pyro,
+@proceedings{bingham2019pyro,
   author    = {Rohbeck, Martin and Qoku, Arber and Treis, Tim and Theis, Fabian J and Velten, Britta and Buettner, Florian and Stegle, Oliver},
   title     = {Cellij: A Modular Factor Model Framework for Interpretable and Accelerated Multi-Omics Data Integration},
-  journal   = {XXX},
+  series    = {ICML Workshop on Computational Biology},
   year      = {2023},
-  url       = {YYY}
+  url       = {https://icml-compbio.github.io/2023/papers/WCBICML2023_paper124.pdf}
 }
 ```
 
