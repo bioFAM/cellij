@@ -941,7 +941,7 @@ class FactorModel(PyroModule):
         ) as pbar:
             pbar.set_description("Training")
             for i in pbar:
-                loss = svi.step(data=data)
+                loss = svi.step(data=data, covariate=covariates)
                 self.train_loss_elbo.append(loss)
 
                 if self._training_options["early_stopping"] and earlystopper.step(loss):

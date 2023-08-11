@@ -160,11 +160,11 @@ class Generative(PyroModule):
                     if data is not None:
                         obs = data[obs_group][feature_group].view(obs_shape)
 
-                    z = self.sample_dict[f"z_{obs_group}"].view(z_shape)
+                    z = self.sample_dict[f"z_{obs_group}"] # .view(z_shape)
                     w = self.sample_dict[f"w_{feature_group}"].view(w_shape)
 
-                    print("z", z.dtype)
-                    print("w", w.dtype)
+                    print("z", z.shape)
+                    print("w", w.shape)
 
                     loc = torch.einsum("...ikj,...ikj->...ij", z, w).view(obs_shape)
 

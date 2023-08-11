@@ -250,7 +250,6 @@ class GaussianProcessQ(QDist):
         return self.sample_dict[site_name]
 
     def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
-        print(args, kwargs)
         covariate = args[0]
         return self._sample_gp(self.prior.site_name, covariate)
 
@@ -391,9 +390,14 @@ class Guide(PyroModule):
             with plates["factor"]:
                 factor_q_dist.sample_inter()
                 with plates[f"obs_{obs_group}"]:
-                    self.sample_dict[
-                        self.model.factor_priors[obs_group].site_name
-                    ] = factor_q_dist()
+                    if covariate is not None:
+                        self.sample_dict[
+                            self.model.factor_priors[obs_group].site_name
+                        ] = factor_q_dist(covariate)
+                    else:
+                        self.sample_dict[
+                            self.model.factor_priors[obs_group].site_name
+                        ] = factor_q_dist()
 
         for feature_group, weight_q_dist in self.weight_q_dists.items():
             weight_q_dist.sample_global()
