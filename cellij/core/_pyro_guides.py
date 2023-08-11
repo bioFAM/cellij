@@ -250,6 +250,7 @@ class GaussianProcessQ(QDist):
         return self.sample_dict[site_name]
 
     def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
+        print(args, kwargs)
         covariate = args[0]
         return self._sample_gp(self.prior.site_name, covariate)
 
@@ -367,12 +368,12 @@ class Guide(PyroModule):
         for group, prior in priors.items():
             # Replace strings with actual Q distributions
             _q_dists[group] = {
-                "InverseGammaP": InverseGammaQ,
-                "NormalP": NormalQ,
-                "GaussianProcessQ": GaussianProcessQ,
-                "LaplaceP": LaplaceQ,
-                "HorseshoeP": HorseshoeQ,
-                "SpikeAndSlabP": SpikeAndSlabQ,
+                "InverseGammaPrior": InverseGammaQ,
+                "NormalPrior": NormalQ,
+                "GaussianProcessPrior": GaussianProcessQ,
+                "LaplacePrior": LaplaceQ,
+                "HorseshoePrior": HorseshoeQ,
+                "SpikeAndSlabPrior": SpikeAndSlabQ,
             }[prior._pyro_name](prior=prior)
 
         return _q_dists

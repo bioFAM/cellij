@@ -6,6 +6,8 @@ import pyro.distributions as dist
 import torch
 from pyro.nn import PyroModule
 from torch.types import _device, _size
+from cellij.core._gp import DenseGP
+
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +173,7 @@ class InverseGammaPrior(PriorDist):
         device : _device
             Torch device
         """
-        super().__init__("InverseGammaP", site_name, device)
+        super().__init__("InverseGammaPrior", site_name, device)
 
     def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
         return self._sample(
@@ -192,7 +194,7 @@ class NormalPrior(PriorDist):
         device : _device
             Torch device
         """
-        super().__init__("NormalP", site_name, device)
+        super().__init__("NormalPrior", site_name, device)
 
     def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
         return self._sample(
@@ -213,8 +215,8 @@ class GaussianProcessPrior(PriorDist):
         device : _device
             Torch device
         """
-        super().__init__("GaussianProcessP", site_name, device)
-        self.gp = PseudotimeGPrior(**kwargs)
+        super().__init__("GaussianProcessPrior", site_name, device)
+        self.gp = DenseGP(**kwargs)
 
     def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
         covariate = args[0]
@@ -245,7 +247,7 @@ class LaplacePrior(PriorDist):
             Scale for the Laplace distribution, smaller leads to sparser solutions,
             by default 0.1
         """
-        super().__init__("LaplaceP", site_name, device)
+        super().__init__("LaplacePrior", site_name, device)
         self.scale = self._const(scale)
 
     def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
@@ -299,7 +301,7 @@ class HorseshoePrior(PriorDist):
         ValueError
             If both `tau_scale` and `tau_delta` are specified
         """
-        super().__init__("HorseshoeP", site_name, device)
+        super().__init__("HorseshoePrior", site_name, device)
 
         self.tau_site_name = self.site_name + "_tau"
         self.thetas_site_name = self.site_name + "_thetas"
@@ -397,7 +399,7 @@ class SpikeAndSlabPrior(PriorDist):
             Whether to sparsify whole components (factors),
             by default True
         """
-        super().__init__("SpikeAndSlabP", site_name, device)
+        super().__init__("SpikeAndSlabPrior", site_name, device)
 
         self.thetas_site_name = self.site_name + "_thetas"
         self.alphas_site_name = self.site_name + "_alphas"

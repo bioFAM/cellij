@@ -6,6 +6,7 @@ import pyro.distributions as dist
 import torch
 from pyro.nn import PyroModule
 from torch.types import _device
+import pandas as pd
 
 from cellij.core._pyro_priors import PRIOR_MAP, PriorDist
 
@@ -22,6 +23,7 @@ class Generative(PyroModule):
         factor_priors: dict[str, str],
         weight_priors: dict[str, str],
         device: _device,
+        covariates: Optional[pd.DataFrame] = None,
     ):
         """Instantiate a generative model for the multi-group and multi-view FA.
 
@@ -51,6 +53,7 @@ class Generative(PyroModule):
         self.n_feature_groups = len(feature_dict)
         self.n_obs_groups = len(obs_dict)
         self.likelihoods = likelihoods
+        self.covariates = covariates
 
         self.device = device
         self.to(self.device)
@@ -86,6 +89,12 @@ class Generative(PyroModule):
             )
 
         prior = PRIOR_MAP[prior_config["name"]]
+        
+        # if the prior is a GaussianProcess, add n_factors and the covariates
+        if prior_config["name"] == "GaussianProcess":
+            prior_config["n_factors"] = self.n_factors
+            prior_config["covariates"] = self.covariates
+            
         prior_config.pop("name")
         return prior(site_name=site_name, device=self.device, **prior_config)
 
@@ -125,7 +134,7 @@ class Generative(PyroModule):
             with plates["factor"]:
                 factor_prior.sample_inter()
                 with plates[f"obs_{obs_group}"]:
-                    self.sample_dict[f"z_{obs_group}"] = factor_prior(covariate)
+                    self.sample_dict[f"z_{obs_group}"] = factor_prior(self.covariates)
 
         for feature_group, weight_prior in self.weight_priors.items():
             weight_prior.sample_global()
@@ -153,6 +162,9 @@ class Generative(PyroModule):
 
                     z = self.sample_dict[f"z_{obs_group}"].view(z_shape)
                     w = self.sample_dict[f"w_{feature_group}"].view(w_shape)
+
+                    print("z", z.dtype)
+                    print("w", w.dtype)
 
                     loc = torch.einsum("...ikj,...ikj->...ij", z, w).view(obs_shape)
 

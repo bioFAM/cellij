@@ -2,14 +2,15 @@ import gpytorch
 import torch
 
 
-class PseudotimeGP(gpytorch.models.ApproximateGP):
+class DenseGP(gpytorch.models.ApproximateGP):
     def __init__(
         self,
-        inducing_points: torch.Tensor,
+        covariates: torch.Tensor,
         n_factors: int,
         init_lengthscale=5.0,
     ) -> None:
-        n_inducing = len(inducing_points)
+        print(covariates.dtype)
+        n_inducing = len(covariates)
 
         variational_distribution = gpytorch.variational.CholeskyVariationalDistribution(
             num_inducing_points=n_inducing,
@@ -18,7 +19,7 @@ class PseudotimeGP(gpytorch.models.ApproximateGP):
 
         variational_strategy = gpytorch.variational.VariationalStrategy(
             model=self,
-            inducing_points=inducing_points,
+            inducing_points=covariates,
             variational_distribution=variational_distribution,
             learn_inducing_locations=False,
         )
