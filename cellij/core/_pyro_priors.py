@@ -503,5 +503,5 @@ PRIOR_MAP = {
     "Laplace": LaplacePrior,
     "Nonnegative": NonnegativePrior,
     "Horseshoe": HorseshoePrior,
-    "SpikeAndAlab": SpikeAndSlabPrior,
+    "SpikeAndSlab": SpikeAndSlabPrior,
 }
