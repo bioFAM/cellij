@@ -359,7 +359,7 @@ class FactorModel(PyroModule):
         if isinstance(weight_priors, str):
             weight_priors = {group: weight_priors for group in self.feature_groups}
         elif isinstance(weight_priors, dict) and not all(
-            prior_group in self.obs_groups for prior_group in weight_priors
+            prior_group in self.feature_groups for prior_group in weight_priors
         ):
             raise ValueError(
                 "When manually specifiyng 'weight_priors', all groups must be assigned a prior.\n"
@@ -372,8 +372,7 @@ class FactorModel(PyroModule):
 
         for name, prior in weight_priors.items():
             if isinstance(prior, str):
-                # Replace likelihood string with common synonyms used in Pyro
-                prior = prior.title()
+                # prior = prior.lower()
                 if prior == "Gaussian":
                     prior = "Normal"
 
@@ -638,7 +637,7 @@ class FactorModel(PyroModule):
         param: str = "locs",
         views: Optional[Union[str, list[str]]] = "all",
         groups: Optional[Union[str, list[str]]] = "all",
-        measure: str = "median",
+        moment: str = "median",
         format: str = "numpy",
     ) -> np.ndarray:
         """Pull a parameter from the pyro parameter storage.
@@ -647,7 +646,7 @@ class FactorModel(PyroModule):
         ----------
         name : str
             The name of the parameter to be pulled.
-        measure : str
+        moment : str
             The moment statistic to be pulled.
         format : str
             The format in which the parameter should be returned.
@@ -705,6 +704,7 @@ class FactorModel(PyroModule):
                     raise ValueError(
                         f"Parameter 'views' must be in {list(self.data._names)}."
                     )
+                views = [views]
             elif isinstance(views, list) and not all(
                 [view in self.data._names for view in views]
             ):
@@ -713,21 +713,35 @@ class FactorModel(PyroModule):
                 )
 
             for view in views:
-                if measure == "median":
-                    results[view] = (
-                        self._guide[0].weight_q_dists[view].median().squeeze()
-                    )
-                elif measure == "mean":
-                    results[view] = self._guide[0].weight_q_dists[view].mean().squeeze()
-                elif measure == "mode":
-                    results[view] = self._guide[0].weight_q_dists[view].mode().squeeze()
+                q_dist = self._guide[0].weight_q_dists[view]
+                if moment == "median":
+                    results[view] = q_dist.median().squeeze()
+                elif moment == "mean":
+                    results[view] = q_dist.mean().squeeze()
+                elif moment == "mode":
+                    results[view] = q_dist.mode().squeeze()
                 else:
                     raise NotImplementedError(
-                        "Parameter 'measure' must be in ['median', 'mean', 'mode']."
+                        "Parameter 'moment' must be in ['median', 'mean', 'mode']."
                     )
 
         elif name == "factors":
-            raise NotImplementedError()
+            if moment == "median":
+                results["all_observations"] = (
+                    self._guide[0].factor_q_dists["all_observations"].median().squeeze()
+                )
+            elif moment == "mean":
+                results["all_observations"] = (
+                    self._guide[0].factor_q_dists["all_observations"].mean().squeeze()
+                )
+            elif moment == "mode":
+                results["all_observations"] = (
+                    self._guide[0].factor_q_dists["all_observations"].mode().squeeze()
+                )
+            else:
+                raise NotImplementedError(
+                    "Parameter 'moment' must be in ['median', 'mean', 'mode']."
+                )
 
         elif name == "residuals":
             raise NotImplementedError()
@@ -747,45 +761,64 @@ class FactorModel(PyroModule):
     def get_weights(
         self,
         views: Union[str, list[str]] = "all",
-        measure: str = "median",
+        moment: str = "median",
         format: str = "numpy",
     ):
+        """Return a dictionary of the weight estimates for each requested view.
+
+        Parameters
+        ----------
+        views : Union[str, list[str]], default = "all"
+            The views for which the weights should be returned.
+        moment : str, default = "median"
+            The moment statistic to be returned.
+        format : str, default = "numpy"
+            The format in which the weights should be returned.
+            Options are: "numpy", "torch".
+
+        Returns
+        -------
+        weights : dict
+            The weights for each requested view.
+        """
         return self._get_from_param_storage(
             name="weights",
             param="locs",
             views=views,
             groups=None,
-            measure=measure,
+            moment=moment,
             format=format,
         )
 
     def get_factors(
         self,
         groups: Union[str, list[str]] = "all",
-        measure: str = "median",
+        moment: str = "median",
         format: str = "numpy",
     ):
+        """Return a dictionary of the factor estimates for each requested group.
+
+        Parameters
+        ----------
+        groups : Union[str, list[str]], default = "all"
+            The groups for which the weights should be returned.
+        moment : str, default = "median"
+            The moment statistic to be returned.
+        format : str, default = "numpy"
+            The format in which the weights should be returned.
+            Options are: "numpy", "torch".
+
+        Returns
+        -------
+        weights : dict
+            The weights for each requested view.
+        """
         return self._get_from_param_storage(
             name="factors",
             param="locs",
             views=None,
             groups=groups,
-            measure=measure,
-            format=format,
-        )
-
-    def get_residuals(
-        self,
-        views: Union[str, list[str]] = "all",
-        measure: str = "median",
-        format: str = "numpy",
-    ):
-        return self._get_from_param_storage(
-            name="residuals",
-            param="locs",
-            views=views,
-            groups=None,
-            measure=measure,
+            moment=moment,
             format=format,
         )
 

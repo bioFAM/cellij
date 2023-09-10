@@ -10,6 +10,7 @@ from sklearn.impute import KNNImputer
 
 from cellij._logging import logger
 
+
 class EarlyStopper:
     """Class to manage early stopping of model training.
 
