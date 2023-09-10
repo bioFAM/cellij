@@ -84,6 +84,7 @@ class PriorDist(PyroModule):
         site_name: str,
         dist: dist.Distribution,
         dist_kwargs: dict[str, torch.Tensor],
+        constraint_fun: Optional[callable] = None,
         **kwargs: dict[str, Any],
     ) -> torch.Tensor:
         """Sample from a distribution.
@@ -105,6 +106,8 @@ class PriorDist(PyroModule):
         self.sample_dict[site_name] = pyro.sample(
             site_name, dist(**dist_kwargs), **kwargs
         )
+        if constraint_fun:
+            self.sample_dict[site_name] = constraint_fun(self.sample_dict[site_name])
         return self.sample_dict[site_name]
 
     def _deterministic(
@@ -253,6 +256,38 @@ class LaplacePrior(PriorDist):
             self.site_name,
             dist.SoftLaplace,
             dist_kwargs={"loc": self._zeros((1,)), "scale": self.scale},
+        )
+
+
+class NonnegativePrior(PriorDist):
+    def __init__(
+        self,
+        site_name: str,
+        device: _device,
+        pos_fun: callable = torch.nn.Softplus(),
+        **kwargs: dict[str, Any],
+    ):
+        """Instantiate a Non-Negativty prior.
+
+        Parameters
+        ----------
+        site_name : str
+            Site name for the pyro.sample statement
+        device : _device
+            Torch device
+        pos_fun: callable, optional
+            Function to apply to the sampled values to enforce positive values,
+            by default torch.nn.Softplus
+        """
+        super().__init__("NonnegativeP", site_name, device)
+        self.pos_fun = pos_fun
+
+    def forward(self, *args: Any, **kwargs: dict[str, Any]) -> Optional[torch.Tensor]:
+        return self._sample(
+            self.site_name,
+            dist.Normal,
+            dist_kwargs={"loc": self._zeros((1,)), "scale": self._ones((1,))},
+            constraint_fun=self.pos_fun,
         )
 
 
@@ -466,6 +501,7 @@ PRIOR_MAP = {
     "Normal": NormalPrior,
     "GaussianProcess": GaussianProcessPrior,
     "Laplace": LaplacePrior,
+    "Nonnegative": NonnegativePrior,
     "Horseshoe": HorseshoePrior,
-    "SpikeAndSlab": SpikeAndSlabPrior,
+    "SpikeAndAlab": SpikeAndSlabPrior,
 }

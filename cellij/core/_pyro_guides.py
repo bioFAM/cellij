@@ -262,6 +262,26 @@ class LaplaceQ(QDist):
         return self._sample_normal(self.prior.site_name)
 
 
+class NonnegativeQ(QDist):
+    def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("NonnegativeQ", prior, init_loc, init_scale)
+
+    def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
+        return self._sample_log_normal(self.prior.site_name)
+    
+    @torch.no_grad()
+    def mean(self) -> torch.Tensor:
+        return self._mean_log_normal(self.prior.site_name)
+
+    @torch.no_grad()
+    def median(self) -> torch.Tensor:
+        return self._median_log_normal(self.prior.site_name)
+
+    @torch.no_grad()
+    def mode(self) -> torch.Tensor:
+        return self._mode_log_normal(self.prior.site_name)
+
+
 class HorseshoeQ(QDist):
     def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
         super().__init__("HorseshoeQ", prior, init_loc, init_scale)
@@ -371,6 +391,7 @@ class Guide(PyroModule):
                 "NormalP": NormalQ,
                 "GaussianProcessQ": GaussianProcessQ,
                 "LaplaceP": LaplaceQ,
+                "NonnegativeP": NonnegativeQ,
                 "HorseshoeP": HorseshoeQ,
                 "SpikeAndSlabP": SpikeAndSlabQ,
             }[prior._pyro_name](prior=prior)
