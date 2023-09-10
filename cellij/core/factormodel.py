@@ -106,7 +106,6 @@ class FactorModel(PyroModule):
         # Save kwargs for later
         self._kwargs = kwargs
 
-
     @property
     def n_factors(self):
         return self._n_factors
@@ -162,15 +161,15 @@ class FactorModel(PyroModule):
             "Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` "
             "to modify this property."
         )
-        
+
     @property
     def model(self):
         return self._model[0]
-    
+
     @property
     def guide(self):
         return self._guide[0]
-        
+
     @property
     def obs_groups(self):
         try:
@@ -639,18 +638,17 @@ class FactorModel(PyroModule):
         param: str = "locs",
         views: Optional[Union[str, list[str]]] = "all",
         groups: Optional[Union[str, list[str]]] = "all",
+        measure: str = "median",
         format: str = "numpy",
     ) -> np.ndarray:
         """Pull a parameter from the pyro parameter storage.
-
-        TODO: Get all parameters, but in a dict.
-        TODO: Add full support for group selection.
-        TODO: Add torch.FloatTensor return type hint
 
         Parameters
         ----------
         name : str
             The name of the parameter to be pulled.
+        measure : str
+            The moment statistic to be pulled.
         format : str
             The format in which the parameter should be returned.
             Options are: "numpy", "torch".
@@ -697,9 +695,9 @@ class FactorModel(PyroModule):
         if format not in ["numpy", "torch"]:
             raise ValueError("Parameter 'format' must be in ['numpy', 'torch'].")
 
-        if views is not None:
-            result = {}
+        results = {}
 
+        if name == "weights":
             if views == "all":
                 views = self.data._names
             elif isinstance(views, str):
@@ -715,37 +713,80 @@ class FactorModel(PyroModule):
                 )
 
             for view in views:
-                key = "FactorModel._guide." + param + "." + name
-                if name == "w":
-                    key += "_" + view
-
-                if key not in list(pyro.get_param_store().keys()):
-                    raise ValueError(
-                        f"Parameter '{key}' not found in parameter storage. "
-                        f"Available choices are: {', '.join(list(pyro.get_param_store().keys()))}"
+                if measure == "median":
+                    results[view] = (
+                        self._guide[0].weight_q_dists[view].median().squeeze()
+                    )
+                elif measure == "mean":
+                    results[view] = self._guide[0].weight_q_dists[view].mean().squeeze()
+                elif measure == "mode":
+                    results[view] = self._guide[0].weight_q_dists[view].mode().squeeze()
+                else:
+                    raise NotImplementedError(
+                        "Parameter 'measure' must be in ['median', 'mean', 'mode']."
                     )
 
-                data = pyro.get_param_store()[key]
+        elif name == "factors":
+            raise NotImplementedError()
 
-                result[view] = data.squeeze()
+        elif name == "residuals":
+            raise NotImplementedError()
+
+        else:
+            raise NotImplementedError()
 
         if format == "numpy":
-            for k, v in result.items():
+            for k, v in results.items():
                 if v.is_cuda:
                     v = v.cpu()
                 if isinstance(v, torch.Tensor):
-                    result[k] = v.detach().numpy()
+                    results[k] = v.detach().numpy()
 
-        return result
+        return results
 
-    def get_weights(self, views: Union[str, list[str]] = "all", format: str = "numpy"):
+    def get_weights(
+        self,
+        views: Union[str, list[str]] = "all",
+        measure: str = "median",
+        format: str = "numpy",
+    ):
         return self._get_from_param_storage(
-            name="w", param="locs", views=views, groups=None, format=format
+            name="weights",
+            param="locs",
+            views=views,
+            groups=None,
+            measure=measure,
+            format=format,
         )
 
-    def get_factors(self, groups: Union[str, list[str]] = "all", format: str = "numpy"):
+    def get_factors(
+        self,
+        groups: Union[str, list[str]] = "all",
+        measure: str = "median",
+        format: str = "numpy",
+    ):
         return self._get_from_param_storage(
-            name="z", param="locs", views=None, groups=groups, format=format
+            name="factors",
+            param="locs",
+            views=None,
+            groups=groups,
+            measure=measure,
+            format=format,
+        )
+
+    def get_residuals(
+        self,
+        views: Union[str, list[str]] = "all",
+        measure: str = "median",
+        format: str = "numpy",
+    ):
+        return self._get_from_param_storage(
+            name="residuals",
+            param="locs",
+            views=views,
+            groups=None,
+            measure=measure,
+            format=format,
         )
 
     def fit(
@@ -785,7 +826,7 @@ class FactorModel(PyroModule):
         guide = Guide(model)
         model = (model,)
         guide = (guide,)
-        
+
         self._model = model
         self._guide = guide
 
