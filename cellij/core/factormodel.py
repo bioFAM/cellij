@@ -320,13 +320,12 @@ class FactorModel(PyroModule):
                         f"Could not find valid Pyro distribution for {distribution}."
                     ) from e
 
+        groups = self.obs_groups if groups is None else groups
+
         if factor_priors is None:
-            factor_priors = "Normal"
-
-            # {f"group_{name}": len(obs_names) for name, obs_names in self.obs_groups.items()}
-
-        if isinstance(factor_priors, str):
-            factor_priors = {view: factor_priors for view in self.obs_groups}
+            factor_priors = {group: "Normal" for group in groups}
+        elif isinstance(factor_priors, str):
+            factor_priors = {view: factor_priors for view in groups}
         elif isinstance(factor_priors, dict) and not all(
             key in self._data._names for key in factor_priors
         ):
@@ -382,8 +381,6 @@ class FactorModel(PyroModule):
                     raise AttributeError(
                         f"Could not find valid prior for '{prior}'."
                     ) from e
-
-        groups = self.obs_groups if groups is None else groups
 
         options = {
             "likelihoods": likelihoods,
@@ -726,22 +723,36 @@ class FactorModel(PyroModule):
                     )
 
         elif name == "factors":
-            if moment == "median":
-                results["all_observations"] = (
-                    self._guide[0].factor_q_dists["all_observations"].median().squeeze()
+            if groups == "all":
+                groups = list(self._model_options["groups"].keys())
+            elif isinstance(groups, str):
+                if groups not in list(self._model_options["groups"].keys()):
+                    raise ValueError(
+                        f"Parameter 'views' must be in {list(self._model_options['groups'].keys())}."
+                    )
+                groups = [groups]
+            elif isinstance(groups, list) and not all(
+                [
+                    group in list(self._model_options["groups"].keys())
+                    for group in groups
+                ]
+            ):
+                raise ValueError(
+                    f"All elements in 'views' must be in {list(list(self._model_options['groups'].keys()))}."
                 )
-            elif moment == "mean":
-                results["all_observations"] = (
-                    self._guide[0].factor_q_dists["all_observations"].mean().squeeze()
-                )
-            elif moment == "mode":
-                results["all_observations"] = (
-                    self._guide[0].factor_q_dists["all_observations"].mode().squeeze()
-                )
-            else:
-                raise NotImplementedError(
-                    "Parameter 'moment' must be in ['median', 'mean', 'mode']."
-                )
+
+            for group in groups:
+                q_dist = self._guide[0].factor_q_dists[group]
+                if moment == "median":
+                    results[group] = q_dist.median().squeeze()
+                elif moment == "mean":
+                    results[group] = q_dist.mean().squeeze()
+                elif moment == "mode":
+                    results[group] = q_dist.mode().squeeze()
+                else:
+                    raise NotImplementedError(
+                        "Parameter 'moment' must be in ['median', 'mean', 'mode']."
+                    )
 
         elif name == "residuals":
             raise NotImplementedError()
