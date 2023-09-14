@@ -75,10 +75,9 @@ See the [changelog][changelog].
 If you found a bug, please use the [issue tracker][issue-tracker].
 
 ## Citation
-
 If you use Cellij, please consider citing:
 ```
-@proceedings{bingham2019pyro,
+@proceedings{rohbeckcellij,
   author    = {Rohbeck, Martin and Qoku, Arber and Treis, Tim and Theis, Fabian J and Velten, Britta and Buettner, Florian and Stegle, Oliver},
   title     = {Cellij: A Modular Factor Model Framework for Interpretable and Accelerated Multi-Omics Data Integration},
   series    = {ICML Workshop on Computational Biology},
