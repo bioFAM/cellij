@@ -327,15 +327,15 @@ class FactorModel(PyroModule):
         elif isinstance(factor_priors, str):
             factor_priors = {view: factor_priors for view in groups}
         elif isinstance(factor_priors, dict) and not all(
-            key in self._data._names for key in factor_priors
+            key in groups for key in factor_priors
         ):
             raise ValueError(
-                "When manually specifiyng 'factor_priors', all views must be assigned a prior.\n"
+                "When manually specifying 'factor_priors', all views must be assigned a prior.\n"
                 + "  - Actual: "
                 + ", ".join(factor_priors.keys())
                 + "\n"
                 + "  - Expected: "
-                + ", ".join(self._data._names)
+                + ", ".join(groups)
             )
 
         for name, prior in factor_priors.items():
@@ -361,12 +361,12 @@ class FactorModel(PyroModule):
             prior_group in self.feature_groups for prior_group in weight_priors
         ):
             raise ValueError(
-                "When manually specifiyng 'weight_priors', all groups must be assigned a prior.\n"
+                "When manually specifying 'weight_priors', all groups must be assigned a prior.\n"
                 + "  - Actual: "
                 + ", ".join(weight_priors.keys())
                 + "\n"
                 + "  - Expected: "
-                + ", ".join(self.obs_groups)
+                + ", ".join(self.feature_groups)
             )
 
         for name, prior in weight_priors.items():
