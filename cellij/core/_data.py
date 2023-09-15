@@ -142,8 +142,12 @@ class DataContainer:
         self._merged_feature_names = merged_feature_names
 
         for name in self._names:
-            feature_group_obs_names = self._feature_groups[name].obs_names.to_list()
-            feature_group_feature_names = self._feature_groups[name].var_names.to_list()
+            feature_group_obs_names = set(
+                self._feature_groups[name].obs_names.to_list()
+            )
+            feature_group_feature_names = set(
+                self._feature_groups[name].var_names.to_list()
+            )
 
             self._obs_idx[name] = [
                 i
