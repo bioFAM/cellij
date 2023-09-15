@@ -36,7 +36,7 @@ model.set_model_options(
 # 4. We train the model
 model.fit(epochs=10000)
 ```
-For basic tutorials on real-world data, please have a look at [our notebook repository]([https://github.com/bioFAM/cellij/blob/main/notebooks/basic_example_mofa.ipynb](https://github.com/bioFAM/cellij-notebooks/tree/main)).
+For basic tutorials on real-world data, please have a look at [our notebook repository](https://github.com/bioFAM/cellij-notebooks).
 
 
 ## Getting started
