@@ -70,9 +70,15 @@ pip install git+https://github.com/bioFAM/cellij.git@main
 
 See the [changelog][changelog].
 
-## Contact
+## Contributing
 
-If you found a bug, please use the [issue tracker][issue-tracker].
+We appreciate all contributions. If you found a bug, feel free to contribute back without any further discussion.
+
+If you intend to introduce novel features, utility functions, or extensions to the core, we kindly request that you initiate a discussion by opening an issue. Prior dialogue allows us to align the proposed changes with our current development direction. Submitting a pull request without prior discussion could potentially lead to rejection, as it may not align with the core's intended direction, which you may not be aware of.
+
+## License
+
+Cellij has a BSD-style license, as found in the [LICENSE](https://github.com/bioFAM/cellij/blob/main/LICENSE) file.
 
 ## Citation
 If you use Cellij, please consider citing:
