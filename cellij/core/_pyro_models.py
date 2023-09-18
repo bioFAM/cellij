@@ -177,7 +177,7 @@ class Generative(PyroModule):
                             obs = torch.nan_to_num(obs, nan=0.5)
 
                         if self.likelihoods[feature_group] == "Normal":
-                            dist_parametrized = dist.Normal(loc, scale)
+                            dist_parametrized = dist.Normal(loc, scale + 1e-6)  # FIXME: Only a HOTFIX
                         elif self.likelihoods[feature_group] == "Bernoulli":
                             dist_parametrized = dist.ContinuousBernoulli(logits=loc)
                         elif self.likelihoods[feature_group] == "Gamma":
