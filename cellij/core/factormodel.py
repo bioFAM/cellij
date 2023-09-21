@@ -371,7 +371,6 @@ class FactorModel(PyroModule):
 
         for name, prior in weight_priors.items():
             if isinstance(prior, str):
-                # prior = prior.lower()
                 if prior == "Gaussian":
                     prior = "Normal"
 
@@ -917,10 +916,9 @@ class FactorModel(PyroModule):
         )
 
         # get indicies for each view and group and subset merged data with them
-        obs_idx = {
-            group_name: [self._data._merged_obs_names.index(obs) for obs in obs_list]
-            for group_name, obs_list in self.obs_groups.items()
-        }
+        obs_idx = {}
+        for group_name, obs_list in self.obs_groups.items():
+            obs_idx[group_name] = [self._data._merged_obs_names.index(obs) for obs in obs_list]
         feature_idx = {
             view_name: [
                 self._data._merged_feature_names.index(feature)

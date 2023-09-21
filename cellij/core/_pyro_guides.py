@@ -267,19 +267,8 @@ class NonnegativeQ(QDist):
         super().__init__("NonnegativeQ", prior, init_loc, init_scale)
 
     def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
-        return self._sample_log_normal(self.prior.site_name)
-    
-    @torch.no_grad()
-    def mean(self) -> torch.Tensor:
-        return self._mean_log_normal(self.prior.site_name)
-
-    @torch.no_grad()
-    def median(self) -> torch.Tensor:
-        return self._median_log_normal(self.prior.site_name)
-
-    @torch.no_grad()
-    def mode(self) -> torch.Tensor:
-        return self._mode_log_normal(self.prior.site_name)
+        # Idea: Sample from normal, and make positive afterwards
+        return self._sample_normal(self.prior.site_name)
 
 
 class HorseshoeQ(QDist):

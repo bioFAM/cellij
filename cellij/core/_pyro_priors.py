@@ -264,7 +264,7 @@ class NonnegativePrior(PriorDist):
         self,
         site_name: str,
         device: _device,
-        pos_fun: callable = torch.nn.Softplus(),
+        pos_fun: callable = torch.nn.Softplus(),  # FIXME: Add beta, e.g., 20 or RELU
         **kwargs: dict[str, Any],
     ):
         """Instantiate a Non-Negativty prior.
