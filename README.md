@@ -14,25 +14,29 @@ Cellij (pronounced as "zillīj", derived from [Zellij](https://en.wikipedia.org/
     <img src="https://github.com/bioFAM/cellij/blob/main/docs/_static/figure1_black.png" alt="schematic" width="750"/>
 </p>
 
-Cellij is designed for rapid prototyping of custom factor analysis models, allowing users to efficiently define new models in an iterative fashion.
+Cellij is designed for rapid prototyping of custom factor analysis models, allowing users to efficiently define new models in an iterative fashion. The following code snippet shows an example how to setup and train a model with a predefined sparsity prior.
 ```python
-# First we create an instance of a MOFA class
-model = cellij.core.models.MOFA(n_factors=30, sparsity_prior="Horseshoe")
+mdata = cellij.Importer().load_CLL()
 
-# Afterwards, we need to add the data to the model
-model.add_data(data=mdata)
+# 1. We create a new Factor Analysis model
+model = cellij.FactorModel(n_factors=10)
 
-# We call `.fit` to train the model
-model.fit(
-    likelihoods={
-        "mrna": "Normal",
-        "mutations": "Bernoulli",
+# 2. We add an MuData object to the model
+model.add_data(mdata)
+
+# 3. We can add some options if we wish
+model.set_model_options(
+    weight_priors={
+        "drugs": "Horseshoe",
+        "methylation": "Horseshoe",
+        "mrna": "Horseshoe",
     },
-    epochs=1000,
-    learning_rate=0.001,
 )
+
+# 4. We train the model
+model.fit(epochs=10000)
 ```
-For a basic tutorial on real-world data, have a look at [this notebook](https://github.com/bioFAM/cellij/blob/main/notebooks/basic_example_mofa.ipynb).
+For basic tutorials on real-world data, please have a look at [our notebook repository](https://github.com/bioFAM/cellij-notebooks).
 
 
 ## Getting started
@@ -66,15 +70,20 @@ pip install git+https://github.com/bioFAM/cellij.git@main
 
 See the [changelog][changelog].
 
-## Contact
+## Contributing
 
-If you found a bug, please use the [issue tracker][issue-tracker].
+We appreciate all contributions. If you found a bug, feel free to contribute back without any further discussion.
+
+If you intend to introduce novel features, utility functions, or extensions to the core, we kindly request that you initiate a discussion by opening an issue. Prior dialogue allows us to align the proposed changes with our current development direction. Submitting a pull request without prior discussion could potentially lead to rejection, as it may not align with the core's intended direction, which you may not be aware of.
+
+## License
+
+Cellij has a BSD-style license, as found in the [LICENSE](https://github.com/bioFAM/cellij/blob/main/LICENSE) file.
 
 ## Citation
-
 If you use Cellij, please consider citing:
 ```
-@proceedings{bingham2019pyro,
+@proceedings{rohbeckcellij,
   author    = {Rohbeck, Martin and Qoku, Arber and Treis, Tim and Theis, Fabian J and Velten, Britta and Buettner, Florian and Stegle, Oliver},
   title     = {Cellij: A Modular Factor Model Framework for Interpretable and Accelerated Multi-Omics Data Integration},
   series    = {ICML Workshop on Computational Biology},

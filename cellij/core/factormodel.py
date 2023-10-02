@@ -211,15 +211,15 @@ class FactorModel(PyroModule):
             "Use `add_feature_group()`, `set_feature_group` or `remove_feature_group()` "
             "to modify this property."
         )
-        
+
     @property
     def model(self):
         return self._model[0]
-    
+
     @property
     def guide(self):
         return self._guide[0]
-        
+
     @property
     def obs_groups(self):
         try:
@@ -372,23 +372,22 @@ class FactorModel(PyroModule):
                         f"Could not find valid Pyro distribution for {distribution}."
                     ) from e
 
+        groups = self.obs_groups if groups is None else groups
+
         if factor_priors is None:
-            factor_priors = "Normal"
-
-            # {f"group_{name}": len(obs_names) for name, obs_names in self.obs_groups.items()}
-
-        if isinstance(factor_priors, str):
-            factor_priors = {view: factor_priors for view in self.obs_groups}
+            factor_priors = {group: "Normal" for group in groups}
+        elif isinstance(factor_priors, str):
+            factor_priors = {view: factor_priors for view in groups}
         elif isinstance(factor_priors, dict) and not all(
-            key in self._data._names for key in factor_priors
+            key in groups for key in factor_priors
         ):
             raise ValueError(
-                "When manually specifiyng 'factor_priors', all views must be assigned a prior.\n"
+                "When manually specifying 'factor_priors', all views must be assigned a prior.\n"
                 + "  - Actual: "
                 + ", ".join(factor_priors.keys())
                 + "\n"
                 + "  - Expected: "
-                + ", ".join(self._data._names)
+                + ", ".join(groups)
             )
 
         for name, prior in factor_priors.items():
@@ -411,21 +410,20 @@ class FactorModel(PyroModule):
         if isinstance(weight_priors, str):
             weight_priors = {group: weight_priors for group in self.feature_groups}
         elif isinstance(weight_priors, dict) and not all(
-            prior_group in self.obs_groups for prior_group in weight_priors
+            prior_group in self.feature_groups for prior_group in weight_priors
         ):
             raise ValueError(
-                "When manually specifiyng 'weight_priors', all groups must be assigned a prior.\n"
+                "When manually specifying 'weight_priors', all groups must be assigned a prior.\n"
                 + "  - Actual: "
                 + ", ".join(weight_priors.keys())
                 + "\n"
                 + "  - Expected: "
-                + ", ".join(self.obs_groups)
+                + ", ".join(self.feature_groups)
             )
 
         for name, prior in weight_priors.items():
             if isinstance(prior, str):
-                # Replace likelihood string with common synonyms used in Pyro
-                prior = prior.title()
+                # prior = prior.lower()
                 if prior == "Gaussian":
                     prior = "Normal"
 
@@ -707,18 +705,17 @@ class FactorModel(PyroModule):
         param: str = "locs",
         views: Optional[Union[str, list[str]]] = "all",
         groups: Optional[Union[str, list[str]]] = "all",
+        moment: str = "median",
         format: str = "numpy",
     ) -> np.ndarray:
         """Pull a parameter from the pyro parameter storage.
-
-        TODO: Get all parameters, but in a dict.
-        TODO: Add full support for group selection.
-        TODO: Add torch.FloatTensor return type hint
 
         Parameters
         ----------
         name : str
             The name of the parameter to be pulled.
+        moment : str
+            The moment statistic to be pulled.
         format : str
             The format in which the parameter should be returned.
             Options are: "numpy", "torch".
@@ -765,9 +762,9 @@ class FactorModel(PyroModule):
         if format not in ["numpy", "torch"]:
             raise ValueError("Parameter 'format' must be in ['numpy', 'torch'].")
 
-        if views is not None:
-            result = {}
+        results = {}
 
+        if name == "weights":
             if views == "all":
                 views = self.data._names
             elif isinstance(views, str):
@@ -775,6 +772,7 @@ class FactorModel(PyroModule):
                     raise ValueError(
                         f"Parameter 'views' must be in {list(self.data._names)}."
                     )
+                views = [views]
             elif isinstance(views, list) and not all(
                 [view in self.data._names for view in views]
             ):
@@ -783,37 +781,127 @@ class FactorModel(PyroModule):
                 )
 
             for view in views:
-                key = "FactorModel._guide." + param + "." + name
-                if name == "w":
-                    key += "_" + view
-
-                if key not in list(pyro.get_param_store().keys()):
-                    raise ValueError(
-                        f"Parameter '{key}' not found in parameter storage. "
-                        f"Available choices are: {', '.join(list(pyro.get_param_store().keys()))}"
+                q_dist = self._guide[0].weight_q_dists[view]
+                if moment == "median":
+                    results[view] = q_dist.median().squeeze()
+                elif moment == "mean":
+                    results[view] = q_dist.mean().squeeze()
+                elif moment == "mode":
+                    results[view] = q_dist.mode().squeeze()
+                else:
+                    raise NotImplementedError(
+                        "Parameter 'moment' must be in ['median', 'mean', 'mode']."
                     )
 
-                data = pyro.get_param_store()[key]
+        elif name == "factors":
+            if groups == "all":
+                groups = list(self._model_options["groups"].keys())
+            elif isinstance(groups, str):
+                if groups not in list(self._model_options["groups"].keys()):
+                    raise ValueError(
+                        f"Parameter 'views' must be in {list(self._model_options['groups'].keys())}."
+                    )
+                groups = [groups]
+            elif isinstance(groups, list) and not all(
+                [
+                    group in list(self._model_options["groups"].keys())
+                    for group in groups
+                ]
+            ):
+                raise ValueError(
+                    f"All elements in 'views' must be in {list(list(self._model_options['groups'].keys()))}."
+                )
 
-                result[view] = data.squeeze()
+            for group in groups:
+                q_dist = self._guide[0].factor_q_dists[group]
+                if moment == "median":
+                    results[group] = q_dist.median().squeeze()
+                elif moment == "mean":
+                    results[group] = q_dist.mean().squeeze()
+                elif moment == "mode":
+                    results[group] = q_dist.mode().squeeze()
+                else:
+                    raise NotImplementedError(
+                        "Parameter 'moment' must be in ['median', 'mean', 'mode']."
+                    )
+
+        elif name == "residuals":
+            raise NotImplementedError()
+
+        else:
+            raise NotImplementedError()
 
         if format == "numpy":
-            for k, v in result.items():
+            for k, v in results.items():
                 if v.is_cuda:
                     v = v.cpu()
                 if isinstance(v, torch.Tensor):
-                    result[k] = v.detach().numpy()
+                    results[k] = v.detach().numpy()
 
-        return result
+        return results
 
-    def get_weights(self, views: Union[str, list[str]] = "all", format: str = "numpy"):
+    def get_weights(
+        self,
+        views: Union[str, list[str]] = "all",
+        moment: str = "median",
+        format: str = "numpy",
+    ):
+        """Return a dictionary of the weight estimates for each requested view.
+
+        Parameters
+        ----------
+        views : Union[str, list[str]], default = "all"
+            The views for which the weights should be returned.
+        moment : str, default = "median"
+            The moment statistic to be returned.
+        format : str, default = "numpy"
+            The format in which the weights should be returned.
+            Options are: "numpy", "torch".
+
+        Returns
+        -------
+        weights : dict
+            The weights for each requested view.
+        """
         return self._get_from_param_storage(
-            name="w", param="locs", views=views, groups=None, format=format
+            name="weights",
+            param="locs",
+            views=views,
+            groups=None,
+            moment=moment,
+            format=format,
         )
 
-    def get_factors(self, groups: Union[str, list[str]] = "all", format: str = "numpy"):
+    def get_factors(
+        self,
+        groups: Union[str, list[str]] = "all",
+        moment: str = "median",
+        format: str = "numpy",
+    ):
+        """Return a dictionary of the factor estimates for each requested group.
+
+        Parameters
+        ----------
+        groups : Union[str, list[str]], default = "all"
+            The groups for which the weights should be returned.
+        moment : str, default = "median"
+            The moment statistic to be returned.
+        format : str, default = "numpy"
+            The format in which the weights should be returned.
+            Options are: "numpy", "torch".
+
+        Returns
+        -------
+        weights : dict
+            The weights for each requested view.
+        """
         return self._get_from_param_storage(
-            name="z", param="locs", views=None, groups=groups, format=format
+            name="factors",
+            param="locs",
+            views=None,
+            groups=groups,
+            moment=moment,
+            format=format,
         )
 
     def fit(
@@ -859,7 +947,7 @@ class FactorModel(PyroModule):
         guide = Guide(model)
         model = (model,)
         guide = (guide,)
-        
+
         self._model = model
         self._guide = guide
 

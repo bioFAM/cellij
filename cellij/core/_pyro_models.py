@@ -172,17 +172,34 @@ class Generative(PyroModule):
                         sigma_shape
                     )
 
+                    # Likelihoods are defined per view
+                    # - if Bernoulli, we treat them as logits, hence we don't apply a non-linearity
+                    if self.likelihoods[feature_group] == "Poisson":
+                        loc = torch.nn.Softplus()(loc)
+                    elif self.likelihoods[feature_group] == "Gamma":
+                        loc = torch.nn.Softplus()(loc) + 1e-6
+                        scale = torch.exp(scale)
+
                     site_name = f"x_{obs_group}_{feature_group}"
                     obs_mask = torch.ones_like(loc, dtype=torch.bool)
                     if obs is not None:
                         obs_mask = torch.logical_not(torch.isnan(obs))
                     with pyro.poutine.mask(mask=obs_mask):
                         if obs is not None:
-                            obs = torch.nan_to_num(obs, nan=0.0)
+                            obs = torch.nan_to_num(obs, nan=0.5)
+
+                        if self.likelihoods[feature_group] == "Normal":
+                            dist_parametrized = dist.Normal(loc, scale + 1e-6)  # FIXME: Only a HOTFIX
+                        elif self.likelihoods[feature_group] == "Bernoulli":
+                            dist_parametrized = dist.ContinuousBernoulli(logits=loc)
+                        elif self.likelihoods[feature_group] == "Gamma":
+                            dist_parametrized = dist.Gamma(loc, scale)
+                        elif self.likelihoods[feature_group] == "Poisson":
+                            dist_parametrized = dist.Poisson(loc)
 
                         self.sample_dict[site_name] = pyro.sample(
                             site_name,
-                            dist.Normal(loc, scale),
+                            dist_parametrized,
                             obs=obs,
                             infer={"is_auxiliary": True},
                         )
