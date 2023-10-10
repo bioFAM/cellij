@@ -38,6 +38,12 @@ model.fit(epochs=10000)
 ```
 For basic tutorials on real-world data, please have a look at [our notebook repository](https://github.com/bioFAM/cellij-notebooks).
 
+Cellij is a batteries included framework:
+- **Sparsity priors**: Cellij comes with a variety of sparsity priors that you can directly leverage to obtain interpretable results.
+- **Integration of Covariates**: Cellij can incorporate metadata, such as spatial or temporal dependencies between the samples to structure and align the latent space.
+- **Rapid Prototyping**: Cellij is designed for rapid prototyping of custom FA models, allowing (also inexperienced) users to efficiently define new models in an iterative fashion.
+- **Flexibility**: Through our interface, we provide a wide range of options to customize your factor analysis model at all levels.
+- **Missing values**: We do not expect you to impute missing elements in your data with (unreasonable) values, because we can simply ignore them during inference.
 
 ## Getting started
 
