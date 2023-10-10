@@ -14,6 +14,7 @@ import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
 from tqdm import trange
+import pandas as pd
 
 import cellij
 from cellij.core._data import DataContainer
@@ -105,6 +106,55 @@ class FactorModel(PyroModule):
 
         # Save kwargs for later
         self._kwargs = kwargs
+
+    def __repr__(self):
+
+        self._init_from_config(
+            data_options=self._data_options,
+            model_options=self._model_options,
+            training_options=self._training_options,
+        )
+
+        output = []
+        output.append(f"FactorModel(n_factors={self.n_factors})")
+
+        output.append("├─ data")
+        if len(self._data._names) == 0:
+            output.append("│  └─ no data added yet")
+        else:
+            for name, adata in self._data.feature_groups.items():
+                branch_char = "├" if name != list(self._data.feature_groups.keys())[-1] else "└"
+                output.append(f"│  {branch_char}─ {name}: {adata.n_obs} observations × {adata.n_vars} features")
+                output.append(f"│     ├ likelihood: {self._model_options['likelihoods'][name]}")
+                output.append(f"│     └ weight_prior: {self._model_options['weight_priors'][name]}")
+
+        output.append("├─ groups")        
+        if len(self._data._names) == 0:
+            output.append("│  └─ no data added yet")
+        else:
+            for name, obs in self.obs_groups.items():
+                branch_char = "├" if name != list(self.obs_groups.keys())[-1] else "└"
+                output.append(f"│  {branch_char}─ {name}: {len(obs)} observations")
+                output.append(f"│     └ factor_prior: {self._model_options['factor_priors'][name]}")
+
+        if self._model_options["covariates"] is not None:
+            output.append("├─ covariates")
+            
+            output.append(f"│  └─ {self._model_options['covariates'].shape[1]}D covariate with {self._model_options['covariates'].shape[0]} observations")
+
+        output.append("└─ config")
+
+        output.append(f"   ├─ data options")
+        for key, value in self._data_options.items():
+            branch_char = "├" if key != list(self._data_options.keys())[-1] else "└"
+            output.append(f"   │  {branch_char}─ {key}: {value}")
+
+        output.append(f"   └─ training options")
+        for key, value in self._training_options.items():
+            branch_char = "├" if key != list(self._training_options.keys())[-1] else "└"
+            output.append(f"      {branch_char}─ {key}: {value}")
+
+        return "\n".join(output)
 
     @property
     def n_factors(self):
@@ -290,6 +340,8 @@ class FactorModel(PyroModule):
         factor_priors: Optional[Union[str, dict[str, str]]] = None,
         weight_priors: Optional[Union[str, dict[str, str]]] = None,
         groups: Optional[dict[str, Iterable]] = None,
+        regress_out: Optional[pd.DataFrame] = None,
+        covariates: Optional[pd.DataFrame] = None,
         preview: bool = False,
     ) -> Optional[dict[str, Any]]:
         if isinstance(likelihoods, str):
@@ -382,10 +434,29 @@ class FactorModel(PyroModule):
                         f"Could not find valid prior for '{prior}'."
                     ) from e
 
+        groups = self.obs_groups if groups is None else groups
+        
+        #TODO: Implement logic for `regress_out`
+        
+        if covariates is not None:
+            if not isinstance(covariates, (pd.DataFrame, pd.Series)):
+                raise TypeError(
+                    f"Parameter 'covariates' must be pd.DataFrame, got '{type(covariates)}'."
+                )
+            
+            if (covariates.reset_index().duplicated()).any():
+                raise ValueError(
+                    f"Parameter 'covariates' contains duplicate columns."
+                )
+                
+            for group in factor_priors.keys():
+                factor_priors[group] = "GaussianProcess"
+
         options = {
             "likelihoods": likelihoods,
             "factor_priors": factor_priors,
             "weight_priors": weight_priors,
+            "covariates": covariates,
             "groups": groups,
         }
 
@@ -858,6 +929,11 @@ class FactorModel(PyroModule):
             f"{name}": len(var_names) for name, var_names in self.feature_groups.items()
         }
 
+        if self._model_options["covariates"] is not None:
+            covariates = torch.tensor(self._model_options["covariates"].values, dtype=self._dtype)
+        else:
+            covariates = None
+
         model = Generative(
             n_factors=self.n_factors,
             obs_dict=obs_dict,
@@ -865,6 +941,7 @@ class FactorModel(PyroModule):
             likelihoods=self._model_options["likelihoods"],
             factor_priors=self._model_options["factor_priors"],
             weight_priors=self._model_options["weight_priors"],
+            covariates=covariates,
             device=self.device,
         )
         guide = Guide(model)
@@ -952,11 +1029,11 @@ class FactorModel(PyroModule):
         ) as pbar:
             pbar.set_description("Training")
             for i in pbar:
-                loss = svi.step(data=data)
+                loss = svi.step(data=data, covariate=covariates)
                 self.train_loss_elbo.append(loss)
 
                 if self._training_options["early_stopping"] and earlystopper.step(loss):
-                    logger.warning(
+                    logger.info(
                         f"Early stopping of training due to convergence at step {i}"
                     )
                     break

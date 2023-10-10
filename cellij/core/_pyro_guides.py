@@ -387,13 +387,12 @@ class Guide(PyroModule):
         for group, prior in priors.items():
             # Replace strings with actual Q distributions
             _q_dists[group] = {
-                "InverseGammaP": InverseGammaQ,
-                "NormalP": NormalQ,
-                "GaussianProcessQ": GaussianProcessQ,
-                "LaplaceP": LaplaceQ,
-                "NonnegativeP": NonnegativeQ,
-                "HorseshoeP": HorseshoeQ,
-                "SpikeAndSlabP": SpikeAndSlabQ,
+                "InverseGammaPrior": InverseGammaQ,
+                "NormalPrior": NormalQ,
+                "GaussianProcessPrior": GaussianProcessQ,
+                "LaplacePrior": LaplaceQ,
+                "HorseshoePrior": HorseshoeQ,
+                "SpikeAndSlabPrior": SpikeAndSlabQ,
             }[prior._pyro_name](prior=prior)
 
         return _q_dists
@@ -411,9 +410,14 @@ class Guide(PyroModule):
             with plates["factor"]:
                 factor_q_dist.sample_inter()
                 with plates[f"obs_{obs_group}"]:
-                    self.sample_dict[
-                        self.model.factor_priors[obs_group].site_name
-                    ] = factor_q_dist()
+                    if covariate is not None:
+                        self.sample_dict[
+                            self.model.factor_priors[obs_group].site_name
+                        ] = factor_q_dist(covariate)
+                    else:
+                        self.sample_dict[
+                            self.model.factor_priors[obs_group].site_name
+                        ] = factor_q_dist()
 
         for feature_group, weight_q_dist in self.weight_q_dists.items():
             weight_q_dist.sample_global()
