@@ -1,6 +1,7 @@
 import logging
 import os
 import pickle
+import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -13,6 +14,7 @@ import pyro
 import torch
 from pyro.infer import SVI
 from pyro.nn import PyroModule
+from torch.utils.data import DataLoader, Dataset
 from tqdm import trange
 
 import cellij
@@ -22,6 +24,40 @@ from cellij.core._pyro_models import Generative
 from cellij.core.utils import EarlyStopper
 
 logger = logging.getLogger(__name__)
+
+
+class NestedDictDataset(Dataset):
+    """Dictionary based PyTorch dataset."""
+
+    def __init__(self, nested_data_dict, nested_mask_dict, **kwargs):
+        self.nested_data_dict = nested_data_dict
+        self.nested_mask_dict = nested_mask_dict
+        # just stores them
+        self.kwargs = kwargs
+        self._len = sum(
+            [
+                tensor_dict[next(iter(tensor_dict))].shape[0]
+                for tensor_dict in nested_data_dict.values()
+            ]
+        )
+
+    def __len__(self):
+        return self._len
+
+    def _index_nested_dict(self, nested_dict, index):
+        return {
+            outer_k: {inner_k: v[index] for inner_k, v in tensor_dict.items()}
+            for outer_k, tensor_dict in nested_dict.items()
+        }
+
+    def __getitem__(self, index):
+        return (
+            index,
+            self._index_nested_dict(self.nested_data_dict, index),
+            self._index_nested_dict(self.nested_mask_dict, index),
+        )
+
+        # at some point add the kwargs (GP covariates etc.)
 
 
 class FactorModel(PyroModule):
@@ -151,8 +187,8 @@ class FactorModel(PyroModule):
     @property
     def feature_groups(self):
         return {
-            group_name: list(group.var_names)
-            for group_name, group in self.data._feature_groups.items()
+            obs_group_name: list(group.var_names)
+            for obs_group_name, group in self.data._feature_groups.items()
         }
 
     @feature_groups.setter
@@ -405,6 +441,8 @@ class FactorModel(PyroModule):
 
     def set_training_options(
         self,
+        batch_size: Optional[int] = None,
+        learning_rate: float = 0.003,
         early_stopping: bool = True,
         verbose_epochs: int = 100,
         patience: int = 500,
@@ -413,9 +451,19 @@ class FactorModel(PyroModule):
         scale_gradients: bool = True,
         optimizer: str = "ClippedAdam",
         num_particles: int = 1,
-        learning_rate: float = 0.003,
         preview: bool = False,
+        seed: Optional[int] = None,
     ) -> Optional[dict[str, Any]]:
+        if batch_size is not None and not isinstance(batch_size, int):
+            raise TypeError(
+                f"Parameter 'batch_size' must be float, got '{type(batch_size)}'."
+            )
+
+        if not isinstance(learning_rate, float):
+            raise TypeError(
+                f"Parameter 'learning_rate' must be float, got '{type(learning_rate)}'."
+            )
+
         if not isinstance(early_stopping, bool):
             raise TypeError(
                 f"Parameter 'early_stopping' must be bool, got '{type(early_stopping)}'."
@@ -463,23 +511,36 @@ class FactorModel(PyroModule):
                 f"Parameter 'num_particles' must be int, got '{type(num_particles)}'."
             )
 
-        if not isinstance(learning_rate, float):
-            raise TypeError(
-                f"Parameter 'learning_rate' must be float, got '{type(learning_rate)}'."
-            )
-
         if not isinstance(preview, bool):
             raise TypeError(f"Parameter 'preview' must be bool, got '{type(preview)}'.")
 
+        if seed is not None:
+            try:
+                seed = int(seed)
+            except ValueError:
+                logger.warning(f"Could not convert `{seed}` to integer.")
+                seed = None
+
+        if seed is None:
+            seed = int(time.strftime("%y%m%d%H%M"))
+
+        logger.info(f"Setting training seed to `{seed}`.")
+
         for param_name, param_value in zip(
             [
+                "learning_rate",
                 "verbose_epochs",
                 "patience",
                 "min_delta",
                 "num_particles",
-                "learning_rate",
             ],
-            [verbose_epochs, patience, min_delta, num_particles, learning_rate],
+            [
+                learning_rate,
+                verbose_epochs,
+                patience,
+                min_delta,
+                num_particles,
+            ],
         ):
             if param_value <= 0:
                 raise ValueError(
@@ -487,6 +548,8 @@ class FactorModel(PyroModule):
                 )
 
         options = {
+            "batch_size": batch_size,
+            "learning_rate": learning_rate,
             "early_stopping": early_stopping,
             "verbose_epochs": verbose_epochs,
             "patience": patience,
@@ -495,7 +558,7 @@ class FactorModel(PyroModule):
             "scale_gradients": scale_gradients,
             "optimizer": optimizer,
             "num_particles": num_particles,
-            "learning_rate": learning_rate,
+            "seed": seed,
         }
 
         if not preview:
@@ -833,24 +896,7 @@ class FactorModel(PyroModule):
             format=format,
         )
 
-    def fit(
-        self,
-        epochs: int = 1000,
-        verbose: int = 1,
-    ):
-        # Clear pyro param
-        pyro.clear_param_store()
-
-        # Initialize model from config dicts
-        self._init_from_config(
-            data_options=self._data_options,
-            model_options=self._model_options,
-            training_options=self._training_options,
-        )
-
-        if len(self.feature_groups) == 0:
-            raise ValueError("No data has been added yet.")
-
+    def _setup_model_guide(self):
         obs_dict = {
             f"{name}": len(obs_names) for name, obs_names in self.obs_groups.items()
         }
@@ -871,29 +917,9 @@ class FactorModel(PyroModule):
         model = (model,)
         guide = (guide,)
 
-        self._model = model
-        self._guide = guide
+        return model, guide
 
-        # If early stopping is set, check if it is a valid value
-        if self._training_options["early_stopping"]:
-            earlystopper = EarlyStopper(
-                patience=self._training_options["patience"],
-                min_delta=self._training_options["min_delta"],
-                percentage=self._training_options["percentage"],
-            )
-        else:
-            earlystopper = None
-
-        # Checks
-        if self._data is None:
-            raise ValueError("No data set.")
-
-        # We scale the gradients by the number of total samples to allow a better comparison across
-        # models/datasets
-        scaling_constant = 1.0
-        if self._training_options["scale_gradients"]:
-            scaling_constant = 1.0 / self._data._values.shape[1]
-
+    def _setup_optim(self, epochs):
         if self._training_options["optimizer"].lower() == "adam":
             optim = pyro.optim.Adam(
                 {"lr": self._training_options["learning_rate"], "betas": (0.95, 0.999)}
@@ -904,7 +930,19 @@ class FactorModel(PyroModule):
             optim = pyro.optim.ClippedAdam(
                 {"lr": self._training_options["learning_rate"], "lrd": lrd}
             )
+        else:
+            raise NotImplementedError(
+                f"Optimizer {self._training_options['optimizer']} not implemented."
+            )
 
+        return optim
+
+    def _setup_svi(self, optim):
+        # We scale the gradients by the number of total samples to allow a better comparison across
+        # models/datasets
+        scaling_constant = 1.0
+        if self._training_options["scale_gradients"]:
+            scaling_constant = 1.0 / self._data._values.shape[1]
         svi = SVI(
             model=pyro.poutine.scale(self.model, scale=scaling_constant),
             guide=pyro.poutine.scale(self.guide, scale=scaling_constant),
@@ -916,34 +954,150 @@ class FactorModel(PyroModule):
             ),
         )
 
+        return svi
+
+    def _setup_training_data(self):
         # get indicies for each view and group and subset merged data with them
         obs_idx = {
-            group_name: [self._data._merged_obs_names.index(obs) for obs in obs_list]
-            for group_name, obs_list in self.obs_groups.items()
+            obs_group_name: [
+                self._data._merged_obs_names.index(obs) for obs in obs_list
+            ]
+            for obs_group_name, obs_list in self.obs_groups.items()
         }
         feature_idx = {
-            view_name: [
+            feature_group_name: [
                 self._data._merged_feature_names.index(feature)
                 for feature in feature_list
             ]
-            for view_name, feature_list in self.feature_groups.items()
+            for feature_group_name, feature_list in self.feature_groups.items()
         }
-        data = {
-            group_name: {
-                view_name: torch.tensor(
-                    [
-                        [self._data._values[i][j] for j in feature_idx[view_name]]
-                        for i in obs_idx[group_name]
-                    ]
+
+        data = {}
+        data_mask = {}
+
+        for obs_group_name, obs_list in obs_idx.items():
+            data[obs_group_name] = {}
+            data_mask[obs_group_name] = {}
+            for feature_group_name, feature_list in feature_idx.items():
+                _data = torch.tensor(self._data._values[obs_list][:, feature_list])
+                data_mask[obs_group_name][feature_group_name] = ~torch.isnan(_data)
+                data[obs_group_name][feature_group_name] = torch.nan_to_num(
+                    _data, nan=0.0
                 )
-                for view_name in feature_idx
+
+        return data, data_mask
+
+    def fit(
+        self,
+        epochs: int = 1000,
+        verbose: int = 1,
+    ):
+        # Initialize model from config dicts
+        self._init_from_config(
+            data_options=self._data_options,
+            model_options=self._model_options,
+            training_options=self._training_options,
+        )
+
+        if len(self.feature_groups) == 0:
+            raise ValueError("No data has been added yet.")
+
+        logger.info("Preparing model and guide...")
+        model, guide = self._setup_model_guide()
+        self._model = model
+        self._guide = guide
+        # Checks
+        if self._data is None:
+            raise ValueError("No data set.")
+        logger.info("Preparing optimizer...")
+        optim = self._setup_optim(epochs)
+        logger.info("Preparing SVI...")
+        svi = self._setup_svi(optim)
+
+        logger.info("Preparing training data...")
+        training_data, training_data_mask = self._setup_training_data()
+
+        # if invalid or out of bounds set to n_obs
+        # TODO: should this be part of the `_set_training_options` method?
+        batch_size = self._training_options["batch_size"]
+        if batch_size is None or not (0 < batch_size <= self._data.n_obs):
+            batch_size = self._data.n_obs
+
+        if batch_size < self._data.n_obs:
+            logger.info(f"Using batches of size `{batch_size}`.")
+
+            data_loader = DataLoader(
+                NestedDictDataset(training_data, training_data_mask),
+                batch_size=batch_size,
+                shuffle=True,
+                num_workers=1,
+                pin_memory=str(self.device) != "cpu",
+                drop_last=False,
+            )
+
+            def _step():
+                loss = 0
+                for _, (obs_idx, nested_data_dict, nested_mask_dict) in enumerate(
+                    data_loader
+                ):
+                    # print(obs_idx)
+                    loss += svi.step(
+                        obs_idx,
+                        {
+                            outer_k: {
+                                inner_k: v.to(self.device)
+                                for inner_k, v in tensor_dict.items()
+                            }
+                            for outer_k, tensor_dict in nested_data_dict.items()
+                        },
+                        {
+                            outer_k: {
+                                inner_k: v.to(self.device)
+                                for inner_k, v in tensor_dict.items()
+                            }
+                            for outer_k, tensor_dict in nested_mask_dict.items()
+                        },
+                    )
+                return loss
+
+        else:
+            logger.info("Using complete dataset.")
+            # move all data to device once
+            training_data = {
+                group_name: {
+                    view_name: view_data.to(self.device)
+                    for view_name, view_data in group_training_data.items()
+                }
+                for group_name, group_training_data in training_data.items()
             }
-            for group_name in obs_idx
-        }
+            training_data_mask = {
+                group_name: {
+                    view_name: view_data_mask.to(self.device)
+                    for view_name, view_data_mask in group_training_data_mask.items()
+                }
+                for group_name, group_training_data_mask in training_data_mask.items()
+            }
+
+            def _step():
+                return svi.step(None, training_data, training_data_mask)
+
+        # If early stopping is set, check if it is a valid value
+        if self._training_options["early_stopping"]:
+            earlystopper = EarlyStopper(
+                patience=self._training_options["patience"],
+                min_delta=self._training_options["min_delta"],
+                percentage=self._training_options["percentage"],
+            )
+        else:
+            earlystopper = None
 
         self.train_loss_elbo = []
         loss: int = 0
 
+        pyro.set_rng_seed(self._training_options["seed"])
+        pyro.clear_param_store()
+
+        logger.info("Starting training...")
         with trange(
             epochs,
             unit="epoch",
@@ -952,7 +1106,7 @@ class FactorModel(PyroModule):
         ) as pbar:
             pbar.set_description("Training")
             for i in pbar:
-                loss = svi.step(data=data)
+                loss = _step()
                 self.train_loss_elbo.append(loss)
 
                 if self._training_options["early_stopping"] and earlystopper.step(loss):

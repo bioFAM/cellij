@@ -100,12 +100,14 @@ class Generative(PyroModule):
             for group, prior_config in priors.items()
         }
 
-    def get_plates(self) -> dict[str, pyro.plate]:
+    def get_plates(self, obs_idx=None) -> dict[str, pyro.plate]:
         plates = {
             "factor": pyro.plate("factor", self.n_factors, dim=-2),
         }
         for obs_group, n_obs in self.obs_dict.items():
-            plates[f"obs_{obs_group}"] = pyro.plate(obs_group, n_obs, dim=-3)
+            plates[f"obs_{obs_group}"] = pyro.plate(
+                obs_group, n_obs, dim=-3, subsample=obs_idx
+            )
         for feature_group, n_features in self.feature_dict.items():
             plates[f"feature_{feature_group}"] = pyro.plate(
                 feature_group, n_features, dim=-1
@@ -115,10 +117,12 @@ class Generative(PyroModule):
 
     def forward(
         self,
+        obs_index: Optional[torch.Tensor] = None,
         data: Optional[dict[str, dict[str, torch.Tensor]]] = None,
+        data_mask: Optional[dict[str, dict[str, torch.Tensor]]] = None,
         covariate: Optional[torch.Tensor] = None,
     ) -> dict[str, torch.Tensor]:
-        plates = self.get_plates()
+        plates = self.get_plates(obs_index)
 
         for obs_group, factor_prior in self.factor_priors.items():
             factor_prior.sample_global()
@@ -142,14 +146,18 @@ class Generative(PyroModule):
         for obs_group, n_obs in self.obs_dict.items():
             for feature_group, n_features in self.feature_dict.items():
                 with plates[f"obs_{obs_group}"], plates[f"feature_{feature_group}"]:
+                    if obs_index is not None:
+                        n_obs = len(obs_index)
                     z_shape = (-1, n_obs, self.n_factors, 1)
                     w_shape = (-1, 1, self.n_factors, n_features)
                     sigma_shape = (-1, 1, 1, n_features)
                     obs_shape = (-1, n_obs, 1, n_features)
 
                     obs = None
+                    obs_mask = True
                     if data is not None:
                         obs = data[obs_group][feature_group].view(obs_shape)
+                        obs_mask = data_mask[obs_group][feature_group].view(obs_shape)
 
                     z = self.sample_dict[f"z_{obs_group}"].view(z_shape)
                     w = self.sample_dict[f"w_{feature_group}"].view(w_shape)
@@ -169,15 +177,12 @@ class Generative(PyroModule):
                         scale = torch.exp(scale)
 
                     site_name = f"x_{obs_group}_{feature_group}"
-                    obs_mask = torch.ones_like(loc, dtype=torch.bool)
-                    if obs is not None:
-                        obs_mask = torch.logical_not(torch.isnan(obs))
                     with pyro.poutine.mask(mask=obs_mask):
-                        if obs is not None:
-                            obs = torch.nan_to_num(obs, nan=0.5)
 
                         if self.likelihoods[feature_group] == "Normal":
-                            dist_parametrized = dist.Normal(loc, scale + 1e-6)  # FIXME: Only a HOTFIX
+                            dist_parametrized = dist.Normal(
+                                loc, scale + 1e-6
+                            )  # FIXME: Only a HOTFIX
                         elif self.likelihoods[feature_group] == "Bernoulli":
                             dist_parametrized = dist.ContinuousBernoulli(logits=loc)
                         elif self.likelihoods[feature_group] == "Gamma":

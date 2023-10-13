@@ -95,7 +95,7 @@ class QDist(PyroModule):
         site_scale = deep_getattr(self.scales, site_name)
         return (site_loc, site_scale)
 
-    def _sample(self, site_name: str, dist: dist.Distribution) -> torch.Tensor:
+    def _sample(self, site_name: str, dist: dist.Distribution, index: torch.Tensor = None) -> torch.Tensor:
         """Sample from a variational distribution.
 
         Parameters
@@ -111,14 +111,17 @@ class QDist(PyroModule):
             Sampled values
         """
         loc, scale = self._get_loc_and_scale(site_name)
+        if index is not None:
+            loc = loc.index_select(0, index)
+            scale = scale.index_select(0, index)
         self.sample_dict[site_name] = pyro.sample(site_name, dist(loc, scale))
         return self.sample_dict[site_name]
 
-    def _sample_normal(self, site_name: str) -> torch.Tensor:
-        return self._sample(site_name, dist.Normal)
+    def _sample_normal(self, site_name: str, index: torch.Tensor = None) -> torch.Tensor:
+        return self._sample(site_name, dist.Normal, index)
 
-    def _sample_log_normal(self, site_name: str) -> torch.Tensor:
-        return self._sample(site_name, dist.LogNormal)
+    def _sample_log_normal(self, site_name: str, index: torch.Tensor = None) -> torch.Tensor:
+        return self._sample(site_name, dist.LogNormal, index)
 
     def setup_sites(self) -> None:
         """Set up the sample sites."""
@@ -211,9 +214,9 @@ class QDist(PyroModule):
         return None
 
 
-class InverseGammaQ(QDist):
-    def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
-        super().__init__("InverseGammaQ", prior, init_loc, init_scale)
+class LogNormalQ(QDist):
+    def __init__(self, name, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__(name, prior, init_loc, init_scale)
 
     @torch.no_grad()
     def mean(self) -> torch.Tensor:
@@ -228,15 +231,22 @@ class InverseGammaQ(QDist):
         return self._mode_log_normal(self.prior.site_name)
 
     def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
-        return self._sample_log_normal(self.prior.site_name)
+        return self._sample_log_normal(self.prior.site_name, **kwargs)
 
+class InverseGammaQ(LogNormalQ):
+    def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("InverseGammaQ", prior, init_loc, init_scale)
+
+class NonnegativeQ(LogNormalQ):
+    def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
+        super().__init__("NonnegativeQ", prior, init_loc, init_scale)
 
 class NormalQ(QDist):
     def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
         super().__init__("NormalQ", prior, init_loc, init_scale)
 
     def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
-        return self._sample_normal(self.prior.site_name)
+        return self._sample_normal(self.prior.site_name, **kwargs)
 
 
 class GaussianProcessQ(QDist):
@@ -251,7 +261,7 @@ class GaussianProcessQ(QDist):
 
     def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
         covariate = args[0]
-        return self._sample_gp(self.prior.site_name, covariate)
+        return self._sample_gp(self.prior.site_name, covariate, **kwargs)
 
 
 class LaplaceQ(QDist):
@@ -259,27 +269,7 @@ class LaplaceQ(QDist):
         super().__init__("LaplaceQ", prior, init_loc, init_scale)
 
     def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
-        return self._sample_normal(self.prior.site_name)
-
-
-class NonnegativeQ(QDist):
-    def __init__(self, prior: PriorDist, init_loc: float = 0, init_scale: float = 0.1):
-        super().__init__("NonnegativeQ", prior, init_loc, init_scale)
-
-    def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
-        return self._sample_log_normal(self.prior.site_name)
-    
-    @torch.no_grad()
-    def mean(self) -> torch.Tensor:
-        return self._mean_log_normal(self.prior.site_name)
-
-    @torch.no_grad()
-    def median(self) -> torch.Tensor:
-        return self._median_log_normal(self.prior.site_name)
-
-    @torch.no_grad()
-    def mode(self) -> torch.Tensor:
-        return self._mode_log_normal(self.prior.site_name)
+        return self._sample_normal(self.prior.site_name, **kwargs)
 
 
 class HorseshoeQ(QDist):
@@ -297,10 +287,10 @@ class HorseshoeQ(QDist):
         return self._sample_log_normal(self.prior.thetas_site_name)
 
     def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
-        self._sample_log_normal(self.prior.lambdas_site_name)
+        self._sample_log_normal(self.prior.lambdas_site_name, **kwargs)
         if self.prior.regularized:
-            self._sample_log_normal(self.prior.caux_site_name)
-        return self._sample_normal(self.prior.site_name)
+            self._sample_log_normal(self.prior.caux_site_name, **kwargs)
+        return self._sample_normal(self.prior.site_name, **kwargs)
 
 
 class SpikeAndSlabQ(QDist):
@@ -308,8 +298,11 @@ class SpikeAndSlabQ(QDist):
         super().__init__("SpikeAndSlabQ", prior, init_loc, init_scale)
         self.sigmoid_transform = dist.transforms.SigmoidTransform()
 
-    def _sample_transformed_beta(self, site_name: str) -> torch.Tensor:
+    def _sample_transformed_beta(self, site_name: str, index: torch.Tensor = None) -> torch.Tensor:
         loc, scale = self._get_loc_and_scale(site_name)
+        if index is not None:
+            loc = loc.index_select(0, index)
+            scale = scale.index_select(0, index)
         unconstrained_latent = pyro.sample(
             site_name + "_unconstrained",
             dist.Normal(
@@ -353,8 +346,8 @@ class SpikeAndSlabQ(QDist):
         return self._sample_transformed_beta(self.prior.thetas_site_name)
 
     def forward(self, *args: Any, **kwargs: Dict[str, Any]) -> Optional[torch.Tensor]:
-        self._sample_transformed_beta(self.prior.lambdas_site_name)
-        return self._sample_normal(self.prior.untransformed_site_name)
+        self._sample_transformed_beta(self.prior.lambdas_site_name, **kwargs)
+        return self._sample_normal(self.prior.untransformed_site_name, **kwargs)
 
 
 class Guide(PyroModule):
@@ -400,20 +393,22 @@ class Guide(PyroModule):
 
     def forward(
         self,
-        data: Optional[Dict[str, Dict[str, torch.Tensor]]] = None,
+        obs_index: Optional[torch.Tensor] = None,
+        data: Optional[dict[str, dict[str, torch.Tensor]]] = None,
+        data_mask: Optional[dict[str, dict[str, torch.Tensor]]] = None,
         covariate: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """Approximate posterior."""
-        plates = self.model.get_plates()
+        plates = self.model.get_plates(obs_index)
 
         for obs_group, factor_q_dist in self.factor_q_dists.items():
             factor_q_dist.sample_global()
             with plates["factor"]:
                 factor_q_dist.sample_inter()
-                with plates[f"obs_{obs_group}"]:
+                with plates[f"obs_{obs_group}"] as index:
                     self.sample_dict[
                         self.model.factor_priors[obs_group].site_name
-                    ] = factor_q_dist()
+                    ] = factor_q_dist(index=index)
 
         for feature_group, weight_q_dist in self.weight_q_dists.items():
             weight_q_dist.sample_global()
